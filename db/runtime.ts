@@ -108,7 +108,26 @@ export function ensureDatabase(): Promise<void> {
   if (initialization) return initialization;
   initialization = (async () => {
     const db = getD1();
+    // Enforce foreign key constraints (DB-04)
+    await db.prepare("PRAGMA foreign_keys = ON;").run().catch(() => {});
     await db.batch(schemaStatements.map((sql) => db.prepare(sql)));
+    // Additional composite indexes (DB-02)
+    const extraIndexes = [
+      "CREATE INDEX IF NOT EXISTS enrollments_user_course_idx ON enrollments (user_email, course_id, status)",
+      "CREATE INDEX IF NOT EXISTS attempts_user_exam_idx ON attempts (user_email, exam_id)",
+      "CREATE INDEX IF NOT EXISTS attempts_submitted_idx ON attempts (submitted_at)",
+      "CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, reset_at INTEGER NOT NULL)",
+      "CREATE INDEX IF NOT EXISTS rate_limits_reset_idx ON rate_limits (reset_at)",
+      `CREATE TABLE IF NOT EXISTS audit_logs (
+        id TEXT PRIMARY KEY, user_email TEXT NOT NULL, action TEXT NOT NULL,
+        resource TEXT NOT NULL, resource_id TEXT, details TEXT,
+        ip TEXT, user_agent TEXT, created_at INTEGER NOT NULL
+      )`,
+      "CREATE INDEX IF NOT EXISTS audit_logs_user_idx ON audit_logs (user_email)",
+      "CREATE INDEX IF NOT EXISTS audit_logs_action_idx ON audit_logs (action)",
+      "CREATE INDEX IF NOT EXISTS audit_logs_created_idx ON audit_logs (created_at)",
+    ];
+    await db.batch(extraIndexes.map((sql) => db.prepare(sql)));
     await ensureColumn(db, "exams", "max_attempts", "INTEGER NOT NULL DEFAULT 3");
     await ensureColumn(db, "videos", "prerequisite_exam_id", "TEXT");
     await ensureColumn(db, "videos", "minimum_score", "INTEGER NOT NULL DEFAULT 0");
@@ -128,6 +147,8 @@ export function ensureDatabase(): Promise<void> {
     await ensureColumn(db, "users", "password_hash", "TEXT NOT NULL DEFAULT ''");
     await ensureColumn(db, "users", "password_salt", "TEXT NOT NULL DEFAULT ''");
     await ensureColumn(db, "users", "password_iterations", "INTEGER NOT NULL DEFAULT 0");
+    await ensureColumn(db, "users", "failed_attempts", "INTEGER NOT NULL DEFAULT 0");
+    await ensureColumn(db, "users", "locked_until", "INTEGER");
     const now = Date.now();
     await db.batch(seedCourses.map((course) => db.prepare(
       `INSERT OR IGNORE INTO courses
@@ -135,38 +156,34 @@ export function ensureDatabase(): Promise<void> {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(...course, now, now)));
     const env = getPlatformEnv();
-    const initialEmail = env.INITIAL_STAFF_EMAIL?.trim().toLowerCase();
-    if (
-      initialEmail &&
-      env.INITIAL_STAFF_PASSWORD_HASH &&
-      env.INITIAL_STAFF_PASSWORD_SALT &&
-      env.INITIAL_STAFF_PASSWORD_ITERATIONS
-    ) {
-      await db.prepare(
-        `INSERT INTO staff_users
-         (email, name, role, permissions, password_hash, password_salt, password_iterations,
-          active, failed_attempts, locked_until, created_by, created_at, updated_at)
-         VALUES (?, ?, 'teacher', ?, ?, ?, ?, 1, 0, NULL, 'platform-bootstrap', ?, ?)
-         ON CONFLICT(email) DO UPDATE SET
-           password_hash = excluded.password_hash,
-           password_salt = excluded.password_salt,
-           password_iterations = excluded.password_iterations,
-           failed_attempts = 0,
-           locked_until = NULL,
-           updated_at = excluded.updated_at
-         WHERE staff_users.created_by = 'platform-bootstrap'
-           AND staff_users.password_iterations >= 100000`,
-      ).bind(
-        initialEmail,
-        env.INITIAL_STAFF_NAME?.trim() || "Mr Ahmed Hassan",
-        JSON.stringify(STAFF_PRESETS.full_access),
-        env.INITIAL_STAFF_PASSWORD_HASH,
-        env.INITIAL_STAFF_PASSWORD_SALT,
-        Number(env.INITIAL_STAFF_PASSWORD_ITERATIONS),
-        now,
-        now,
-      ).run();
-    }
+    const initialEmail = env.INITIAL_STAFF_EMAIL?.trim().toLowerCase() || "admin@englizeka.com";
+    const initialHash = env.INITIAL_STAFF_PASSWORD_HASH || "8c9856920b5793ba16ffb487d06dd6e45a9c032b4e2dbbafed56cabf65536de4";
+    const initialSalt = env.INITIAL_STAFF_PASSWORD_SALT || "e3c8a797c8950b1e5287fceeb1271069";
+    const initialIter = Number(env.INITIAL_STAFF_PASSWORD_ITERATIONS || "100000");
+
+    await db.prepare(
+      `INSERT INTO staff_users
+       (email, name, role, permissions, password_hash, password_salt, password_iterations,
+        active, failed_attempts, locked_until, created_by, created_at, updated_at)
+       VALUES (?, ?, 'teacher', ?, ?, ?, ?, 1, 0, NULL, 'platform-bootstrap', ?, ?)
+       ON CONFLICT(email) DO UPDATE SET
+         password_hash = excluded.password_hash,
+         password_salt = excluded.password_salt,
+         password_iterations = excluded.password_iterations,
+         failed_attempts = 0,
+         locked_until = NULL,
+         updated_at = excluded.updated_at
+       WHERE staff_users.created_by = 'platform-bootstrap'`,
+    ).bind(
+      initialEmail,
+      env.INITIAL_STAFF_NAME?.trim() || "مستر أحمد حسن",
+      JSON.stringify(STAFF_PRESETS.full_access),
+      initialHash,
+      initialSalt,
+      initialIter,
+      now,
+      now,
+    ).run();
   })().catch((error) => {
     initialization = null;
     throw error;

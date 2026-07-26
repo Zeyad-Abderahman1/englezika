@@ -42,8 +42,11 @@ export async function POST(request: Request) {
     deliveryId = await sendVerificationEmail(user.email, code, idempotencyKey);
   } catch (error) {
     await releaseFailedDelivery(user.email, codeHash);
-    console.error("Verification email delivery failed", error);
-    return jsonError("تعذر إرسال كود التفعيل الآن. تواصل مع الإدارة.", 503);
+    const msg = error instanceof Error ? error.message : "";
+    if (msg.includes("422") || msg.includes("testing email") || msg.includes("validation_error")) {
+      return jsonError("في وضع التجربة المجاني (onboarding@resend.dev)، يمكنك الإرسال فقط إلى البريد الإلكتروني الذي أنشأت به حسابك في Resend.", 400);
+    }
+    return jsonError("تعذر إرسال كود التفعيل الآن. تحقق من البريد الإلكتروني أو تواصل مع الدعم.", 503);
   }
   try {
     await recordDeliveryId(user.email, codeHash, deliveryId);

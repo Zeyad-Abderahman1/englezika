@@ -1,10 +1,17 @@
 import { apiUser, isResponse } from "../../../lib/api-auth";
 import { verifyStoredCode } from "../../../lib/email-verification";
 import { jsonError, requireSameOrigin } from "../../../lib/security";
+import { checkRateLimit, getClientIp, rateLimitResponse } from "../../../lib/rate-limit";
 
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
+
+  const ip = getClientIp(request);
+  const rateCheck = await checkRateLimit("verify-code", ip, 5, 300);
+  if (!rateCheck.allowed) {
+    return rateLimitResponse(rateCheck.resetAfterSeconds);
+  }
   const user = await apiUser();
   if (isResponse(user)) return user;
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;

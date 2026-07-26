@@ -9,5 +9,12 @@ export async function GET() {
      (SELECT COUNT(*) FROM videos v WHERE v.course_id = c.id AND v.status = 'published') AS lectures
      FROM courses c WHERE c.status = 'published' ORDER BY c.created_at DESC`
   ).all();
-  return Response.json({ courses: result.results });
+  return Response.json(
+    { courses: result.results },
+    {
+      headers: {
+        "cache-control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600",
+      },
+    },
+  );
 }

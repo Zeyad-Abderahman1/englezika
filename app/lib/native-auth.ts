@@ -26,6 +26,8 @@ export type StudentRow = {
   passwordSalt: string;
   passwordIterations: number;
   role: string;
+  failedAttempts?: number;
+  lockedUntil?: number | null;
 };
 
 function constantTimeEqual(left: string, right: string): boolean {
@@ -47,12 +49,13 @@ export async function findStudentByEmail(email: string): Promise<StudentRow | nu
      school_name AS schoolName, parent_job AS parentJob,
      governorate, gender, grade, section,
      password_hash AS passwordHash, password_salt AS passwordSalt,
-     password_iterations AS passwordIterations, role
+     password_iterations AS passwordIterations, role,
+     failed_attempts AS failedAttempts, locked_until AS lockedUntil
      FROM users WHERE email = ?`,
   ).bind(email.trim().toLowerCase()).first<StudentRow>();
 }
 
-/** Returns true if the password matches the stored hash. Runs dummy hash on miss to prevent timing attacks. */
+/** Returns true if the password matches the stored hash. Enforces account lockout (SEC-01). */
 export async function verifyStudentPassword(email: string, password: string): Promise<StudentRow | null> {
   const row = await findStudentByEmail(email);
   const dummySalt = "00000000000000000000000000000000";
@@ -61,8 +64,27 @@ export async function verifyStudentPassword(email: string, password: string): Pr
     await hashPassword(password, dummySalt, STUDENT_PASSWORD_ITERATIONS);
     return null;
   }
+  const now = Date.now();
+  if (row.lockedUntil && row.lockedUntil > now) {
+    await hashPassword(password, row.passwordSalt, row.passwordIterations || STUDENT_PASSWORD_ITERATIONS);
+    return null;
+  }
+
   const candidate = await hashPassword(password, row.passwordSalt, row.passwordIterations || STUDENT_PASSWORD_ITERATIONS);
-  if (!constantTimeEqual(candidate.hash, row.passwordHash)) return null;
+  if (!constantTimeEqual(candidate.hash, row.passwordHash)) {
+    const failures = Number(row.failedAttempts || 0) + 1;
+    const lockedUntil = failures >= 5 ? now + 15 * 60_000 : null;
+    await getD1().prepare(
+      "UPDATE users SET failed_attempts = ?, locked_until = ?, updated_at = ? WHERE email = ?",
+    ).bind(failures, lockedUntil, now, row.email.toLowerCase()).run();
+    return null;
+  }
+
+  // Reset lockout counters on success
+  await getD1().prepare(
+    "UPDATE users SET failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE email = ?",
+  ).bind(now, row.email.toLowerCase()).run();
+
   return row;
 }
 
@@ -124,4 +146,29 @@ export async function registerStudent(data: {
   ).run();
 
   return "ok";
+}
+
+/** Update a student's password after code verification. Resets lockout counters. Auto-creates user if new. */
+export async function updateStudentPassword(email: string, newPassword: string): Promise<boolean> {
+  await ensureDatabase();
+  const normalized = email.trim().toLowerCase();
+  const student = await findStudentByEmail(normalized);
+  const { hash, salt, iterations } = await hashPassword(newPassword, undefined, STUDENT_PASSWORD_ITERATIONS);
+  const now = Date.now();
+
+  if (student) {
+    await getD1().prepare(
+      `UPDATE users
+       SET password_hash = ?, password_salt = ?, password_iterations = ?,
+           failed_attempts = 0, locked_until = NULL, updated_at = ?
+       WHERE email = ?`,
+    ).bind(hash, salt, iterations, now, normalized).run();
+  } else {
+    await getD1().prepare(
+      `INSERT INTO users (email, name, password_hash, password_salt, password_iterations, role, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'student', ?, ?)`,
+    ).bind(normalized, normalized.split("@")[0], hash, salt, iterations, now, now).run();
+  }
+
+  return true;
 }

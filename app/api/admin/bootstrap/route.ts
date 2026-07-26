@@ -7,7 +7,13 @@ export async function GET(request: Request) {
   if (isStaffResponse(admin)) return admin;
   await ensureDatabase();
   const db = getD1();
-  const [courses, exams, enrollments, attempts, videos, contacts, counts] = await Promise.all([
+
+  const url = new URL(request.url);
+  const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
+  const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get("pageSize") || "50", 10)));
+  const offset = (page - 1) * pageSize;
+
+  const [courses, exams, enrollments, attempts, videos, contacts, counts, totalEnrollments, totalAttempts, totalContacts] = await Promise.all([
     db.prepare(
       `SELECT id, title, grade, description, price, status, created_at AS createdAt
        FROM courses ORDER BY created_at DESC`
@@ -26,13 +32,15 @@ export async function GET(request: Request) {
        e.payment_reference AS paymentReference, e.created_at AS createdAt,
        c.title AS courseTitle, c.id AS courseId
        FROM enrollments e JOIN courses c ON c.id = e.course_id
-       ORDER BY CASE e.status WHEN 'pending' THEN 0 ELSE 1 END, e.created_at DESC`
-    ).all(),
+       ORDER BY CASE e.status WHEN 'pending' THEN 0 ELSE 1 END, e.created_at DESC
+       LIMIT ? OFFSET ?`
+    ).bind(pageSize, offset).all(),
     db.prepare(
       `SELECT a.id, a.user_email AS userEmail, a.score, a.max_score AS maxScore,
        a.grading_method AS gradingMethod, a.submitted_at AS submittedAt, x.title AS examTitle
-       FROM attempts a JOIN exams x ON x.id = a.exam_id ORDER BY a.submitted_at DESC LIMIT 100`
-    ).all(),
+       FROM attempts a JOIN exams x ON x.id = a.exam_id ORDER BY a.submitted_at DESC
+       LIMIT ? OFFSET ?`
+    ).bind(pageSize, offset).all(),
     db.prepare(
       `SELECT v.id, v.course_id AS courseId, v.title, v.status,
        v.duration_seconds AS durationSeconds, v.prerequisite_exam_id AS prerequisiteExamId,
@@ -43,8 +51,8 @@ export async function GET(request: Request) {
        ORDER BY v.created_at DESC`
     ).all(),
     db.prepare(
-      "SELECT id, name, phone, message, status, created_at AS createdAt FROM contacts ORDER BY created_at DESC LIMIT 100"
-    ).all(),
+      "SELECT id, name, phone, message, status, created_at AS createdAt FROM contacts ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    ).bind(pageSize, offset).all(),
     db.prepare(
       `SELECT
        (SELECT COUNT(*) FROM users WHERE role = 'student') AS students,
@@ -54,9 +62,26 @@ export async function GET(request: Request) {
        (SELECT COUNT(*) FROM attempts) AS attempts,
        (SELECT COALESCE(AVG(CASE WHEN max_score > 0 THEN score * 100.0 / max_score END), 0) FROM attempts) AS averageScore`
     ).first(),
+    db.prepare("SELECT COUNT(*) AS total FROM enrollments").first<{ total: number }>(),
+    db.prepare("SELECT COUNT(*) AS total FROM attempts").first<{ total: number }>(),
+    db.prepare("SELECT COUNT(*) AS total FROM contacts").first<{ total: number }>(),
   ]);
+
   const can = (permission: string) => admin.permissions.includes(permission as typeof admin.permissions[number]);
   const rawCounts = (counts ?? {}) as Record<string, unknown>;
+
+  const makePagination = (totalRecords: number) => {
+    const totalPages = Math.ceil(totalRecords / pageSize) || 1;
+    return {
+      page,
+      pageSize,
+      total: totalRecords,
+      totalPages,
+      hasNext: page < totalPages,
+      hasPrevious: page > 1,
+    };
+  };
+
   return Response.json({
     admin: { email: admin.email, name: admin.name, role: admin.role, permissions: admin.permissions },
     counts: {
@@ -75,5 +100,10 @@ export async function GET(request: Request) {
     attempts: can("grade_exams") ? attempts.results : [],
     videos: can("manage_videos") ? videos.results : [],
     contacts: can("manage_messages") ? contacts.results : [],
+    pagination: {
+      enrollments: makePagination(totalEnrollments?.total || 0),
+      attempts: makePagination(totalAttempts?.total || 0),
+      contacts: makePagination(totalContacts?.total || 0),
+    },
   });
 }

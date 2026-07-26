@@ -27,15 +27,21 @@ export type SessionUser = {
  * Implementation: we add a lightweight `student_sessions` table (email ↔ session_hash)
  * so we can look up the email from the cookie hash.
  */
+async function sha256(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 async function getStudentEmailFromCookie(): Promise<string | null> {
   const jar = await cookies();
   const cookieValue = jar.get(STUDENT_SESSION_COOKIE)?.value;
-  if (!cookieValue || !/^[a-f0-9]{64}$/.test(cookieValue)) return null;
+  if (!cookieValue || cookieValue.length < 16) return null;
 
+  const tokenHash = await sha256(cookieValue);
   await ensureDatabase();
   const row = await getD1()
     .prepare("SELECT email FROM native_sessions WHERE session_hash = ? AND expires_at > ?")
-    .bind(cookieValue, Date.now())
+    .bind(tokenHash, Date.now())
     .first<{ email: string }>();
   return row?.email ?? null;
 }

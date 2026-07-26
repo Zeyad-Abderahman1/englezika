@@ -3,7 +3,7 @@ import { apiUser, isResponse } from "../../../lib/api-auth";
 import { verifyStudentPassword, STUDENT_PASSWORD_ITERATIONS } from "../../../lib/native-auth";
 import { hashPassword } from "../../../lib/staff-auth";
 import { getD1 } from "../../../lib/platform";
-import { jsonError, requireSameOrigin, safeText } from "../../../lib/security";
+import { isStrongPassword, jsonError, requireSameOrigin } from "../../../lib/security";
 import { STUDENT_SESSION_COOKIE } from "../../../lib/student-session";
 import { cookies } from "next/headers";
 
@@ -19,7 +19,9 @@ export async function POST(request: Request) {
   const newPasswordConfirm = typeof body.newPasswordConfirm === "string" ? body.newPasswordConfirm : "";
 
   if (!currentPassword) return jsonError("كلمة المرور الحالية مطلوبة");
-  if (newPassword.length < 8) return jsonError("كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل");
+  if (!isStrongPassword(newPassword)) {
+    return jsonError("كلمة المرور الجديدة يجب أن تكون 12 حرفاً على الأقل، وتحتوي على حرف كبير، وحرف صغير، ورقم، ورمز خاص (!@#$%).");
+  }
   if (newPassword !== newPasswordConfirm) return jsonError("كلمتا المرور الجديدة غير متطابقتين");
 
   // Verify current password

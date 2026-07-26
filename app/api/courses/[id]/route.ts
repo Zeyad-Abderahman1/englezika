@@ -12,5 +12,13 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
      (SELECT COUNT(*) FROM exams x WHERE x.course_id = c.id AND x.status = 'published') AS exams
      FROM courses c WHERE c.id = ? AND c.status = 'published'`
   ).bind(id).first();
-  return course ? Response.json({ course }) : jsonError("الكورس غير موجود", 404);
+  if (!course) return jsonError("الكورس غير موجود", 404);
+  return Response.json(
+    { course },
+    {
+      headers: {
+        "cache-control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600",
+      },
+    },
+  );
 }

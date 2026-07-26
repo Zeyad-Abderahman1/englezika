@@ -6,6 +6,8 @@ export const users = sqliteTable("users", {
   phone: text("phone"),
   grade: text("grade"),
   role: text("role").notNull().default("student"),
+  failedAttempts: integer("failed_attempts").notNull().default(0),
+  lockedUntil: integer("locked_until"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
@@ -158,7 +160,7 @@ export const staffUsers = sqliteTable("staff_users", {
 
 export const staffSessions = sqliteTable("staff_sessions", {
   tokenHash: text("token_hash").primaryKey(),
-  staffEmail: text("staff_email").notNull(),
+  staffEmail: text("staff_email").notNull().references(() => staffUsers.email, { onDelete: "cascade" }),
   expiresAt: integer("expires_at").notNull(),
   createdAt: integer("created_at").notNull(),
   lastSeen: integer("last_seen").notNull(),
@@ -166,3 +168,28 @@ export const staffSessions = sqliteTable("staff_sessions", {
   index("staff_sessions_email_idx").on(table.staffEmail),
   index("staff_sessions_expiry_idx").on(table.expiresAt),
 ]);
+
+export const rateLimits = sqliteTable("rate_limits", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull(),
+  resetAt: integer("reset_at").notNull(),
+}, (table) => [
+  index("rate_limits_reset_idx").on(table.resetAt),
+]);
+
+export const auditLogs = sqliteTable("audit_logs", {
+  id: text("id").primaryKey(),
+  userEmail: text("user_email").notNull(),
+  action: text("action").notNull(),
+  resource: text("resource").notNull(),
+  resourceId: text("resource_id"),
+  details: text("details"),
+  ip: text("ip"),
+  userAgent: text("user_agent"),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("audit_logs_user_idx").on(table.userEmail),
+  index("audit_logs_action_idx").on(table.action),
+  index("audit_logs_created_idx").on(table.createdAt),
+]);
+

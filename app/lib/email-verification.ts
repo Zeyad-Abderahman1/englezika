@@ -46,7 +46,13 @@ export async function hashVerificationCode(email: string, code: string): Promise
 }
 
 export function isEmailTestMode(): boolean {
-  return getPlatformEnv().EMAIL_TEST_MODE === "true";
+  const env = getPlatformEnv();
+  const hasKey = Boolean(
+    (env.SERVERSMTP_CONSUMER_KEY || env.TURBO_SMTP_CONSUMER_KEY) &&
+    (env.SERVERSMTP_CONSUMER_SECRET || env.TURBO_SMTP_CONSUMER_SECRET)
+  ) || Boolean(env.RESEND_API_KEY?.trim());
+
+  return env.EMAIL_TEST_MODE === "true" || !hasKey;
 }
 
 export async function isEmailVerified(email: string): Promise<boolean> {
@@ -142,36 +148,72 @@ export async function sendVerificationEmail(
   const env = getPlatformEnv();
   if (isEmailTestMode()) return `test-${idempotencyKey}`;
 
-  const apiKey = env.RESEND_API_KEY?.trim();
-  const from = env.EMAIL_FROM?.trim();
-  if (!apiKey || !from) {
-    throw new Error("Transactional email is not configured");
+  const consumerKey = env.SERVERSMTP_CONSUMER_KEY?.trim() || env.TURBO_SMTP_CONSUMER_KEY?.trim();
+  const consumerSecret = env.SERVERSMTP_CONSUMER_SECRET?.trim() || env.TURBO_SMTP_CONSUMER_SECRET?.trim();
+  const resendApiKey = env.RESEND_API_KEY?.trim();
+  const from = env.EMAIL_FROM?.trim() || "verify@englizeka.com";
+
+  if (consumerKey && consumerSecret) {
+    const fromAddr = from.includes("<") ? from.split("<")[1].replace(">", "").trim() : from;
+    const response = await fetch("https://api.turbo-smtp.com/api/v2/mail/send", {
+      method: "POST",
+      headers: {
+        consumerKey,
+        consumerSecret,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        from: fromAddr,
+        to: normalizedEmail(email),
+        subject: "كود تفعيل حسابك في إنجليزيكا",
+        content: `كود تفعيل حسابك في إنجليزيكا هو: ${code}\nالكود صالح لمدة 10 دقائق. لا تشاركه مع أي شخص.`,
+        html_content: `<div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.8;color:#17181d;background:#f9f9f9;padding:24px;border-radius:12px">
+          <h2 style="color:#ef233c;margin:0 0 12px">تفعيل حساب إنجليزيكا</h2>
+          <p style="font-size:15px;margin:0 0 16px">استخدم الكود التالي لتأكيد بريدك الإلكتروني:</p>
+          <div style="background:#fff;border:1px solid #e0e0e0;padding:16px;text-align:center;border-radius:8px;margin:16px 0">
+            <span style="font-size:32px;font-weight:800;letter-spacing:8px;color:#111">${code}</span>
+          </div>
+          <p style="font-size:13px;color:#666;margin:0">الكود صالح لمدة 10 دقائق. لا تشاركه مع أي شخص.</p>
+        </div>`,
+      }),
+    });
+
+    const result = await response.json().catch(() => ({})) as { mid?: number | string; message?: string };
+    if (!response.ok || !result.mid) {
+      throw new Error(`ServerSMTP rejected delivery (${response.status}): ${result.message || ""}`);
+    }
+    return String(result.mid);
   }
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${apiKey}`,
-      "content-type": "application/json",
-      "idempotency-key": idempotencyKey,
-    },
-    body: JSON.stringify({
-      from,
-      to: [normalizedEmail(email)],
-      subject: "كود تفعيل حسابك في إنجليزيكا",
-      text: `كود تفعيل حسابك هو: ${code}\nالكود صالح لمدة 10 دقائق. لا تشاركه مع أي شخص.`,
-      html: `<div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.8;color:#17181d">
-        <h2>تفعيل حساب إنجليزيكا</h2>
-        <p>استخدم الكود التالي لتأكيد بريدك الإلكتروني:</p>
-        <p style="font-size:32px;font-weight:800;letter-spacing:8px">${code}</p>
-        <p>الكود صالح لمدة 10 دقائق. لا تشاركه مع أي شخص.</p>
-      </div>`,
-    }),
-  });
+  if (resendApiKey) {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${resendApiKey}`,
+        "content-type": "application/json",
+        "idempotency-key": idempotencyKey,
+      },
+      body: JSON.stringify({
+        from,
+        to: [normalizedEmail(email)],
+        subject: "كود تفعيل حسابك في إنجليزيكا",
+        text: `كود تفعيل حسابك هو: ${code}\nالكود صالح لمدة 10 دقائق. لا تشاركه مع أي شخص.`,
+        html: `<div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.8;color:#17181d">
+          <h2>تفعيل حساب إنجليزيكا</h2>
+          <p>استخدم الكود التالي لتأكيد بريدك الإلكتروني:</p>
+          <p style="font-size:32px;font-weight:800;letter-spacing:8px">${code}</p>
+          <p>الكود صالح لمدة 10 دقائق. لا تشاركه مع أي شخص.</p>
+        </div>`,
+      }),
+    });
 
-  const result = await response.json().catch(() => ({})) as { id?: string };
-  if (!response.ok || !result.id) {
-    throw new Error(`Email provider rejected delivery (${response.status})`);
+    const result = await response.json().catch(() => ({})) as { id?: string; message?: string; name?: string };
+    if (!response.ok || !result.id) {
+      const errorMsg = result.message || result.name || `HTTP ${response.status}`;
+      throw new Error(`Resend rejected delivery (${response.status}): ${errorMsg}`);
+    }
+    return result.id;
   }
-  return result.id;
+
+  throw new Error("Transactional email is not configured");
 }

@@ -9,7 +9,12 @@ async function render(path = "/", requestHeaders = {}) {
     new Request(`http://localhost${path}`, {
       headers: { accept: "text/html", ...requestHeaders },
     }),
-    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
+    {
+      ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) },
+      DB: { prepare: () => ({ bind: () => ({ first: async () => null, all: async () => ({ results: [] }), run: async () => ({}) }) }), batch: async () => [] },
+      VIDEOS: { head: async () => null, get: async () => null, put: async () => null, delete: async () => null },
+      VERIFICATION_SECRET: "mock-test-verification-secret-32-chars-long",
+    },
     { waitUntil() {}, passThroughOnException() {} },
   );
 }

@@ -48,6 +48,13 @@ async function apiRequest(path: string, init?: RequestInit) {
   return result;
 }
 
+type PromptState = {
+  isOpen: boolean;
+  title: string;
+  fields: { name: string; label: string; defaultValue?: string; type?: string }[];
+  onSubmit: (values: Record<string, string>) => void;
+};
+
 export default function AdminDashboard() {
   const [data, setData] = useState<AdminData | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
@@ -56,6 +63,7 @@ export default function AdminDashboard() {
   const [busy, setBusy] = useState(false);
   const [questions, setQuestions] = useState<QuestionDraft[]>([emptyQuestion()]);
   const [uploadProgress, setUploadProgress] = useState("");
+  const [promptModal, setPromptModal] = useState<PromptState>({ isOpen: false, title: "", fields: [], onSubmit: () => {} });
 
   const load = useCallback(async () => {
     setError("");
@@ -191,9 +199,15 @@ export default function AdminDashboard() {
               <div className="panel-title"><PlaySquare /><div><h2>مكتبة الفيديو</h2><p>{data.videos.length} فيديو محمي</p></div></div>
               <div className="management-list compact">{data.videos.map((video) => (
                 <article key={video.id}><div><strong>{video.title}</strong><small>{video.courseTitle}{video.prerequisiteExamTitle ? ` · يفتح بعد: ${video.prerequisiteExamTitle}${video.minimumScore ? ` (${video.minimumScore}%)` : ""}` : " · بدون اختبار سابق"}</small></div><div className="list-actions"><button className="status-button" onClick={() => {
-                  const newTitle = window.prompt("عنوان الفيديو الجديد", video.title);
-                  if (!newTitle || newTitle.trim().length < 2) return;
-                  void mutate(() => apiRequest(`/api/admin/videos/${video.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: newTitle.trim(), prerequisiteExamId: video.prerequisiteExamId ?? "", minimumScore: video.minimumScore, status: video.status }) }), "تم تعديل عنوان الفيديو");
+                  setPromptModal({
+                    isOpen: true,
+                    title: "تعديل عنوان الفيديو",
+                    fields: [{ name: "title", label: "عنوان الفيديو الجديد", defaultValue: video.title }],
+                    onSubmit: (v: Record<string, string>) => {
+                      if (!v.title || v.title.trim().length < 2) return;
+                      void mutate(() => apiRequest(`/api/admin/videos/${video.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: v.title.trim(), prerequisiteExamId: video.prerequisiteExamId ?? "", minimumScore: video.minimumScore, status: video.status }) }), "تم تعديل عنوان الفيديو");
+                    },
+                  });
                 }}><PencilLine /> تعديل</button><button className="icon-button danger" onClick={() => void mutate(() => apiRequest(`/api/admin/videos/${video.id}`, { method: "DELETE" }), "تم حذف الفيديو")}><Trash2 /></button></div></article>
               ))}</div>
             </section>
@@ -216,10 +230,17 @@ export default function AdminDashboard() {
             <div className="panel-title"><BarChart3 /><div><h2>نتائج الطلاب</h2><p>التصحيح الآلي قابل للمراجعة والتعديل من المدرس</p></div></div>
             <div className="results-table-wrap"><table className="data-table"><thead><tr><th>الطالب</th><th>الامتحان</th><th>الدرجة</th><th>طريقة التصحيح</th><th>مراجعة</th></tr></thead><tbody>
               {data.attempts.map((attempt) => <tr key={attempt.id}><td>{attempt.userEmail}</td><td>{attempt.examTitle}</td><td>{attempt.score} / {attempt.maxScore}</td><td>{attempt.gradingMethod === "ai" ? "ذكاء اصطناعي" : attempt.gradingMethod === "teacher_review" ? "مراجعة المدرس" : "قواعد تلقائية"}</td><td><button className="table-edit" onClick={() => {
-                const score = window.prompt(`الدرجة الجديدة من ${attempt.maxScore}`, String(attempt.score));
-                if (score === null) return;
-                const feedback = window.prompt("ملاحظة المدرس", "") ?? "";
-                void mutate(() => apiRequest(`/api/admin/attempts/${attempt.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ score, feedback }) }), "تم حفظ مراجعة المدرس");
+                setPromptModal({
+                  isOpen: true,
+                  title: `مراجعة وتعديل نتيجة ${attempt.userEmail}`,
+                  fields: [
+                    { name: "score", label: `الدرجة الجديدة من ${attempt.maxScore}`, defaultValue: String(attempt.score), type: "number" },
+                    { name: "feedback", label: "ملاحظة المدرس", defaultValue: "" },
+                  ],
+                  onSubmit: (v: Record<string, string>) => {
+                    void mutate(() => apiRequest(`/api/admin/attempts/${attempt.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ score: v.score, feedback: v.feedback }) }), "تم حفظ مراجعة المدرس");
+                  },
+                });
               }}><PencilLine /> تعديل</button></td></tr>)}
             </tbody></table></div>
           </section>
@@ -228,11 +249,45 @@ export default function AdminDashboard() {
         {tab === "messages" && (
           <section className="dashboard-panel">
             <div className="panel-title"><Mail /><div><h2>رسائل التواصل</h2><p>رسائل الطلاب وأولياء الأمور</p></div></div>
-            <div className="message-grid">{data.contacts.map((message) => <article key={message.id} className={message.status === "new" ? "message-new" : ""}><div><strong>{message.name}</strong><a href={`tel:${message.phone}`}>{message.phone}</a><span className={`status-pill status-${message.status === "new" ? "pending" : "approved"}`}>{message.status === "new" ? "جديد" : "تمت المراجعة"}</span></div><p>{message.message}</p><div className="message-footer"><time>{new Date(message.createdAt).toLocaleDateString("ar-EG")}</time>{message.status === "new" && <button className="status-button" onClick={() => void mutate(() => apiRequest(`/api/admin/contacts/${message.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "reviewed" }) }), "تمت مراجعة الرسالة")}>تحديد كـ"تمت المراجعة"</button>}</div></article>)}</div>
+            <div className="message-grid">{data.contacts.map((message) => <article key={message.id} className={message.status === "new" ? "message-new" : ""}><div><strong>{message.name}</strong><a href={`tel:${message.phone}`}>{message.phone}</a><span className={`status-pill status-${message.status === "new" ? "pending" : "approved"}`}>{message.status === "new" ? "جديد" : "تمت المراجعة"}</span></div><p>{message.message}</p><div className="message-footer"><time>{new Date(message.createdAt).toLocaleDateString("ar-EG")}</time>{message.status === "new" && <button className="status-button" onClick={() => void mutate(() => apiRequest(`/api/admin/contacts/${message.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "reviewed" }) }), "تمت مراجعة الرسالة")}>تحديد كـ&quot;تمت المراجعة&quot;</button>}</div></article>)}</div>
           </section>
         )}
         {tab === "staff" && can("manage_staff") && <StaffManager actorEmail={data.admin.email} />}
       </div>
+
+      {promptModal.isOpen && (
+        <div className="modal-backdrop" dir="rtl" style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "grid", placeItems: "center", zIndex: 9999, padding: "20px"
+        }}>
+          <form className="dashboard-panel" style={{ width: "min(460px, 100%)", padding: "24px", margin: 0 }} onSubmit={(e) => {
+            e.preventDefault();
+            const formData = new FormData(e.currentTarget);
+            const values: Record<string, string> = {};
+            promptModal.fields.forEach((f) => { values[f.name] = (formData.get(f.name) as string) || ""; });
+            promptModal.onSubmit(values);
+            setPromptModal({ isOpen: false, title: "", fields: [], onSubmit: () => {} });
+          }}>
+            <h3 style={{ margin: "0 0 16px", fontSize: "18px", fontWeight: "800" }}>{promptModal.title}</h3>
+            {promptModal.fields.map((f) => (
+              <label key={f.name} style={{ display: "grid", gap: "6px", marginBottom: "14px", fontSize: "13px", color: "var(--text)" }}>
+                <span>{f.label}</span>
+                <input
+                  name={f.name}
+                  type={f.type || "text"}
+                  defaultValue={f.defaultValue || ""}
+                  required
+                  className="auth-input"
+                  style={{ width: "100%" }}
+                />
+              </label>
+            ))}
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end", marginTop: "20px" }}>
+              <button type="button" className="btn btn-outline" onClick={() => setPromptModal({ isOpen: false, title: "", fields: [], onSubmit: () => {} })}>إلغاء</button>
+              <button type="submit" className="btn btn-primary">حفظ</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
@@ -394,9 +449,9 @@ function StaffManager({ actorEmail }: { actorEmail: string }) {
             {account.email !== actorEmail && <button className="status-button" disabled={busy} onClick={() => void update(account.email, { active: !account.active, role: account.role, preset: presetFor(permissions) }, account.active ? "تم تعطيل الحساب" : "تم تفعيل الحساب")}>{account.active ? "تعطيل" : "تفعيل"}</button>}
             {account.role === "assistant" && <select className="status-button" value={presetFor(permissions)} disabled={busy} onChange={(event) => void update(account.email, { active: Boolean(account.active), role: "assistant", preset: event.target.value }, "تم تحديث صلاحيات المساعد")}><option value="grader">الدرجات فقط</option><option value="course_manager">الكورسات فقط</option><option value="enrollment_manager">الاشتراكات فقط</option></select>}
             <button className="status-button" disabled={busy} onClick={() => {
-              const password = window.prompt("كلمة المرور الجديدة (12 حرفاً على الأقل)");
-              if (!password) return;
-              void update(account.email, { password, active: Boolean(account.active), role: account.role, preset: presetFor(permissions) }, "تم تغيير كلمة المرور وإنهاء الجلسات القديمة");
+              const newPassword = window.prompt("كلمة المرور الجديدة (12 حرفاً على الأقل)");
+              if (!newPassword || newPassword.trim().length < 12) return;
+              void update(account.email, { password: newPassword.trim(), active: Boolean(account.active), role: account.role, preset: presetFor(permissions) }, "تم تغيير كلمة المرور وإنهاء الجلسات القديمة");
             }}>تغيير كلمة المرور</button>
           </div></article>;
         })}</div>

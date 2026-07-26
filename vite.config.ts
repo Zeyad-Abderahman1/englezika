@@ -8,7 +8,6 @@ const usePolling = process.env.CHOKIDAR_USEPOLLING === "true";
 
 const localBindingConfig = {
   main: "./worker/index.ts",
-  compatibility_flags: ["nodejs_compat"],
   d1_databases: [
     {
       binding: "DB",
@@ -23,10 +22,11 @@ const localBindingConfig = {
     },
   ],
   vars: {
-    ...(process.env.RESEND_API_KEY ? { RESEND_API_KEY: process.env.RESEND_API_KEY } : {}),
-    ...(process.env.EMAIL_FROM ? { EMAIL_FROM: process.env.EMAIL_FROM } : {}),
-    ...(process.env.VERIFICATION_SECRET ? { VERIFICATION_SECRET: process.env.VERIFICATION_SECRET } : {}),
-    ...(process.env.EMAIL_TEST_MODE ? { EMAIL_TEST_MODE: process.env.EMAIL_TEST_MODE } : {}),
+    VERIFICATION_SECRET: process.env.VERIFICATION_SECRET || "englizeka-local-development-secret-key-32-chars-long",
+    SERVERSMTP_CONSUMER_KEY: process.env.SERVERSMTP_CONSUMER_KEY || "157bf2b629c168d3977d",
+    SERVERSMTP_CONSUMER_SECRET: process.env.SERVERSMTP_CONSUMER_SECRET || "gps48xYSdzBAL30coRvF",
+    EMAIL_FROM: process.env.EMAIL_FROM || "verify@englizeka.com",
+    EMAIL_TEST_MODE: process.env.EMAIL_TEST_MODE || "false",
     ...(process.env.INITIAL_STAFF_EMAIL ? { INITIAL_STAFF_EMAIL: process.env.INITIAL_STAFF_EMAIL } : {}),
     ...(process.env.INITIAL_STAFF_NAME ? { INITIAL_STAFF_NAME: process.env.INITIAL_STAFF_NAME } : {}),
     ...(process.env.INITIAL_STAFF_PASSWORD_HASH ? { INITIAL_STAFF_PASSWORD_HASH: process.env.INITIAL_STAFF_PASSWORD_HASH } : {}),
@@ -46,9 +46,13 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
-    server: usePolling
-      ? { watch: { useFsEvents: false, usePolling: true } }
-      : undefined,
+    optimizeDeps: {
+      exclude: ["lucide-react"],
+    },
+    server: {
+      host: "127.0.0.1",
+      ...(usePolling ? { watch: { useFsEvents: false, usePolling: true } } : {}),
+    },
     plugins: [
       vinext(),
       cloudflare({

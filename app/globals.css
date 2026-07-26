@@ -1,5 +1,4 @@
 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Montserrat:wght@700;800;900&display=swap');
-@import "tailwindcss";
 
 :root {
   --red: #cf0b27;
@@ -240,6 +239,33 @@ input:focus,textarea:focus,select:focus { border-color:var(--red-bright); box-sh
 .auth-heading p { margin:0; color:var(--muted); }
 .auth-switch { color:var(--muted); text-align:center; font-size:13px; }
 .auth-switch a { color:var(--red-bright); font-weight:800; }
+.auth-native-form { padding: 32px; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); display: grid; gap: 18px; text-align: right; }
+.auth-form-header { text-align: center; margin-bottom: 6px; display: grid; gap: 4px; }
+.auth-form-title { margin: 0; font-size: 24px; font-weight: 800; color: var(--text); }
+.auth-form-sub { margin: 0; color: var(--muted); font-size: 13px; }
+.auth-switch-link { margin-top: 4px; color: var(--muted); font-size: 13px; text-align: center; display: block; }
+.auth-switch-link span { color: var(--red-bright); font-weight: 800; }
+.auth-fields-col { display: grid; gap: 14px; text-align: right; }
+.auth-label { color: var(--text); font-size: 13px; font-weight: 700; display: block; margin-bottom: 4px; text-align: right; }
+.auth-req { color: var(--red-bright); }
+.auth-input-wrap { position: relative; display: flex; align-items: center; }
+.auth-input-icon { position: absolute; right: 14px; color: var(--muted); pointer-events: none; z-index: 1; }
+.auth-input { width: 100%; padding: 12px 44px 12px 14px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; outline: none; transition: border-color .2s, box-shadow .2s; }
+.auth-input:focus { border-color: var(--red-bright); box-shadow: 0 0 0 3px rgba(239,35,60,.14); }
+.auth-select { appearance: none; cursor: pointer; }
+.auth-eye-btn { position: absolute; left: 14px; background: transparent; border: 0; color: var(--muted); display: grid; place-items: center; padding: 4px; border-radius: 6px; cursor: pointer; }
+.auth-eye-btn:hover { color: var(--text); }
+.auth-error-banner { padding: 12px 16px; display: flex; align-items: center; gap: 10px; color: #ff9aaa; background: rgba(207,11,39,.14); border: 1px solid rgba(239,35,60,.28); border-radius: 12px; font-size: 13px; font-weight: 700; text-align: right; }
+.auth-submit-btn { width: 100%; margin-top: 6px; font-size: 15px; }
+.auth-grid-1 { display: grid; gap: 14px; }
+.auth-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 600px) { .auth-grid-2 { grid-template-columns: 1fr; } }
+.auth-col-span-2 { grid-column: 1 / -1; }
+.auth-field-group { display: grid; gap: 2px; text-align: right; }
+.auth-avatar-hint { margin: 0; color: var(--muted); font-size: 11px; text-align: center; }
+.staff-portal-banner { margin-top: 14px; padding: 12px; background: rgba(239,35,60,.08); border: 1px dashed rgba(239,35,60,.3); border-radius: 12px; text-align: center; font-size: 13px; color: var(--text); }
+.staff-portal-banner a { color: var(--red-bright); font-weight: 800; text-decoration: underline; margin-right: 4px; }
+
 .course-detail-hero { padding:84px 0 74px; background:radial-gradient(circle at 15% 30%,rgba(207,11,39,.2),transparent 28%); }
 .course-detail-grid { display:grid; grid-template-columns:1.3fr .7fr; gap:var(--content-gap); align-items:center; }
 .course-detail-grid h1 { margin:15px 0; font-size:clamp(45px,6vw,70px); }

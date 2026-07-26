@@ -83,16 +83,148 @@ function SelectField({
 
 // ─── Login Form ───────────────────────────────────────────────────────────────
 
+// ─── Forgot Password Modal ───────────────────────────────────────────────────
+
+function ForgotPasswordModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (email: string) => void }) {
+  const [step, setStep] = useState<1 | 2>(1);
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [testCode, setTestCode] = useState<string | null>(null);
+
+  const handleSendCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(""); setLoading(true);
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json().catch(() => ({})) as { error?: string; ok?: boolean; testCode?: string; message?: string };
+      if (!res.ok) {
+        setError(data.error || "تعذر إرسال كود التفعيل");
+        return;
+      }
+      if (data.testCode) setTestCode(data.testCode);
+      setStep(2);
+    } catch {
+      setError("تعذر الاتصال بالخادم. تحقق من الإنترنت.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (newPassword !== newPasswordConfirm) {
+      setError("كلمتا السر غير متطابقتين");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, code, new_password: newPassword }),
+      });
+      const data = await res.json().catch(() => ({})) as { error?: string; ok?: boolean; message?: string };
+      if (!res.ok) {
+        setError(data.error || "تعذر تحديث كلمة المرور");
+        return;
+      }
+      onSuccess(email);
+    } catch {
+      setError("تعذر الاتصال بالخادم. تحقق من الإنترنت.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="admin-modal-backdrop" onClick={onClose} dir="rtl">
+      <div className="admin-modal-card" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+        <div className="admin-modal-header">
+          <h3>إعادة ضبط كلمة المرور</h3>
+          <button type="button" className="admin-modal-close" onClick={onClose}>✕</button>
+        </div>
+
+        {error && (
+          <div className="auth-error-banner" style={{ margin: "12px 16px 0" }}>
+            <AlertCircle size={16} /> {error}
+          </div>
+        )}
+
+        {testCode && (
+          <div style={{ margin: "12px 16px 0", padding: 12, background: "rgba(38,177,112,.15)", border: "1px solid rgba(64,203,140,.3)", borderRadius: 8, color: "#8ce7bd", fontSize: 13 }}>
+            💡 كود التجربة المحلي: <strong>{testCode}</strong>
+          </div>
+        )}
+
+        {step === 1 ? (
+          <form onSubmit={handleSendCode} style={{ padding: 16 }}>
+            <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 16 }}>
+              أدخل البريد الإلكتروني المسجل في حسابك وسنرسل لك كود التفعيل المكون من 6 أرقام.
+            </p>
+            <div className="auth-field-group" style={{ marginBottom: 20 }}>
+              <label className="auth-label" htmlFor="forgot-email">البريد الإلكتروني</label>
+              <Field icon={Mail} id="forgot-email" name="email" type="email" placeholder="example@mail.com" value={email} onChange={setEmail} required />
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button type="button" className="btn btn-secondary" onClick={onClose}>إلغاء</button>
+              <button type="submit" className="btn btn-primary" disabled={loading}>
+                {loading ? <><Loader2 size={16} className="spin" /> جاري الإرسال...</> : "إرسال كود التفعيل"}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={handleResetPassword} style={{ padding: 16 }}>
+            <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 16 }}>
+              أدخل كود التفعيل المكون من 6 أرقام الذي وصلك على البريد <strong>{email}</strong> وكلمة المرور الجديدة.
+            </p>
+            <div className="auth-field-group" style={{ marginBottom: 12 }}>
+              <label className="auth-label" htmlFor="reset-code">كود التفعيل (6 أرقام)</label>
+              <Field icon={Mail} id="reset-code" name="code" type="text" placeholder="123456" value={code} onChange={setCode} required />
+            </div>
+            <div className="auth-field-group" style={{ marginBottom: 12 }}>
+              <label className="auth-label" htmlFor="reset-new-pass">كلمة المرور الجديدة</label>
+              <PasswordInput id="reset-new-pass" name="new_password" placeholder="8 أحرف على الأقل" value={newPassword} onChange={setNewPassword} />
+            </div>
+            <div className="auth-field-group" style={{ marginBottom: 20 }}>
+              <label className="auth-label" htmlFor="reset-confirm-pass">تأكيد كلمة المرور الجديدة</label>
+              <PasswordInput id="reset-confirm-pass" name="new_password_confirm" placeholder="إعادة كتابة كلمة المرور" value={newPasswordConfirm} onChange={setNewPasswordConfirm} />
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setStep(1)}>رجوع</button>
+              <button type="submit" className="btn btn-primary" disabled={loading}>
+                {loading ? <><Loader2 size={16} className="spin" /> جاري التحديث...</> : "تحديث كلمة المرور"}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Login Form ───────────────────────────────────────────────────────────────
+
 function LoginForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showForgotModal, setShowForgotModal] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(""); setLoading(true);
+    setError(""); setSuccessMsg(""); setLoading(true);
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
@@ -109,34 +241,68 @@ function LoginForm() {
     }
   };
 
+  const handleResetSuccess = (userEmail: string) => {
+    setShowForgotModal(false);
+    setEmail(userEmail);
+    setSuccessMsg("تم تغيير كلمة المرور بنجاح! يمكنك الآن تسجيل الدخول.");
+  };
+
   return (
-    <form className="auth-native-form" onSubmit={handleSubmit} dir="rtl">
-      <div className="auth-form-header">
-        <h2 className="auth-form-title">تسجيل الدخول</h2>
-        <p className="auth-form-sub">أدخل بياناتك للوصول لحسابك</p>
-        <Link href="/register" className="auth-switch-link">
-          مش عندك حساب؟ <span>سجّل الآن</span>
-        </Link>
-      </div>
-
-      {error && (
-        <div className="auth-error-banner">
-          <AlertCircle size={16} /> {error}
+    <>
+      <form className="auth-native-form" onSubmit={handleSubmit} dir="rtl">
+        <div className="auth-form-header">
+          <h2 className="auth-form-title">تسجيل الدخول</h2>
+          <p className="auth-form-sub">أدخل بياناتك للوصول لحسابك</p>
+          <Link href="/register" className="auth-switch-link">
+            مش عندك حساب؟ <span>سجّل الآن</span>
+          </Link>
         </div>
+
+        {error && (
+          <div className="auth-error-banner">
+            <AlertCircle size={16} /> {error}
+          </div>
+        )}
+
+        {successMsg && (
+          <div className="auth-error-banner" style={{ background: "rgba(38,177,112,.15)", borderColor: "rgba(64,203,140,.3)", color: "#8ce7bd" }}>
+            <CheckCircle2 size={16} /> {successMsg}
+          </div>
+        )}
+
+        <div className="auth-fields-col">
+          <label className="auth-label" htmlFor="login-email">البريد الإلكتروني</label>
+          <Field icon={Mail} id="login-email" name="email" type="email" placeholder="example@mail.com" value={email} onChange={setEmail} required />
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+            <label className="auth-label" htmlFor="login-password">كلمة السر</label>
+            <button
+              type="button"
+              onClick={() => setShowForgotModal(true)}
+              style={{ background: "none", border: "none", color: "var(--red-bright)", fontSize: 12, cursor: "pointer", fontWeight: 700, padding: 0 }}
+            >
+              نسيت كلمة المرور؟
+            </button>
+          </div>
+          <PasswordInput id="login-password" name="password" placeholder="كلمة السر" value={password} onChange={setPassword} />
+        </div>
+
+        <button type="submit" className="btn btn-primary btn-large auth-submit-btn" disabled={loading}>
+          {loading ? <><Loader2 size={18} className="spin" /> جاري الدخول...</> : "تسجيل الدخول"}
+        </button>
+
+        <div className="staff-portal-banner">
+          هل أنت مدرس أو مساعد في الفريق؟ <Link href="/staff/login">اضغط هنا لدخول لوحة الإدارة</Link>
+        </div>
+      </form>
+
+      {showForgotModal && (
+        <ForgotPasswordModal
+          onClose={() => setShowForgotModal(false)}
+          onSuccess={handleResetSuccess}
+        />
       )}
-
-      <div className="auth-fields-col">
-        <label className="auth-label" htmlFor="login-email">البريد الإلكتروني</label>
-        <Field icon={Mail} id="login-email" name="email" type="email" placeholder="example@mail.com" value={email} onChange={setEmail} required />
-
-        <label className="auth-label" htmlFor="login-password">كلمة السر</label>
-        <PasswordInput id="login-password" name="password" placeholder="كلمة السر" value={password} onChange={setPassword} />
-      </div>
-
-      <button type="submit" className="btn btn-primary btn-large auth-submit-btn" disabled={loading}>
-        {loading ? <><Loader2 size={18} className="spin" /> جاري الدخول...</> : "تسجيل الدخول"}
-      </button>
-    </form>
+    </>
   );
 }
 

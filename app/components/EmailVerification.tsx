@@ -33,6 +33,7 @@ export default function EmailVerification({
       error?: string;
       retryAfter?: number;
       verified?: boolean;
+      testCode?: string;
     };
     setBusy(false);
     if (!response.ok) {
@@ -45,7 +46,12 @@ export default function EmailVerification({
       return;
     }
     setResendIn(60);
-    setMessage("تم إرسال الكود. راجع البريد الوارد والرسائل غير المرغوب فيها.");
+    if (result.testCode) {
+      setCode(result.testCode);
+      setMessage(`كود التفعيل لتجربة الموقع هو: ${result.testCode}`);
+    } else {
+      setMessage("تم إرسال الكود. راجع البريد الوارد والرسائل غير المرغوب فيها.");
+    }
   };
 
   const verifyCode = async (event: React.FormEvent<HTMLFormElement>) => {

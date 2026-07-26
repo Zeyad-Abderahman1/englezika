@@ -9,12 +9,9 @@ import {
   sendVerificationEmail,
   VERIFICATION_CODE_TTL_MS,
 } from "../../../lib/email-verification";
-import { jsonError, requireSameOrigin, safeText } from "../../../lib/security";
-import { createStudentSessionValue, studentSessionCookie } from "../../../lib/student-session";
-import { ensureDatabase } from "../../../../db/runtime";
-import { getD1 } from "../../../lib/platform";
-
-const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+import { isStrongPassword, jsonError, requireSameOrigin, safeText } from "../../../lib/security";
+import { createStudentSession, studentSessionCookie } from "../../../lib/student-session";
+import { checkRateLimit, getClientIp, rateLimitResponse } from "../../../lib/rate-limit";
 
 const EGYPTIAN_GOVERNORATES = [
   "القاهرة", "الجيزة", "الإسكندرية", "الدقهلية", "الشرقية", "المنوفية",
@@ -30,6 +27,12 @@ const VALID_GENDERS = ["ذكر", "أنثى"];
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
+
+  const ip = getClientIp(request);
+  const rateCheck = await checkRateLimit("student-register", ip, 5, 300);
+  if (!rateCheck.allowed) {
+    return rateLimitResponse(rateCheck.resetAfterSeconds);
+  }
 
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
 
@@ -70,7 +73,9 @@ export async function POST(request: Request) {
   if (!VALID_GENDERS.includes(gender)) return jsonError("اختر النوع من القائمة");
   if (!VALID_GRADES.includes(grade)) return jsonError("اختر الصف الدراسي من القائمة");
   if (!section) return jsonError("اختر الشعبة");
-  if (password.length < 8) return jsonError("كلمة السر يجب أن تكون 8 أحرف على الأقل");
+  if (!isStrongPassword(password)) {
+    return jsonError("كلمة المرور يجب أن تكون 12 حرفاً على الأقل، وتحتوي على حرف كبير، وحرف صغير، ورقم، ورمز خاص (!@#$%).");
+  }
   if (password !== passwordConfirm) return jsonError("كلمتا السر غير متطابقتين");
 
   const result = await registerStudent({
@@ -85,15 +90,9 @@ export async function POST(request: Request) {
   }
 
   // Create session immediately after registration
-  const sessionHash = await createStudentSessionValue(email);
+  const session = await createStudentSession(email);
   const secure = new URL(request.url).protocol === "https:";
   const now = Date.now();
-  await ensureDatabase();
-  await getD1().prepare(
-    `INSERT INTO native_sessions (session_hash, email, expires_at, created_at)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(session_hash) DO UPDATE SET expires_at = excluded.expires_at`,
-  ).bind(sessionHash, email, now + SESSION_MAX_AGE_MS, now).run();
 
   // Send verification code
   let testCode: string | undefined;
@@ -121,7 +120,7 @@ export async function POST(request: Request) {
     status: 200,
     headers: {
       "content-type": "application/json",
-      "set-cookie": studentSessionCookie(sessionHash, secure),
+      "set-cookie": studentSessionCookie(session.token, secure),
       "cache-control": "no-store",
     },
   });
