@@ -14,6 +14,11 @@ export type PlatformEnv = {
   INITIAL_STAFF_PASSWORD_HASH?: string;
   INITIAL_STAFF_PASSWORD_SALT?: string;
   INITIAL_STAFF_PASSWORD_ITERATIONS?: string;
+  FAWATERAK_BASE_URL?: string;
+  FAWATERAK_CLIENT_ID?: string;
+  FAWATERAK_CLIENT_SECRET?: string;
+  FAWATERAK_VENDOR_API_KEY?: string;
+  APP_URL?: string;
 };
 
 let cachedPlatformEnv: PlatformEnv | null = null;
@@ -40,6 +45,14 @@ export function getPlatformEnv(): PlatformEnv {
       'gps48xYSdzBAL30coRvF',
     EMAIL_FROM: currentEnv.EMAIL_FROM || process.env.EMAIL_FROM || 'verify@englizeka.com',
     EMAIL_TEST_MODE: currentEnv.EMAIL_TEST_MODE || process.env.EMAIL_TEST_MODE || 'false',
+    FAWATERAK_BASE_URL:
+      currentEnv.FAWATERAK_BASE_URL || process.env.FAWATERAK_BASE_URL || 'https://app.fawaterk.com',
+    FAWATERAK_CLIENT_ID: currentEnv.FAWATERAK_CLIENT_ID || process.env.FAWATERAK_CLIENT_ID,
+    FAWATERAK_CLIENT_SECRET:
+      currentEnv.FAWATERAK_CLIENT_SECRET || process.env.FAWATERAK_CLIENT_SECRET,
+    FAWATERAK_VENDOR_API_KEY:
+      currentEnv.FAWATERAK_VENDOR_API_KEY || process.env.FAWATERAK_VENDOR_API_KEY,
+    APP_URL: currentEnv.APP_URL || process.env.APP_URL,
   };
 }
 

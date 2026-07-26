@@ -51,6 +51,32 @@ export const enrollments = sqliteTable(
   ]
 );
 
+export const paymentIntents = sqliteTable(
+  'payment_intents',
+  {
+    id: text('id').primaryKey(),
+    enrollmentId: text('enrollment_id').notNull(),
+    userEmail: text('user_email').notNull(),
+    courseId: text('course_id').notNull(),
+    gateway: text('gateway').notNull().default('fawaterak'),
+    transactionKey: text('transaction_key'),
+    transactionId: text('transaction_id'),
+    amountMinor: integer('amount_minor').notNull(),
+    paidAmountMinor: integer('paid_amount_minor'),
+    currency: text('currency').notNull().default('EGP'),
+    status: text('status').notNull().default('creating'),
+    paymentMethod: text('payment_method'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    paidAt: integer('paid_at'),
+  },
+  (table) => [
+    uniqueIndex('payment_intents_transaction_key_idx').on(table.transactionKey),
+    index('payment_intents_enrollment_idx').on(table.enrollmentId),
+    index('payment_intents_user_idx').on(table.userEmail),
+  ]
+);
+
 export const exams = sqliteTable(
   'exams',
   {

@@ -26,6 +26,17 @@ const schemaStatements = [
   )`,
   'CREATE INDEX IF NOT EXISTS enrollments_user_idx ON enrollments (user_email)',
   'CREATE INDEX IF NOT EXISTS enrollments_course_idx ON enrollments (course_id)',
+  `CREATE TABLE IF NOT EXISTS payment_intents (
+    id TEXT PRIMARY KEY, enrollment_id TEXT NOT NULL, user_email TEXT NOT NULL,
+    course_id TEXT NOT NULL, gateway TEXT NOT NULL DEFAULT 'fawaterak',
+    transaction_key TEXT, transaction_id TEXT, amount_minor INTEGER NOT NULL,
+    paid_amount_minor INTEGER, currency TEXT NOT NULL DEFAULT 'EGP',
+    status TEXT NOT NULL DEFAULT 'creating', payment_method TEXT,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, paid_at INTEGER
+  )`,
+  'CREATE UNIQUE INDEX IF NOT EXISTS payment_intents_transaction_key_idx ON payment_intents (transaction_key)',
+  'CREATE INDEX IF NOT EXISTS payment_intents_enrollment_idx ON payment_intents (enrollment_id)',
+  'CREATE INDEX IF NOT EXISTS payment_intents_user_idx ON payment_intents (user_email)',
   `CREATE TABLE IF NOT EXISTS exams (
     id TEXT PRIMARY KEY, course_id TEXT, title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
     instructions TEXT NOT NULL DEFAULT '', duration_minutes INTEGER NOT NULL DEFAULT 30,
