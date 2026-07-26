@@ -4,8 +4,8 @@ import {
   saveVerificationCode,
   sendVerificationEmail,
   isEmailTestMode,
-} from "../../../lib/email-verification.ts";
-import { checkRateLimit } from "../../../lib/rate-limit.ts";
+} from "../../../lib/email-verification";
+import { checkRateLimit } from "../../../lib/rate-limit";
 
 function jsonResponse(data: Record<string, unknown>, status = 200): Response {
   return Response.json(data, {

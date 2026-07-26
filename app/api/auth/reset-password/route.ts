@@ -1,5 +1,5 @@
-import { verifyStoredCode } from "../../../lib/email-verification.ts";
-import { updateStudentPassword } from "../../../lib/native-auth.ts";
+import { verifyStoredCode } from "../../../lib/email-verification";
+import { updateStudentPassword } from "../../../lib/native-auth";
 
 function jsonResponse(data: Record<string, unknown>, status = 200): Response {
   return Response.json(data, {
@@ -42,7 +42,7 @@ export async function POST(request: Request): Promise<Response> {
       return jsonResponse({ error: "تم تجاوز عدد المحاولات المسموحة للكود." }, 400);
     }
     if (result !== "verified" && result !== "already_verified") {
-      return jsonResponse({ error: "كود التحقق غير صحيح. تأكد من الرقم المكتوب." }, 400);
+      return jsonResponse({ error: "كود التحقق غير صحيح. تأكد من الرقم المكتب." }, 400);
     }
 
     const updated = await updateStudentPassword(email, newPassword);
