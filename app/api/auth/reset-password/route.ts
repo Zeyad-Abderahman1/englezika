@@ -1,10 +1,10 @@
-import { verifyStoredCode } from "../../../lib/email-verification";
-import { updateStudentPassword } from "../../../lib/native-auth";
+import { verifyStoredCode } from '../../../lib/email-verification';
+import { updateStudentPassword } from '../../../lib/native-auth';
 
 function jsonResponse(data: Record<string, unknown>, status = 200): Response {
   return Response.json(data, {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: { 'content-type': 'application/json; charset=utf-8' },
   });
 }
 
@@ -14,7 +14,7 @@ function isStrongPassword(password: string): boolean {
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    const body = await request.json().catch(() => ({})) as {
+    const body = (await request.json().catch(() => ({}))) as {
       email?: string;
       code?: string;
       new_password?: string;
@@ -24,40 +24,43 @@ export async function POST(request: Request): Promise<Response> {
     const code = body.code?.trim();
     const newPassword = body.new_password;
 
-    if (!email || !email.includes("@")) {
-      return jsonResponse({ error: "البريد الإلكتروني غير صحيح" }, 400);
+    if (!email || !email.includes('@')) {
+      return jsonResponse({ error: 'البريد الإلكتروني غير صحيح' }, 400);
     }
     if (!code || code.length !== 6) {
-      return jsonResponse({ error: "كود التحقق يجب أن يتكون من 6 أرقام" }, 400);
+      return jsonResponse({ error: 'كود التحقق يجب أن يتكون من 6 أرقام' }, 400);
     }
     if (!newPassword || !isStrongPassword(newPassword)) {
-      return jsonResponse({ error: "كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل" }, 400);
+      return jsonResponse({ error: 'كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل' }, 400);
     }
 
     const result = await verifyStoredCode(email, code);
-    if (result === "expired") {
-      return jsonResponse({ error: "انتهت صلاحية كود التحقق. اطلب كوداً جديداً." }, 400);
+    if (result === 'expired') {
+      return jsonResponse({ error: 'انتهت صلاحية كود التحقق. اطلب كوداً جديداً.' }, 400);
     }
-    if (result === "locked") {
-      return jsonResponse({ error: "تم تجاوز عدد المحاولات المسموحة للكود." }, 400);
+    if (result === 'locked') {
+      return jsonResponse({ error: 'تم تجاوز عدد المحاولات المسموحة للكود.' }, 400);
     }
-    if (result !== "verified" && result !== "already_verified") {
-      return jsonResponse({ error: "كود التحقق غير صحيح. تأكد من الرقم المكتب." }, 400);
+    if (result !== 'verified' && result !== 'already_verified') {
+      return jsonResponse({ error: 'كود التحقق غير صحيح. تأكد من الرقم المكتب.' }, 400);
     }
 
     const updated = await updateStudentPassword(email, newPassword);
     if (!updated) {
-      return jsonResponse({ error: "لم نتمكن من العثور على الحساب لربطه." }, 400);
+      return jsonResponse({ error: 'لم نتمكن من العثور على الحساب لربطه.' }, 400);
     }
 
     return jsonResponse({
       ok: true,
-      message: "تم تحديث كلمة المرور بنجاح! يمكنك الآن تسجيل الدخول بكلمة المرور الجديدة.",
+      message: 'تم تحديث كلمة المرور بنجاح! يمكنك الآن تسجيل الدخول بكلمة المرور الجديدة.',
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    return jsonResponse({
-      error: `تعذر تغيير كلمة المرور: ${msg}`,
-    }, 400);
+    return jsonResponse(
+      {
+        error: `تعذر تغيير كلمة المرور: ${msg}`,
+      },
+      400
+    );
   }
 }

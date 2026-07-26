@@ -1,9 +1,13 @@
-import { clearStudentSessionCookie, deleteStudentSession, STUDENT_SESSION_COOKIE } from "../../lib/student-session";
-import { cookies } from "next/headers";
+import {
+  clearStudentSessionCookie,
+  deleteStudentSession,
+  STUDENT_SESSION_COOKIE,
+} from '../../lib/student-session';
+import { cookies } from 'next/headers';
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const secure = url.protocol === "https:";
+  const secure = url.protocol === 'https:';
 
   try {
     const jar = await cookies();
@@ -18,10 +22,9 @@ export async function GET(request: Request) {
   return new Response(null, {
     status: 303,
     headers: {
-      location: "/",
-      "set-cookie": clearStudentSessionCookie(secure),
-      "cache-control": "no-store",
+      location: '/',
+      'set-cookie': clearStudentSessionCookie(secure),
+      'cache-control': 'no-store',
     },
   });
 }
-

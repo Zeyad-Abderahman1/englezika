@@ -12,6 +12,8 @@
     "test": "node --test tests/unit.test.mjs && npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "db:generate": "drizzle-kit generate",
     "db:backup": "npx wrangler d1 backup create DB"
   },
@@ -35,6 +37,7 @@
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
+    "prettier": "^3.9.6",
     "react-server-dom-webpack": "19.2.6",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",

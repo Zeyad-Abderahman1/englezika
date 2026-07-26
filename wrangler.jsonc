@@ -8,14 +8,14 @@
     {
       "binding": "DB",
       "database_name": "englizeka-prod-db",
-      "database_id": "englizeka-prod-d1-id"
-    }
+      "database_id": "englizeka-prod-d1-id",
+    },
   ],
   "r2_buckets": [
     {
       "binding": "VIDEOS",
-      "bucket_name": "englizeka-prod-videos"
-    }
+      "bucket_name": "englizeka-prod-videos",
+    },
   ],
   "env": {
     "staging": {
@@ -24,18 +24,18 @@
         {
           "binding": "DB",
           "database_name": "englizeka-staging-db",
-          "database_id": "englizeka-staging-d1-id"
-        }
+          "database_id": "englizeka-staging-d1-id",
+        },
       ],
       "r2_buckets": [
         {
           "binding": "VIDEOS",
-          "bucket_name": "englizeka-staging-videos"
-        }
+          "bucket_name": "englizeka-staging-videos",
+        },
       ],
       "vars": {
-        "EMAIL_TEST_MODE": "true"
-      }
-    }
-  }
+        "EMAIL_TEST_MODE": "true",
+      },
+    },
+  },
 }

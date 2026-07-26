@@ -17,7 +17,7 @@ Students use native email-and-password accounts with email verification. Staff a
 Copy `.env.example` to `.env.local` for local configuration:
 
 - `ADMIN_EMAILS` — comma-separated emails allowed to open `/admin`
-Objective questions are graded instantly, while written questions use the built-in answer-key and rubric grader.
+  Objective questions are graded instantly, while written questions use the built-in answer-key and rubric grader.
 
 ## Development
 

@@ -1,9 +1,9 @@
-import type { Metadata } from "next";
-import ResultClient from "../../components/ResultClient";
-import { requireStudentUser } from "../../lib/student-session";
+import type { Metadata } from 'next';
+import ResultClient from '../../components/ResultClient';
+import { requireStudentUser } from '../../lib/student-session';
 
-export const metadata: Metadata = { title: "نتيجة الامتحان" };
-export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: 'نتيجة الامتحان' };
+export const dynamic = 'force-dynamic';
 
 export default async function ResultPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

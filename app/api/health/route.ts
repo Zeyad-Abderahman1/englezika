@@ -1,34 +1,34 @@
-import { getD1, getVideoBucket } from "../../lib/platform";
+import { getD1, getVideoBucket } from '../../lib/platform';
 
 const START_TIME = Date.now();
 
 export async function GET() {
-  let dbStatus = "unknown";
-  let storageStatus = "unknown";
+  let dbStatus = 'unknown';
+  let storageStatus = 'unknown';
   let healthy = true;
 
   try {
     const db = getD1();
-    await db.prepare("SELECT 1").first();
-    dbStatus = "healthy";
+    await db.prepare('SELECT 1').first();
+    dbStatus = 'healthy';
   } catch {
-    dbStatus = "unhealthy";
+    dbStatus = 'unhealthy';
     healthy = false;
   }
 
   try {
     const videos = getVideoBucket();
-    if (videos) storageStatus = "healthy";
+    if (videos) storageStatus = 'healthy';
   } catch {
-    storageStatus = "unhealthy";
+    storageStatus = 'unhealthy';
     healthy = false;
   }
 
-  const environment = process.env.NODE_ENV || "production";
+  const environment = process.env.NODE_ENV || 'production';
   const uptimeSeconds = Math.floor((Date.now() - START_TIME) / 1000);
 
   const body = {
-    status: healthy ? "healthy" : "unhealthy",
+    status: healthy ? 'healthy' : 'unhealthy',
     timestamp: new Date().toISOString(),
     uptimeSeconds,
     environment,
@@ -36,7 +36,7 @@ export async function GET() {
       database: dbStatus,
       storage: storageStatus,
     },
-    version: "1.0.0",
+    version: '1.0.0',
   };
 
   return Response.json(body, { status: healthy ? 200 : 503 });

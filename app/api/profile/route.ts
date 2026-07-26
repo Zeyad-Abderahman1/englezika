@@ -1,14 +1,14 @@
-import { ensureDatabase } from "../../../db/runtime";
-import { apiVerifiedUser, isResponse } from "../../lib/api-auth";
-import { getD1 } from "../../lib/platform";
-import { requireSameOrigin, safeText } from "../../lib/security";
+import { ensureDatabase } from '../../../db/runtime';
+import { apiVerifiedUser, isResponse } from '../../lib/api-auth';
+import { getD1 } from '../../lib/platform';
+import { requireSameOrigin, safeText } from '../../lib/security';
 
 export async function PUT(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
   const user = await apiVerifiedUser();
   if (isResponse(user)) return user;
-  const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
 
   const name = safeText(body.name, 100) || user.fullName || user.displayName;
   const phone = safeText(body.phone, 30);
@@ -23,14 +23,30 @@ export async function PUT(request: Request) {
 
   const now = Date.now();
   await ensureDatabase();
-  await getD1().prepare(
-    `UPDATE users SET
+  await getD1()
+    .prepare(
+      `UPDATE users SET
        name = ?, phone = ?, grade = ?, section = ?, school_name = ?,
        parent_job = ?, governorate = ?, gender = ?,
        father_phone = ?, mother_phone = ?,
        updated_at = ?
-     WHERE email = ?`,
-  ).bind(name, phone, grade, section, schoolName, parentJob, governorate, gender, fatherPhone, motherPhone, now, user.email.toLowerCase()).run();
+     WHERE email = ?`
+    )
+    .bind(
+      name,
+      phone,
+      grade,
+      section,
+      schoolName,
+      parentJob,
+      governorate,
+      gender,
+      fatherPhone,
+      motherPhone,
+      now,
+      user.email.toLowerCase()
+    )
+    .run();
 
   return Response.json({ ok: true });
 }

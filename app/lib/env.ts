@@ -1,4 +1,4 @@
-import { getPlatformEnv } from "./platform";
+import { getPlatformEnv } from './platform';
 
 export type EnvValidationResult = {
   valid: boolean;
@@ -20,9 +20,13 @@ export function validatePlatformEnv(): EnvValidationResult {
   }
 
   // Validate session secret (SEC-03 & INFRA-04)
-  const secret = (env.VERIFICATION_SECRET ?? (env as Record<string, string | undefined>).SESSION_SECRET)?.trim();
+  const secret = (
+    env.VERIFICATION_SECRET ?? (env as Record<string, string | undefined>).SESSION_SECRET
+  )?.trim();
   if (!secret || secret.length < 24) {
-    errors.push("Required secret 'VERIFICATION_SECRET' (or 'SESSION_SECRET') is missing or too short (< 24 characters)");
+    errors.push(
+      "Required secret 'VERIFICATION_SECRET' (or 'SESSION_SECRET') is missing or too short (< 24 characters)"
+    );
   }
 
   return {
@@ -34,6 +38,8 @@ export function validatePlatformEnv(): EnvValidationResult {
 export function assertPlatformEnv(): void {
   const result = validatePlatformEnv();
   if (!result.valid) {
-    throw new Error(`[FATAL STARTUP ERROR] Environment Validation Failed:\n- ${result.errors.join("\n- ")}`);
+    throw new Error(
+      `[FATAL STARTUP ERROR] Environment Validation Failed:\n- ${result.errors.join('\n- ')}`
+    );
   }
 }

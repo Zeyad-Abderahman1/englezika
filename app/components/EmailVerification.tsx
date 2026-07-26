@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { CheckCircle2, KeyRound, LoaderCircle, MailCheck } from "lucide-react";
+import { useEffect, useState } from 'react';
+import { CheckCircle2, KeyRound, LoaderCircle, MailCheck } from 'lucide-react';
 
 export default function EmailVerification({
   email,
@@ -10,9 +10,9 @@ export default function EmailVerification({
   email: string;
   onVerified: () => void | Promise<void>;
 }) {
-  const [code, setCode] = useState("");
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const [code, setCode] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [resendIn, setResendIn] = useState(0);
 
@@ -26,10 +26,10 @@ export default function EmailVerification({
 
   const sendCode = async () => {
     setBusy(true);
-    setError("");
-    setMessage("");
-    const response = await fetch("/api/auth/send-code", { method: "POST" });
-    const result = await response.json().catch(() => ({})) as {
+    setError('');
+    setMessage('');
+    const response = await fetch('/api/auth/send-code', { method: 'POST' });
+    const result = (await response.json().catch(() => ({}))) as {
       error?: string;
       retryAfter?: number;
       verified?: boolean;
@@ -37,7 +37,7 @@ export default function EmailVerification({
     };
     setBusy(false);
     if (!response.ok) {
-      setError(result.error || "تعذر إرسال كود التفعيل");
+      setError(result.error || 'تعذر إرسال كود التفعيل');
       if (result.retryAfter) setResendIn(result.retryAfter);
       return;
     }
@@ -50,39 +50,43 @@ export default function EmailVerification({
       setCode(result.testCode);
       setMessage(`كود التفعيل لتجربة الموقع هو: ${result.testCode}`);
     } else {
-      setMessage("تم إرسال الكود. راجع البريد الوارد والرسائل غير المرغوب فيها.");
+      setMessage('تم إرسال الكود. راجع البريد الوارد والرسائل غير المرغوب فيها.');
     }
   };
 
   const verifyCode = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!/^\d{6}$/.test(code)) {
-      setError("أدخل الكود المكون من 6 أرقام");
+      setError('أدخل الكود المكون من 6 أرقام');
       return;
     }
     setBusy(true);
-    setError("");
-    const response = await fetch("/api/auth/verify-code", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
+    setError('');
+    const response = await fetch('/api/auth/verify-code', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ code }),
     });
-    const result = await response.json().catch(() => ({})) as { error?: string };
+    const result = (await response.json().catch(() => ({}))) as { error?: string };
     setBusy(false);
     if (!response.ok) {
-      setError(result.error || "تعذر تأكيد الكود");
+      setError(result.error || 'تعذر تأكيد الكود');
       return;
     }
-    setMessage("تم تأكيد بريدك بنجاح.");
+    setMessage('تم تأكيد بريدك بنجاح.');
     await onVerified();
   };
 
   return (
     <section className="verification-card" aria-labelledby="verification-title">
-      <div className="verification-icon"><MailCheck /></div>
+      <div className="verification-icon">
+        <MailCheck />
+      </div>
       <span className="section-label">حماية الحساب</span>
       <h2 id="verification-title">أكد بريدك الإلكتروني</h2>
-      <p>سنرسل كودًا من 6 أرقام إلى <strong dir="ltr">{email}</strong>. الكود صالح لمدة 10 دقائق.</p>
+      <p>
+        سنرسل كودًا من 6 أرقام إلى <strong dir="ltr">{email}</strong>. الكود صالح لمدة 10 دقائق.
+      </p>
       <button
         type="button"
         className="btn btn-outline"
@@ -90,7 +94,7 @@ export default function EmailVerification({
         onClick={() => void sendCode()}
       >
         {busy ? <LoaderCircle className="spin" /> : <KeyRound />}
-        {resendIn > 0 ? `إعادة الإرسال بعد ${resendIn} ثانية` : "إرسال كود التفعيل"}
+        {resendIn > 0 ? `إعادة الإرسال بعد ${resendIn} ثانية` : 'إرسال كود التفعيل'}
       </button>
       <form onSubmit={verifyCode} className="verification-form">
         <label htmlFor="verification-code">كود التفعيل</label>
@@ -98,7 +102,7 @@ export default function EmailVerification({
           id="verification-code"
           name="code"
           value={code}
-          onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+          onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
           inputMode="numeric"
           autoComplete="one-time-code"
           pattern="\d{6}"
@@ -111,8 +115,16 @@ export default function EmailVerification({
         </button>
       </form>
       <small id="verification-help">لن نطلب منك مشاركة هذا الكود مع أي شخص.</small>
-      {message && <div className="inline-success" role="status"><CheckCircle2 /> {message}</div>}
-      {error && <div className="error-toast" role="alert">{error}</div>}
+      {message && (
+        <div className="inline-success" role="status">
+          <CheckCircle2 /> {message}
+        </div>
+      )}
+      {error && (
+        <div className="error-toast" role="alert">
+          {error}
+        </div>
+      )}
     </section>
   );
 }

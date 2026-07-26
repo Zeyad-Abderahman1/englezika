@@ -10,6 +10,7 @@ Cloudflare D1 automatically creates automated daily snapshots for production D1 
 Backups are retained for 30 days automatically by Cloudflare.
 
 To verify automatic backups:
+
 ```bash
 npx wrangler d1 backup list englizeka-prod-db
 ```
@@ -38,18 +39,23 @@ npx wrangler d1 backup create englizeka-staging-db --env staging
 In the event of data corruption or disaster recovery, follow these steps to restore a specific backup snapshot:
 
 ### Step 1: List Available Backups
+
 ```bash
 npx wrangler d1 backup list englizeka-prod-db
 ```
+
 Note the Target `backup-id` (e.g. `b1a2c3d4-5678-90ab-cdef-1234567890ab`).
 
 ### Step 2: Restore Backup Snapshot
+
 ```bash
 npx wrangler d1 backup restore englizeka-prod-db <backup-id>
 ```
 
 ### Step 3: Verify Integrity
+
 After restoration completes, run healthcheck and query verification:
+
 ```bash
 curl https://englizeka.com/api/health
 ```

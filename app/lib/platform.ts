@@ -26,22 +26,31 @@ export function getPlatformEnv(): PlatformEnv {
   const currentEnv = globalObject.__ENGLIZEKA_ENV__ || cachedPlatformEnv || {};
   return {
     ...currentEnv,
-    VERIFICATION_SECRET: currentEnv.VERIFICATION_SECRET || process.env.VERIFICATION_SECRET || "englizeka-local-development-secret-key-32-chars-long",
-    SERVERSMTP_CONSUMER_KEY: currentEnv.SERVERSMTP_CONSUMER_KEY || process.env.SERVERSMTP_CONSUMER_KEY || "157bf2b629c168d3977d",
-    SERVERSMTP_CONSUMER_SECRET: currentEnv.SERVERSMTP_CONSUMER_SECRET || process.env.SERVERSMTP_CONSUMER_SECRET || "gps48xYSdzBAL30coRvF",
-    EMAIL_FROM: currentEnv.EMAIL_FROM || process.env.EMAIL_FROM || "verify@englizeka.com",
-    EMAIL_TEST_MODE: currentEnv.EMAIL_TEST_MODE || process.env.EMAIL_TEST_MODE || "false",
+    VERIFICATION_SECRET:
+      currentEnv.VERIFICATION_SECRET ||
+      process.env.VERIFICATION_SECRET ||
+      'englizeka-local-development-secret-key-32-chars-long',
+    SERVERSMTP_CONSUMER_KEY:
+      currentEnv.SERVERSMTP_CONSUMER_KEY ||
+      process.env.SERVERSMTP_CONSUMER_KEY ||
+      '157bf2b629c168d3977d',
+    SERVERSMTP_CONSUMER_SECRET:
+      currentEnv.SERVERSMTP_CONSUMER_SECRET ||
+      process.env.SERVERSMTP_CONSUMER_SECRET ||
+      'gps48xYSdzBAL30coRvF',
+    EMAIL_FROM: currentEnv.EMAIL_FROM || process.env.EMAIL_FROM || 'verify@englizeka.com',
+    EMAIL_TEST_MODE: currentEnv.EMAIL_TEST_MODE || process.env.EMAIL_TEST_MODE || 'false',
   };
 }
 
 export function getD1(): D1Database {
   const db = getPlatformEnv().DB;
-  if (!db) throw new Error("Database binding is unavailable");
+  if (!db) throw new Error('Database binding is unavailable');
   return db;
 }
 
 export function getVideoBucket(): R2Bucket {
   const bucket = getPlatformEnv().VIDEOS;
-  if (!bucket) throw new Error("Video storage binding is unavailable");
+  if (!bucket) throw new Error('Video storage binding is unavailable');
   return bucket;
 }

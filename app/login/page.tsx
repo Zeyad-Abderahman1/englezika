@@ -1,11 +1,11 @@
-import type { Metadata } from "next";
-import AuthForm from "../components/AuthForm";
+import type { Metadata } from 'next';
+import AuthForm from '../components/AuthForm';
 
 export const metadata: Metadata = {
-  title: "تسجيل الدخول | إنجليزيكا",
-  description: "سجّل الدخول لحسابك في منصة مستر أحمد حسن للغة الإنجليزية",
+  title: 'تسجيل الدخول | إنجليزيكا',
+  description: 'سجّل الدخول لحسابك في منصة مستر أحمد حسن للغة الإنجليزية',
 };
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 
 export default function LoginPage() {
   return (
