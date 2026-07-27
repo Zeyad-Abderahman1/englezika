@@ -177,6 +177,20 @@ export const videos = sqliteTable(
   (table) => [index('videos_course_idx').on(table.courseId)]
 );
 
+export const videoProgress = sqliteTable(
+  'video_progress',
+  {
+    id: text('id').primaryKey(),
+    userEmail: text('user_email').notNull(),
+    videoId: text('video_id').notNull(),
+    completedAt: integer('completed_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('video_progress_user_video_idx').on(table.userEmail, table.videoId),
+    index('video_progress_video_idx').on(table.videoId),
+  ]
+);
+
 export const contacts = sqliteTable('contacts', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),

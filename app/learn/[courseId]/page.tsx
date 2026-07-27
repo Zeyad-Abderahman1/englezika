@@ -59,27 +59,31 @@ export default async function LearnPage({ params }: { params: Promise<{ courseId
   const result = await db
     .prepare(
       `SELECT v.id, v.title, v.duration_seconds AS durationSeconds,
-     v.prerequisite_exam_id AS prerequisiteExamId, v.minimum_score AS minimumScore,
-     x.title AS prerequisiteExamTitle,
-     CASE WHEN v.prerequisite_exam_id IS NULL THEN 1
-       WHEN EXISTS (
-         SELECT 1 FROM attempts a
-         WHERE a.exam_id = v.prerequisite_exam_id AND a.user_email = ?
-         AND (CASE WHEN a.max_score > 0 THEN a.score * 100.0 / a.max_score ELSE 0 END) >= v.minimum_score
-       ) THEN 1 ELSE 0 END AS unlocked
-     FROM videos v LEFT JOIN exams x ON x.id = v.prerequisite_exam_id
+     v.created_at AS createdAt
+     FROM videos v
      WHERE v.course_id = ? AND v.status = 'published' ORDER BY v.created_at`
     )
-    .bind(user.email.toLowerCase(), courseId)
+    .bind(courseId)
     .all<{
       id: string;
       title: string;
       durationSeconds: number;
-      prerequisiteExamId: string | null;
-      prerequisiteExamTitle: string | null;
-      minimumScore: number;
-      unlocked: number;
+      createdAt: number;
     }>();
+  const completed = await db
+    .prepare(
+      `SELECT p.video_id AS videoId FROM video_progress p
+       JOIN videos v ON v.id = p.video_id
+       WHERE p.user_email = ? AND v.course_id = ?`
+    )
+    .bind(user.email.toLowerCase(), courseId)
+    .all<{ videoId: string }>();
+  const completedIds = new Set(completed.results.map((item) => item.videoId));
+  const videos = result.results.map((video, index, allVideos) => ({
+    ...video,
+    completed: completedIds.has(video.id) ? 1 : 0,
+    unlocked: index === 0 || completedIds.has(allVideos[index - 1].id) ? 1 : 0,
+  }));
   return (
     <main className="portal-page learning-page">
       <div className="container">
@@ -87,7 +91,7 @@ export default async function LearnPage({ params }: { params: Promise<{ courseId
           <span className="section-label">{course?.grade || 'الكورس'}</span>
           <h1>{course?.title || 'محتوى الكورس'}</h1>
         </div>
-        <SecureVideoPlayer videos={result.results} viewerEmail={user.email} />
+        <SecureVideoPlayer videos={videos} viewerEmail={user.email} />
       </div>
     </main>
   );

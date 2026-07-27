@@ -31,7 +31,7 @@ export async function POST(request: Request) {
   const instructions = safeText(body.instructions, 2000);
   const courseId = safeText(body.courseId, 80) || null;
   const durationMinutes = safeInteger(body.durationMinutes, 30, 1, 300);
-  const passingScore = safeInteger(body.passingScore, 80, 80, 100);
+  const passingScore = safeInteger(body.passingScore, 50, 0, 100);
   const maxAttempts = safeInteger(body.maxAttempts, 3, 1, 10);
   const status = body.status === 'published' ? 'published' : 'draft';
   const questions = Array.isArray(body.questions)

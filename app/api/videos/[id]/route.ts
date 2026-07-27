@@ -36,22 +36,23 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     .bind(email, video.courseId)
     .first();
   if (!enrollment) return jsonError('هذا الفيديو متاح للمشتركين فقط', 403);
-  if (video.prerequisiteExamId) {
-    const passed = await db
-      .prepare(
-        `SELECT id FROM attempts WHERE exam_id = ? AND user_email = ?
-       AND (CASE WHEN max_score > 0 THEN score * 100.0 / max_score ELSE 0 END) >= ?
-       LIMIT 1`
-      )
-      .bind(video.prerequisiteExamId, email, video.minimumScore)
+  const previousVideo = await db
+    .prepare(
+      `SELECT id FROM videos
+       WHERE course_id = ? AND status = 'published' AND created_at < (
+         SELECT created_at FROM videos WHERE id = ?
+       ) ORDER BY created_at DESC LIMIT 1`
+    )
+    .bind(video.courseId, id)
+    .first<{ id: string }>();
+  if (previousVideo) {
+    const completed = await db
+      .prepare('SELECT id FROM video_progress WHERE user_email = ? AND video_id = ? LIMIT 1')
+      .bind(email, previousVideo.id)
       .first();
-    if (!passed) {
+    if (!completed) {
       return Response.json(
-        {
-          error: 'يجب اجتياز اختبار المحاضرة أولاً',
-          code: 'LESSON_QUIZ_REQUIRED',
-          examId: video.prerequisiteExamId,
-        },
+        { error: 'يجب إنهاء المحاضرة السابقة أولاً', code: 'PREVIOUS_LESSON_REQUIRED' },
         { status: 403 }
       );
     }

@@ -77,6 +77,12 @@ const schemaStatements = [
     status TEXT NOT NULL DEFAULT 'published', created_at INTEGER NOT NULL
   )`,
   'CREATE INDEX IF NOT EXISTS videos_course_idx ON videos (course_id)',
+  `CREATE TABLE IF NOT EXISTS video_progress (
+    id TEXT PRIMARY KEY, user_email TEXT NOT NULL, video_id TEXT NOT NULL,
+    completed_at INTEGER NOT NULL
+  )`,
+  'CREATE UNIQUE INDEX IF NOT EXISTS video_progress_user_video_idx ON video_progress (user_email, video_id)',
+  'CREATE INDEX IF NOT EXISTS video_progress_video_idx ON video_progress (video_id)',
   `CREATE TABLE IF NOT EXISTS contacts (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT NOT NULL, message TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'new', created_at INTEGER NOT NULL

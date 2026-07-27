@@ -569,7 +569,6 @@ export default function AdminDashboard() {
               </div>
               <VideoUploader
                 courses={data.courses}
-                exams={data.exams}
                 videos={data.videos}
                 busy={busy}
                 progressPct={uploadProgressPct}
@@ -597,12 +596,7 @@ export default function AdminDashboard() {
                   <article key={video.id}>
                     <div>
                       <strong>{video.title}</strong>
-                      <small>
-                        {video.courseTitle}
-                        {video.prerequisiteExamTitle
-                          ? ` · يفتح بعد: ${video.prerequisiteExamTitle}${video.minimumScore ? ` (${video.minimumScore}%)` : ''}`
-                          : ' · بدون اختبار سابق'}
-                      </small>
+                      <small>{video.courseTitle} · يفتح بعد إكمال المحاضرة السابقة</small>
                     </div>
                     <div className="list-actions">
                       <button
@@ -626,8 +620,6 @@ export default function AdminDashboard() {
                                     headers: { 'content-type': 'application/json' },
                                     body: JSON.stringify({
                                       title: v.title.trim(),
-                                      prerequisiteExamId: video.prerequisiteExamId ?? '',
-                                      minimumScore: video.minimumScore,
                                       status: video.status,
                                     }),
                                   }),
@@ -1014,7 +1006,7 @@ function ExamBuilder({
           </label>
           <label>
             نسبة النجاح %
-            <input name="passingScore" type="number" min="80" max="100" defaultValue="80" />
+            <input name="passingScore" type="number" min="0" max="100" defaultValue="50" />
           </label>
           <label>
             عدد المحاولات
@@ -1121,7 +1113,6 @@ function ExamBuilder({
 
 function VideoUploader({
   courses,
-  exams,
   videos,
   busy,
   progressPct,
@@ -1133,7 +1124,6 @@ function VideoUploader({
   onError,
 }: {
   courses: Course[];
-  exams: Exam[];
   videos: Video[];
   busy: boolean;
   progressPct: number | null;
@@ -1198,8 +1188,6 @@ function VideoUploader({
     xhr.setRequestHeader('x-course-id', String(fd.get('courseId') || ''));
     xhr.setRequestHeader('x-video-title', encodeURIComponent(String(fd.get('title') || '')));
     xhr.setRequestHeader('x-video-duration', String(fd.get('durationSeconds') || '0'));
-    xhr.setRequestHeader('x-prerequisite-exam-id', String(fd.get('prerequisiteExamId') || ''));
-    xhr.setRequestHeader('x-minimum-score', String(fd.get('minimumScore') || '80'));
     xhr.send(file);
   };
 
@@ -1232,31 +1220,14 @@ function VideoUploader({
         عنوان الفيديو
         <input name="title" required />
       </label>
-      <div className="form-row">
-        <label>
-          المدة بالثواني
-          <input name="durationSeconds" type="number" min="0" defaultValue="0" />
-        </label>
-        <label>
-          اختبار قبل المحاضرة
-          <select name="prerequisiteExamId" required={courseHasLessons}>
-            <option value="">
-              {courseHasLessons ? 'اختر امتحان فتح المحاضرة' : 'المحاضرة الأولى — بدون امتحان'}
-            </option>
-            {exams
-              .filter((e) => e.courseId === courseId && e.status === 'published')
-              .map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.title}
-                </option>
-              ))}
-          </select>
-        </label>
-      </div>
       <label>
-        أقل نسبة لفتح المحاضرة %
-        <input name="minimumScore" type="number" min="80" max="100" defaultValue="80" />
-        <small>لا تُفتح المحاضرة التالية إلا بعد اجتياز الامتحان بنسبة 80% على الأقل.</small>
+        المدة بالثواني
+        <input name="durationSeconds" type="number" min="0" defaultValue="0" />
+        <small>
+          {courseHasLessons
+            ? 'ستُفتح هذه المحاضرة بعد إنهاء المحاضرة السابقة.'
+            : 'هذه أول محاضرة وستكون متاحة فورًا للطلاب المشتركين.'}
+        </small>
       </label>
       <label className="file-drop">
         <Upload />
