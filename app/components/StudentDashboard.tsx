@@ -107,6 +107,17 @@ export default function StudentDashboard() {
   const activeCourse = approved.find((item) => item.courseId === activeCourseId) ?? approved[0];
   const activeCourseExams =
     data?.exams.filter((exam) => !exam.courseId || exam.courseId === activeCourse?.courseId) ?? [];
+  const visibleExams = activeCourseId ? activeCourseExams : (data?.exams ?? []);
+  const visibleExamIds = new Set(visibleExams.map((exam) => exam.id));
+  const visibleAttempts = activeCourseId
+    ? (data?.attempts.filter((attempt) => visibleExamIds.has(attempt.examId)) ?? [])
+    : (data?.attempts ?? []);
+  const visibleAverage = visibleAttempts.length
+    ? Math.round(
+        visibleAttempts.reduce((sum, item) => sum + percent(item.score, item.maxScore), 0) /
+          visibleAttempts.length
+      )
+    : 0;
   const average = data?.attempts.length
     ? Math.round(
         data.attempts.reduce((sum, item) => sum + percent(item.score, item.maxScore), 0) /
@@ -114,7 +125,7 @@ export default function StudentDashboard() {
       )
     : 0;
   const navigate = (next: View, courseId?: string) => {
-    if (courseId) setActiveCourseId(courseId);
+    if (courseId !== undefined) setActiveCourseId(courseId);
     setView(next);
     setMobileMenu(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -202,19 +213,22 @@ export default function StudentDashboard() {
             </div>
           )}
         </div>
-        <button className={view === 'exams' ? 'active' : ''} onClick={() => navigate('exams')}>
+        <button className={view === 'exams' ? 'active' : ''} onClick={() => navigate('exams', '')}>
           <ClipboardCheck />
           <span>الامتحانات</span>
           {data.exams.length > 0 && <b>{data.exams.length}</b>}
         </button>
         <button
           className={view === 'assignments' ? 'active' : ''}
-          onClick={() => navigate('assignments')}
+          onClick={() => navigate('assignments', '')}
         >
           <FileText />
           <span>الواجبات</span>
         </button>
-        <button className={view === 'grades' ? 'active' : ''} onClick={() => navigate('grades')}>
+        <button
+          className={view === 'grades' ? 'active' : ''}
+          onClick={() => navigate('grades', '')}
+        >
           <BarChart3 />
           <span>الدرجات</span>
         </button>
@@ -392,7 +406,7 @@ export default function StudentDashboard() {
                       <strong>الامتحانات القادمة</strong>
                     </span>
                   </div>
-                  <button onClick={() => navigate('exams')}>عرض الكل</button>
+                  <button onClick={() => navigate('exams', '')}>عرض الكل</button>
                 </div>
                 {data.exams.length ? (
                   data.exams.slice(0, 3).map((exam) => <ExamRow key={exam.id} exam={exam} />)
@@ -549,11 +563,15 @@ export default function StudentDashboard() {
             icon={<ClipboardCheck />}
             eyebrow="قيّم مستواك"
             title="الامتحانات"
-            description="كل امتحانات كورساتك المفعّلة، مع عدد المحاولات وأفضل نتيجة."
+            description={
+              activeCourseId
+                ? `امتحانات ${activeCourse?.title || 'الكورس'} مع عدد المحاولات وأفضل نتيجة.`
+                : 'كل امتحانات كورساتك المفعّلة، مع عدد المحاولات وأفضل نتيجة.'
+            }
           >
-            {data.exams.length ? (
+            {visibleExams.length ? (
               <div className="full-list">
-                {data.exams.map((exam) => (
+                {visibleExams.map((exam) => (
                   <ExamRow key={exam.id} exam={exam} detailed />
                 ))}
               </div>
@@ -587,12 +605,12 @@ export default function StudentDashboard() {
             title="سجل الدرجات"
             description="نتائج الامتحانات والواجبات مرتبة في كشف درجات واضح."
           >
-            {data.attempts.length ? (
+            {visibleAttempts.length ? (
               <div className="gradebook">
                 <div className="gradebook-summary">
                   <span>المتوسط العام</span>
-                  <strong>{average}%</strong>
-                  <small>{data.attempts.length} نتائج مسجلة</small>
+                  <strong>{visibleAverage}%</strong>
+                  <small>{visibleAttempts.length} نتائج مسجلة</small>
                 </div>
                 <div className="gradebook-table">
                   <div className="gradebook-head">
@@ -601,7 +619,7 @@ export default function StudentDashboard() {
                     <span>النسبة</span>
                     <span>التفاصيل</span>
                   </div>
-                  {data.attempts.map((attempt) => (
+                  {visibleAttempts.map((attempt) => (
                     <div className="gradebook-row" key={attempt.id}>
                       <span>
                         <strong>{attempt.title}</strong>
