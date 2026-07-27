@@ -13,7 +13,6 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import {
   BarChart3,
-  BellRing,
   BookOpen,
   Check,
   CirclePlus,
@@ -381,6 +380,30 @@ export default function AdminDashboard() {
         {/* ══ OVERVIEW ══════════════════════════════════════════════════════ */}
         {tab === 'overview' && (
           <>
+            <section className="teacher-welcome-hero">
+              <div>
+                <span>لوحة المدرس</span>
+                <h2>أهلًا، {data.admin.name}</h2>
+                <p>أنشئ الكورسات، ارفع المحاضرات، وابنِ الامتحانات من مكان واحد.</p>
+              </div>
+              <div className="teacher-quick-actions">
+                {can('manage_courses') && (
+                  <button onClick={() => goTab('courses')}>
+                    <CirclePlus /> إضافة كورس
+                  </button>
+                )}
+                {can('manage_videos') && (
+                  <button onClick={() => goTab('videos')}>
+                    <Upload /> رفع محاضرة
+                  </button>
+                )}
+                {can('manage_exams') && (
+                  <button onClick={() => goTab('exams')}>
+                    <FileQuestion /> إنشاء امتحان
+                  </button>
+                )}
+              </div>
+            </section>
             <AdminStatsPanel
               counts={data.counts}
               contacts={data.contacts}
@@ -456,13 +479,11 @@ export default function AdminDashboard() {
                 const values = Object.fromEntries(new FormData(form));
                 const prepared = questions.map((q) => ({
                   ...q,
-                  options:
-                    q.type === 'true_false'
-                      ? ['صح', 'خطأ']
-                      : q.options
-                          .split('\n')
-                          .map((o) => o.trim())
-                          .filter(Boolean),
+                  type: 'multiple_choice',
+                  options: q.options
+                    .split('\n')
+                    .map((o) => o.trim())
+                    .filter(Boolean),
                 }));
                 void mutate(
                   () =>
@@ -549,6 +570,7 @@ export default function AdminDashboard() {
               <VideoUploader
                 courses={data.courses}
                 exams={data.exams}
+                videos={data.videos}
                 busy={busy}
                 progressPct={uploadProgressPct}
                 uploadDone={uploadDone}
@@ -956,7 +978,7 @@ function ExamBuilder({
         <CirclePlus />
         <div>
           <h2>إضافة امتحان جديد</h2>
-          <p>يدعم الاختيار، صح وخطأ، والإجابات المقالية المصححة بالذكاء الاصطناعي</p>
+          <p>أسئلة اختيار من متعدد مع تحديد الإجابة الصحيحة والتصحيح التلقائي فور التسليم</p>
         </div>
       </div>
       <form className="stack-form" onSubmit={onSubmit}>
@@ -992,7 +1014,7 @@ function ExamBuilder({
           </label>
           <label>
             نسبة النجاح %
-            <input name="passingScore" type="number" min="0" max="100" defaultValue="50" />
+            <input name="passingScore" type="number" min="80" max="100" defaultValue="80" />
           </label>
           <label>
             عدد المحاولات
@@ -1023,11 +1045,9 @@ function ExamBuilder({
               <div className="form-row">
                 <label>
                   نوع السؤال
-                  <select value={q.type} onChange={(e) => update(index, { type: e.target.value })}>
-                    <option value="multiple_choice">اختيار من متعدد</option>
-                    <option value="true_false">صح أو خطأ</option>
-                    <option value="short_answer">إجابة قصيرة / مقالية</option>
-                  </select>
+                  <div className="mcq-type-badge">
+                    <ClipboardCheck /> اختيار من متعدد — تصحيح تلقائي
+                  </div>
                 </label>
                 <label>
                   الدرجة
@@ -1049,39 +1069,36 @@ function ExamBuilder({
                   onChange={(e) => update(index, { prompt: e.target.value })}
                 />
               </label>
-              {q.type === 'multiple_choice' && (
-                <label>
-                  الاختيارات — كل اختيار في سطر
-                  <textarea
-                    required
-                    rows={4}
-                    value={q.options}
-                    onChange={(e) => update(index, { options: e.target.value })}
-                    placeholder={'الإجابة الأولى\nالإجابة الثانية\nالإجابة الثالثة'}
-                  />
-                </label>
-              )}
               <label>
-                الإجابة الصحيحة
+                الاختيارات — كل اختيار في سطر
                 <textarea
                   required
-                  rows={2}
+                  rows={4}
+                  value={q.options}
+                  onChange={(e) => update(index, { options: e.target.value })}
+                  placeholder={'الإجابة الأولى\nالإجابة الثانية\nالإجابة الثالثة\nالإجابة الرابعة'}
+                />
+                <small>أضف اختيارين على الأقل، ثم اختر الإجابة الصحيحة بالأسفل.</small>
+              </label>
+              <label>
+                الإجابة الصحيحة
+                <select
+                  required
                   value={q.correctAnswer}
                   onChange={(e) => update(index, { correctAnswer: e.target.value })}
-                  placeholder={q.type === 'true_false' ? 'صح أو خطأ' : 'اكتب الإجابة النموذجية'}
-                />
+                >
+                  <option value="">اختر الإجابة الصحيحة</option>
+                  {q.options
+                    .split('\n')
+                    .map((option) => option.trim())
+                    .filter(Boolean)
+                    .map((option, optionIndex) => (
+                      <option key={`${option}-${optionIndex}`} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                </select>
               </label>
-              {q.type === 'short_answer' && (
-                <label>
-                  معايير التصحيح
-                  <textarea
-                    rows={3}
-                    value={q.rubric}
-                    onChange={(e) => update(index, { rubric: e.target.value })}
-                    placeholder="النقاط الأساسية التي يجب أن تتضمنها الإجابة..."
-                  />
-                </label>
-              )}
             </article>
           ))}
         </div>
@@ -1105,6 +1122,7 @@ function ExamBuilder({
 function VideoUploader({
   courses,
   exams,
+  videos,
   busy,
   progressPct,
   uploadDone,
@@ -1116,6 +1134,7 @@ function VideoUploader({
 }: {
   courses: Course[];
   exams: Exam[];
+  videos: Video[];
   busy: boolean;
   progressPct: number | null;
   uploadDone: string;
@@ -1126,6 +1145,7 @@ function VideoUploader({
   onError: (v: string) => void;
 }) {
   const [courseId, setCourseId] = useState('');
+  const courseHasLessons = videos.some((video) => video.courseId === courseId);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1179,7 +1199,7 @@ function VideoUploader({
     xhr.setRequestHeader('x-video-title', encodeURIComponent(String(fd.get('title') || '')));
     xhr.setRequestHeader('x-video-duration', String(fd.get('durationSeconds') || '0'));
     xhr.setRequestHeader('x-prerequisite-exam-id', String(fd.get('prerequisiteExamId') || ''));
-    xhr.setRequestHeader('x-minimum-score', String(fd.get('minimumScore') || '0'));
+    xhr.setRequestHeader('x-minimum-score', String(fd.get('minimumScore') || '80'));
     xhr.send(file);
   };
 
@@ -1219,8 +1239,10 @@ function VideoUploader({
         </label>
         <label>
           اختبار قبل المحاضرة
-          <select name="prerequisiteExamId">
-            <option value="">بدون اختبار</option>
+          <select name="prerequisiteExamId" required={courseHasLessons}>
+            <option value="">
+              {courseHasLessons ? 'اختر امتحان فتح المحاضرة' : 'المحاضرة الأولى — بدون امتحان'}
+            </option>
             {exams
               .filter((e) => e.courseId === courseId && e.status === 'published')
               .map((e) => (
@@ -1233,8 +1255,8 @@ function VideoUploader({
       </div>
       <label>
         أقل نسبة لفتح المحاضرة %
-        <input name="minimumScore" type="number" min="0" max="100" defaultValue="0" />
-        <small>اكتب 0 إذا كان المطلوب إكمال الاختبار فقط.</small>
+        <input name="minimumScore" type="number" min="80" max="100" defaultValue="80" />
+        <small>لا تُفتح المحاضرة التالية إلا بعد اجتياز الامتحان بنسبة 80% على الأقل.</small>
       </label>
       <label className="file-drop">
         <Upload />
@@ -1584,11 +1606,14 @@ function StudentsPanel() {
     [search, grade]
   );
 
+  // Load the initial unfiltered student list only once.
+  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     // Initial students synchronization.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadStudents(1, '', '');
   }, []);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();

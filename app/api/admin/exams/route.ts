@@ -6,9 +6,7 @@ import { jsonError, requireSameOrigin, safeInteger, safeText } from '../../../li
 type RawQuestion = Record<string, unknown>;
 
 function parseQuestion(question: RawQuestion, sortOrder: number) {
-  const type = ['multiple_choice', 'true_false', 'short_answer'].includes(String(question.type))
-    ? String(question.type)
-    : 'multiple_choice';
+  const type = 'multiple_choice';
   const prompt = safeText(question.prompt, 2000);
   const correctAnswer = safeText(question.correctAnswer, 1000);
   const rubric = safeText(question.rubric, 2000);
@@ -33,7 +31,7 @@ export async function POST(request: Request) {
   const instructions = safeText(body.instructions, 2000);
   const courseId = safeText(body.courseId, 80) || null;
   const durationMinutes = safeInteger(body.durationMinutes, 30, 1, 300);
-  const passingScore = safeInteger(body.passingScore, 50, 0, 100);
+  const passingScore = safeInteger(body.passingScore, 80, 80, 100);
   const maxAttempts = safeInteger(body.maxAttempts, 3, 1, 10);
   const status = body.status === 'published' ? 'published' : 'draft';
   const questions = Array.isArray(body.questions)
@@ -52,6 +50,9 @@ export async function POST(request: Request) {
     questions.some((question) => question.type === 'multiple_choice' && question.options.length < 2)
   ) {
     return jsonError('كل سؤال اختيار من متعدد يحتاج اختيارين على الأقل');
+  }
+  if (questions.some((question) => !question.options.includes(question.correctAnswer))) {
+    return jsonError('اختر الإجابة الصحيحة من اختيارات السؤال');
   }
   await ensureDatabase();
   const db = getD1();

@@ -186,7 +186,7 @@ export function ensureDatabase(): Promise<void> {
     const initialEmail = env.INITIAL_STAFF_EMAIL?.trim().toLowerCase() || 'admin@englizeka.com';
     const initialHash =
       env.INITIAL_STAFF_PASSWORD_HASH ||
-      '8c9856920b5793ba16ffb487d06dd6e45a9c032b4e2dbbafed56cabf65536de4';
+      '5edd6ddce8c584b61abae1f004bd5ca1e96e9fff09c31f940096ce80591c3f7f';
     const initialSalt = env.INITIAL_STAFF_PASSWORD_SALT || 'e3c8a797c8950b1e5287fceeb1271069';
     const initialIter = Number(env.INITIAL_STAFF_PASSWORD_ITERATIONS || '100000');
 

@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   const title = safeText(decodedTitle, 150);
   const durationSeconds = safeInteger(request.headers.get('x-video-duration'), 0, 0, 100_000);
   const prerequisiteExamId = safeText(request.headers.get('x-prerequisite-exam-id'), 80) || null;
-  const minimumScore = safeInteger(request.headers.get('x-minimum-score'), 0, 0, 100);
+  const requestedMinimumScore = safeInteger(request.headers.get('x-minimum-score'), 80, 80, 100);
   const contentType = request.headers.get('content-type') || '';
   const contentLength = Number(request.headers.get('content-length') || 0);
   if (!courseId || !title || !contentType.startsWith('video/') || !request.body) {
@@ -31,6 +31,14 @@ export async function POST(request: Request) {
   const db = getD1();
   const course = await db.prepare('SELECT id FROM courses WHERE id = ?').bind(courseId).first();
   if (!course) return jsonError('الكورس غير موجود', 404);
+  const existingLessons = await db
+    .prepare('SELECT COUNT(*) AS count FROM videos WHERE course_id = ?')
+    .bind(courseId)
+    .first<{ count: number }>();
+  if (Number(existingLessons?.count || 0) > 0 && !prerequisiteExamId) {
+    return jsonError('كل محاضرة بعد الأولى تحتاج امتحانًا سابقًا لفتحها', 409);
+  }
+  const minimumScore = prerequisiteExamId ? Math.max(80, requestedMinimumScore) : 0;
   if (prerequisiteExamId) {
     const exam = await db
       .prepare("SELECT id FROM exams WHERE id = ? AND course_id = ? AND status = 'published'")

@@ -4,7 +4,7 @@ import StaffLoginForm from '../../components/StaffLoginForm';
 import { getCurrentStaff } from '../../lib/staff-auth';
 
 export const metadata: Metadata = {
-  title: 'دخول فريق Englizeka',
+  title: 'دخول المدرس',
   robots: { index: false, follow: false },
 };
 export const dynamic = 'force-dynamic';
