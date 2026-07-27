@@ -8,10 +8,8 @@ export const dynamic = 'force-dynamic';
 export default async function AccountPage() {
   await requireStudentUser('/account');
   return (
-    <main className="portal-page">
-      <div className="container">
-        <StudentDashboard />
-      </div>
+    <main className="portal-page student-portal-page">
+      <StudentDashboard />
     </main>
   );
 }

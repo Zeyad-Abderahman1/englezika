@@ -42,7 +42,7 @@ export async function GET() {
       .all(),
     db
       .prepare(
-        `SELECT DISTINCT x.id, x.title, x.description, x.duration_minutes AS durationMinutes,
+        `SELECT DISTINCT x.id, x.course_id AS courseId, x.title, x.description, x.duration_minutes AS durationMinutes,
        x.passing_score AS passingScore, x.max_attempts AS maxAttempts, c.title AS courseTitle,
        (SELECT COUNT(*) FROM attempts ax WHERE ax.exam_id = x.id AND ax.user_email = ?) AS attemptCount,
        (SELECT COALESCE(MAX(CASE WHEN ax2.max_score > 0 THEN ax2.score * 100.0 / ax2.max_score END), 0)
