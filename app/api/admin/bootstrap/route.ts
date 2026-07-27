@@ -69,7 +69,8 @@ export async function GET(request: Request) {
       .prepare(
         `SELECT v.id, v.course_id AS courseId, v.title, v.status,
        v.duration_seconds AS durationSeconds, v.prerequisite_exam_id AS prerequisiteExamId,
-       v.minimum_score AS minimumScore, v.created_at AS createdAt,
+       v.minimum_score AS minimumScore, v.source_type AS sourceType,
+       v.source_url AS sourceUrl, v.youtube_id AS youtubeId, v.created_at AS createdAt,
        c.title AS courseTitle, x.title AS prerequisiteExamTitle
        FROM videos v JOIN courses c ON c.id = v.course_id
        LEFT JOIN exams x ON x.id = v.prerequisite_exam_id

@@ -92,6 +92,9 @@ type Video = {
   prerequisiteExamId?: string;
   prerequisiteExamTitle?: string;
   minimumScore: number;
+  sourceType: string;
+  sourceUrl?: string;
+  youtubeId?: string;
 };
 type Contact = {
   id: string;
@@ -596,7 +599,11 @@ export default function AdminDashboard() {
                   <article key={video.id}>
                     <div>
                       <strong>{video.title}</strong>
-                      <small>{video.courseTitle} · يفتح بعد إكمال المحاضرة السابقة</small>
+                      <small>
+                        {video.courseTitle} ·{' '}
+                        {video.sourceType === 'youtube' ? 'YouTube غير مدرج' : 'ملف خاص'} · يفتح بعد
+                        إكمال المحاضرة السابقة
+                      </small>
                     </div>
                     <div className="list-actions">
                       <button
@@ -1135,12 +1142,41 @@ function VideoUploader({
   onError: (v: string) => void;
 }) {
   const [courseId, setCourseId] = useState('');
+  const [sourceMode, setSourceMode] = useState<'youtube' | 'upload'>('youtube');
+  const [linkBusy, setLinkBusy] = useState(false);
   const courseHasLessons = videos.some((video) => video.courseId === courseId);
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
     const fd = new FormData(form);
+    if (sourceMode === 'youtube') {
+      onError('');
+      onUploadDone('');
+      setLinkBusy(true);
+      try {
+        await apiRequest('/api/admin/videos', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            courseId: fd.get('courseId'),
+            title: fd.get('title'),
+            durationSeconds: fd.get('durationSeconds'),
+            youtubeUrl: fd.get('youtubeUrl'),
+          }),
+        });
+        onUploadDone(String(fd.get('title') || 'فيديو YouTube'));
+        form.reset();
+        setCourseId('');
+        await onDone();
+      } catch (uploadError) {
+        onError(uploadError instanceof Error ? uploadError.message : 'تعذر حفظ رابط YouTube');
+      } finally {
+        setLinkBusy(false);
+      }
+      return;
+    }
+
     const file = fd.get('video');
     if (!(file instanceof File)) return;
 
@@ -1200,6 +1236,22 @@ function VideoUploader({
 
   return (
     <form className="stack-form" onSubmit={submit}>
+      <div className="video-source-switch" role="group" aria-label="مصدر الفيديو">
+        <button
+          type="button"
+          className={sourceMode === 'youtube' ? 'active' : ''}
+          onClick={() => setSourceMode('youtube')}
+        >
+          رابط YouTube
+        </button>
+        <button
+          type="button"
+          className={sourceMode === 'upload' ? 'active' : ''}
+          onClick={() => setSourceMode('upload')}
+        >
+          رفع ملف
+        </button>
+      </div>
       <label>
         الكورس
         <select
@@ -1229,12 +1281,29 @@ function VideoUploader({
             : 'هذه أول محاضرة وستكون متاحة فورًا للطلاب المشتركين.'}
         </small>
       </label>
-      <label className="file-drop">
-        <Upload />
-        <strong>اختر ملف MP4 أو WebM</strong>
-        <small>يُحفظ في مساحة خاصة ويُبث للمشتركين فقط</small>
-        <input name="video" type="file" accept="video/mp4,video/webm" required />
-      </label>
+      {sourceMode === 'youtube' ? (
+        <label>
+          رابط الفيديو على YouTube
+          <input
+            name="youtubeUrl"
+            type="url"
+            dir="ltr"
+            placeholder="https://youtu.be/..."
+            required
+          />
+          <small className="youtube-unlisted-note">
+            ارفع الفيديو على YouTube كـ «غير مدرج / Unlisted» ثم الصق الرابط هنا. الفيديو الخاص
+            Private لن يعمل للطلاب إلا عند دعوتهم بحساباتهم على Google.
+          </small>
+        </label>
+      ) : (
+        <label className="file-drop">
+          <Upload />
+          <strong>اختر ملف MP4 أو WebM</strong>
+          <small>يُحفظ في مساحة خاصة ويُبث للمشتركين فقط</small>
+          <input name="video" type="file" accept="video/mp4,video/webm" required />
+        </label>
+      )}
 
       {/* ── Progress bar ─────────────────────────────────────────────────────── */}
       {progressPct !== null && (
@@ -1254,8 +1323,15 @@ function VideoUploader({
         </div>
       )}
 
-      <button className="btn btn-primary" disabled={busy || progressPct !== null}>
-        <Upload /> {progressPct !== null ? `جاري الرفع... ${progressPct}%` : 'رفع وتأمين الفيديو'}
+      <button className="btn btn-primary" disabled={busy || linkBusy || progressPct !== null}>
+        <Upload />{' '}
+        {progressPct !== null
+          ? `جاري الرفع... ${progressPct}%`
+          : linkBusy
+            ? 'جاري حفظ الرابط...'
+            : sourceMode === 'youtube'
+              ? 'حفظ رابط YouTube'
+              : 'رفع وتأمين الفيديو'}
       </button>
     </form>
   );

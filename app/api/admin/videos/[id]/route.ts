@@ -40,11 +40,13 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const { id } = await params;
   const db = getD1();
   const video = await db
-    .prepare('SELECT r2_key AS r2Key FROM videos WHERE id = ?')
+    .prepare('SELECT r2_key AS r2Key, source_type AS sourceType FROM videos WHERE id = ?')
     .bind(id)
-    .first<{ r2Key: string }>();
+    .first<{ r2Key: string; sourceType: string }>();
   if (!video) return jsonError('الفيديو غير موجود', 404);
-  await getVideoBucket().delete(video.r2Key);
+  if (video.sourceType === 'upload' && video.r2Key) {
+    await getVideoBucket().delete(video.r2Key);
+  }
   await db.prepare('DELETE FROM videos WHERE id = ?').bind(id).run();
   return Response.json({ ok: true });
 }

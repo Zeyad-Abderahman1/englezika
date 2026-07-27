@@ -73,6 +73,7 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS videos (
     id TEXT PRIMARY KEY, course_id TEXT NOT NULL, title TEXT NOT NULL, r2_key TEXT NOT NULL,
     content_type TEXT NOT NULL DEFAULT 'video/mp4', duration_seconds INTEGER NOT NULL DEFAULT 0,
+    source_type TEXT NOT NULL DEFAULT 'upload', source_url TEXT, youtube_id TEXT,
     prerequisite_exam_id TEXT, minimum_score INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'published', created_at INTEGER NOT NULL
   )`,
@@ -158,6 +159,9 @@ export function ensureDatabase(): Promise<void> {
     await ensureColumn(db, 'exams', 'max_attempts', 'INTEGER NOT NULL DEFAULT 3');
     await ensureColumn(db, 'videos', 'prerequisite_exam_id', 'TEXT');
     await ensureColumn(db, 'videos', 'minimum_score', 'INTEGER NOT NULL DEFAULT 0');
+    await ensureColumn(db, 'videos', 'source_type', "TEXT NOT NULL DEFAULT 'upload'");
+    await ensureColumn(db, 'videos', 'source_url', 'TEXT');
+    await ensureColumn(db, 'videos', 'youtube_id', 'TEXT');
     // Extended student profile fields
     await ensureColumn(db, 'users', 'first_name', "TEXT NOT NULL DEFAULT ''");
     await ensureColumn(db, 'users', 'second_name', "TEXT NOT NULL DEFAULT ''");

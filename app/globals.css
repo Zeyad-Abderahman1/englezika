@@ -2066,6 +2066,37 @@ select:focus {
   height: 13px;
   flex: 0 0 auto;
 }
+.video-watermark.video-watermark-trace {
+  z-index: 3;
+  inset: 48% auto auto 8%;
+  max-width: 48%;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.38);
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: video-watermark-patrol 16s ease-in-out infinite alternate;
+}
+@keyframes video-watermark-patrol {
+  0% {
+    inset: 22% auto auto 7%;
+  }
+  45% {
+    inset: 68% auto auto 43%;
+  }
+  75% {
+    inset: 12% auto auto 48%;
+  }
+  100% {
+    inset: 73% auto auto 9%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .video-watermark.video-watermark-trace {
+    animation: none;
+  }
+}
 .lesson-complete-message {
   margin-top: 13px;
   padding: 12px 14px;
@@ -3723,6 +3754,34 @@ html[data-theme='light'] .feature-number {
   display: grid;
   gap: 14px;
 }
+.video-source-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.video-source-switch button {
+  padding: 10px 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.video-source-switch button.active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--red-bright), var(--red-dark));
+  box-shadow: 0 8px 22px rgba(207, 11, 39, 0.22);
+}
+.youtube-unlisted-note {
+  color: #f2bd70 !important;
+  line-height: 1.8;
+}
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -3889,6 +3948,13 @@ html[data-theme='light'] .feature-number {
   height: 100%;
   display: block;
   background: #000;
+}
+.youtube-player-host,
+.youtube-player-host iframe {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border: 0;
 }
 .locked-lesson {
   min-height: 430px;

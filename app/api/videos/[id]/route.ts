@@ -8,6 +8,7 @@ type VideoRow = {
   courseId: string;
   r2Key: string;
   contentType: string;
+  sourceType: string;
   title: string;
   prerequisiteExamId: string | null;
   minimumScore: number;
@@ -21,7 +22,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const db = getD1();
   const video = await db
     .prepare(
-      `SELECT id, course_id AS courseId, r2_key AS r2Key, content_type AS contentType, title,
+      `SELECT id, course_id AS courseId, r2_key AS r2Key, content_type AS contentType,
+     source_type AS sourceType, title,
      prerequisite_exam_id AS prerequisiteExamId, minimum_score AS minimumScore
      FROM videos WHERE id = ? AND status = 'published'`
     )
@@ -36,6 +38,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     .bind(email, video.courseId)
     .first();
   if (!enrollment) return jsonError('هذا الفيديو متاح للمشتركين فقط', 403);
+  if (video.sourceType === 'youtube') {
+    return jsonError('هذا الدرس يُشغّل من خلال مشغل YouTube داخل صفحة الكورس', 409);
+  }
   const previousVideo = await db
     .prepare(
       `SELECT id FROM videos

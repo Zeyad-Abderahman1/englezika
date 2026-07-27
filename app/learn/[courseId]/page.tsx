@@ -59,6 +59,7 @@ export default async function LearnPage({ params }: { params: Promise<{ courseId
   const result = await db
     .prepare(
       `SELECT v.id, v.title, v.duration_seconds AS durationSeconds,
+     v.source_type AS sourceType, v.youtube_id AS youtubeId,
      v.created_at AS createdAt
      FROM videos v
      WHERE v.course_id = ? AND v.status = 'published' ORDER BY v.created_at`
@@ -68,6 +69,8 @@ export default async function LearnPage({ params }: { params: Promise<{ courseId
       id: string;
       title: string;
       durationSeconds: number;
+      sourceType: string;
+      youtubeId: string | null;
       createdAt: number;
     }>();
   const completed = await db
