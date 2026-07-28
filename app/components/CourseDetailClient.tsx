@@ -68,10 +68,16 @@ export default function CourseDetailClient({ courseId }: { courseId: string }) {
           <aside className="enroll-card">
             <span>سعر الكورس</span>
             <div className="big-price">
-              {course.price} <small>جنيه</small>
+              {course.price === 0 ? (
+                'مجاني'
+              ) : (
+                <>
+                  {course.price} <small>جنيه</small>
+                </>
+              )}
             </div>
             <Link href={`/subscribe/${course.id}`} className="btn btn-primary btn-large">
-              اشترك دلوقتي
+              {course.price === 0 ? 'ابدأ مجاناً' : 'اشترك دلوقتي'}
             </Link>
             <p>
               <ShieldCheck /> وصول آمن لمحتواك
