@@ -417,8 +417,16 @@ function LoginForm() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+        email?: string;
+      };
       if (!res.ok) {
+        if (data.code === 'EMAIL_NOT_VERIFIED' && data.email) {
+          router.push(`/verify-email?email=${encodeURIComponent(data.email)}`);
+          return;
+        }
         setError(data.error || 'خطأ في تسجيل الدخول');
         return;
       }

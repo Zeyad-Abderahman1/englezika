@@ -7,7 +7,9 @@ let initialization: Promise<void> | null = null;
 const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS users (
     email TEXT PRIMARY KEY, name TEXT, phone TEXT, grade TEXT,
-    role TEXT NOT NULL DEFAULT 'student', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    role TEXT NOT NULL DEFAULT 'student', email_verified INTEGER NOT NULL DEFAULT 0,
+    verification_code TEXT, verification_code_expires_at INTEGER,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS email_verifications (
     email TEXT PRIMARY KEY, code_hash TEXT NOT NULL, expires_at INTEGER NOT NULL,
@@ -157,6 +159,9 @@ export function ensureDatabase(): Promise<void> {
     ];
     await db.batch(extraIndexes.map((sql) => db.prepare(sql)));
     await ensureColumn(db, 'exams', 'max_attempts', 'INTEGER NOT NULL DEFAULT 3');
+    await ensureColumn(db, 'users', 'email_verified', 'INTEGER NOT NULL DEFAULT 0');
+    await ensureColumn(db, 'users', 'verification_code', 'TEXT');
+    await ensureColumn(db, 'users', 'verification_code_expires_at', 'INTEGER');
     await ensureColumn(db, 'videos', 'prerequisite_exam_id', 'TEXT');
     await ensureColumn(db, 'videos', 'minimum_score', 'INTEGER NOT NULL DEFAULT 0');
     await ensureColumn(db, 'videos', 'source_type', "TEXT NOT NULL DEFAULT 'upload'");

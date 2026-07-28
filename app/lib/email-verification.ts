@@ -1,5 +1,6 @@
 import { ensureDatabase } from '../../db/runtime';
 import { getD1, getPlatformEnv } from './platform';
+import nodemailer from 'nodemailer';
 
 export const VERIFICATION_CODE_TTL_MS = 10 * 60_000;
 export const VERIFICATION_RESEND_MS = 60_000;
@@ -46,10 +47,12 @@ export async function hashVerificationCode(email: string, code: string): Promise
 export function isEmailTestMode(): boolean {
   const env = getPlatformEnv();
   const hasKey =
+    Boolean(env.GMAIL_USER?.trim() && env.GMAIL_APP_PASSWORD?.trim()) ||
     Boolean(
       (env.SERVERSMTP_CONSUMER_KEY || env.TURBO_SMTP_CONSUMER_KEY) &&
       (env.SERVERSMTP_CONSUMER_SECRET || env.TURBO_SMTP_CONSUMER_SECRET)
-    ) || Boolean(env.RESEND_API_KEY?.trim());
+    ) ||
+    Boolean(env.RESEND_API_KEY?.trim());
 
   return env.EMAIL_TEST_MODE === 'true' || !hasKey;
 }
@@ -57,10 +60,14 @@ export function isEmailTestMode(): boolean {
 export async function isEmailVerified(email: string): Promise<boolean> {
   await ensureDatabase();
   const row = await getD1()
-    .prepare('SELECT verified_at AS verifiedAt FROM email_verifications WHERE email = ?')
+    .prepare(
+      `SELECT u.email_verified AS emailVerified, v.verified_at AS verifiedAt
+       FROM users u LEFT JOIN email_verifications v ON v.email = u.email
+       WHERE u.email = ?`
+    )
     .bind(normalizedEmail(email))
-    .first<{ verifiedAt: number | null }>();
-  return Boolean(row?.verifiedAt);
+    .first<{ emailVerified: number; verifiedAt: number | null }>();
+  return Boolean(row?.emailVerified || row?.verifiedAt);
 }
 
 export async function loadEmailVerification(email: string): Promise<VerificationRow | null> {
@@ -92,6 +99,13 @@ export async function saveVerificationCode(
     )
     .bind(normalizedEmail(email), codeHash, sentAt + VERIFICATION_CODE_TTL_MS, sentAt)
     .run();
+  await getD1()
+    .prepare(
+      `UPDATE users SET email_verified = 0, verification_code = ?,
+       verification_code_expires_at = ?, updated_at = ? WHERE email = ?`
+    )
+    .bind(codeHash, sentAt + VERIFICATION_CODE_TTL_MS, sentAt, normalizedEmail(email))
+    .run();
 }
 
 export async function releaseFailedDelivery(email: string, codeHash: string): Promise<void> {
@@ -99,6 +113,13 @@ export async function releaseFailedDelivery(email: string, codeHash: string): Pr
     .prepare(
       `UPDATE email_verifications SET expires_at = 0, sent_at = 0
      WHERE email = ? AND code_hash = ? AND verified_at IS NULL`
+    )
+    .bind(normalizedEmail(email), codeHash)
+    .run();
+  await getD1()
+    .prepare(
+      `UPDATE users SET verification_code = NULL, verification_code_expires_at = NULL
+       WHERE email = ? AND verification_code = ?`
     )
     .bind(normalizedEmail(email), codeHash)
     .run();
@@ -146,6 +167,13 @@ export async function verifyStoredCode(
     )
     .bind(Date.now(), normalized, row.codeHash)
     .run();
+  await getD1()
+    .prepare(
+      `UPDATE users SET email_verified = 1, verification_code = NULL,
+       verification_code_expires_at = NULL, updated_at = ? WHERE email = ?`
+    )
+    .bind(Date.now(), normalized)
+    .run();
   return 'verified';
 }
 
@@ -156,6 +184,30 @@ export async function sendVerificationEmail(
 ): Promise<string> {
   const env = getPlatformEnv();
   if (isEmailTestMode()) return `test-${idempotencyKey}`;
+
+  const gmailUser = env.GMAIL_USER?.trim();
+  const gmailPassword = env.GMAIL_APP_PASSWORD?.replace(/\s+/g, '');
+  if (gmailUser && gmailPassword) {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: gmailUser, pass: gmailPassword },
+    });
+    const delivery = await transporter.sendMail({
+      from: `Englizeka <${gmailUser}>`,
+      to: normalizedEmail(email),
+      subject: 'كود تفعيل حسابك في إنجليزيكا',
+      text: `كود تفعيل حسابك هو: ${code}\nالكود صالح لمدة 10 دقائق. لا تشاركه مع أي شخص.`,
+      html: `<div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.8;color:#17181d;background:#f9f9f9;padding:24px;border-radius:12px">
+        <h2 style="color:#ef233c;margin:0 0 12px">تفعيل حساب إنجليزيكا</h2>
+        <p style="font-size:15px;margin:0 0 16px">استخدم الكود التالي لتأكيد بريدك الإلكتروني:</p>
+        <div style="background:#fff;border:1px solid #e0e0e0;padding:16px;text-align:center;border-radius:8px;margin:16px 0">
+          <span style="font-size:32px;font-weight:800;letter-spacing:8px;color:#111">${code}</span>
+        </div>
+        <p style="font-size:13px;color:#666;margin:0">الكود صالح لمدة 10 دقائق. لا تشاركه مع أي شخص.</p>
+      </div>`,
+    });
+    return delivery.messageId;
+  }
 
   const consumerKey = env.SERVERSMTP_CONSUMER_KEY?.trim() || env.TURBO_SMTP_CONSUMER_KEY?.trim();
   const consumerSecret =
