@@ -22,6 +22,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
   const youtubeId = JSON.stringify(access.video.youtubeId);
   const lessonId = JSON.stringify(id);
+  const embedOrigin = JSON.stringify(new URL(request.url).origin);
   const html = `<!doctype html>
 <html lang="ar" dir="rtl">
 <head>
@@ -34,16 +35,35 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   <script src="https://www.youtube.com/iframe_api"></script>
   <script>
     window.onYouTubeIframeAPIReady = function () {
-      new YT.Player('player', {
+      var playerReady = false;
+      var pendingCommand = null;
+      var player = new YT.Player('player', {
         videoId: ${youtubeId},
-        playerVars: { controls: 1, disablekb: 1, fs: 1, modestbranding: 1, playsinline: 1, rel: 0 },
+        playerVars: { controls: 0, disablekb: 1, fs: 0, modestbranding: 1, origin: ${embedOrigin}, playsinline: 1, rel: 0 },
         events: {
+          onReady: function () {
+            playerReady = true;
+            if (pendingCommand === 'play') player.playVideo();
+            if (pendingCommand === 'pause') player.pauseVideo();
+            pendingCommand = null;
+          },
           onStateChange: function (event) {
+            var state = event.data === YT.PlayerState.PLAYING ? 'playing' : event.data === YT.PlayerState.PAUSED ? 'paused' : event.data === YT.PlayerState.ENDED ? 'ended' : 'other';
+            window.parent.postMessage({ type: 'englizeka-video-state', videoId: ${lessonId}, state: state }, window.location.origin);
             if (event.data === YT.PlayerState.ENDED) {
               window.parent.postMessage({ type: 'englizeka-video-ended', videoId: ${lessonId} }, window.location.origin);
             }
           }
         }
+      });
+      window.addEventListener('message', function (event) {
+        if (event.origin !== window.location.origin || !event.data || event.data.type !== 'englizeka-player-command') return;
+        if (!playerReady) {
+          pendingCommand = event.data.command;
+          return;
+        }
+        if (event.data.command === 'play') player.playVideo();
+        if (event.data.command === 'pause') player.pauseVideo();
       });
     };
   </script>
@@ -56,7 +76,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       'cache-control': 'private, no-store, max-age=0',
       'content-security-policy':
         "default-src 'none'; script-src 'unsafe-inline' https://www.youtube.com https://s.ytimg.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; connect-src https://www.youtube.com https://*.googlevideo.com; img-src data: https://i.ytimg.com https://*.ggpht.com; style-src 'unsafe-inline'; frame-ancestors 'self'",
-      'referrer-policy': 'no-referrer',
+      'referrer-policy': 'strict-origin-when-cross-origin',
       'x-content-type-options': 'nosniff',
     },
   });

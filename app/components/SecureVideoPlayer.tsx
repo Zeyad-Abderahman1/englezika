@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   LoaderCircle,
   LockKeyhole,
+  PauseCircle,
   PlayCircle,
   RefreshCw,
   ShieldCheck,
@@ -40,9 +41,31 @@ export default function SecureVideoPlayer({
   const [resolved, setResolved] = useState<ResolvedSource | null>(null);
   const [resolveAttempt, setResolveAttempt] = useState(0);
   const [completionMessage, setCompletionMessage] = useState('');
+  const [securityMessage, setSecurityMessage] = useState('');
+  const [youtubePlaying, setYoutubePlaying] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const completionInFlight = useRef(new Set<string>());
   const active = lessons.find((video) => video.id === activeId);
+
+  const sendYouTubeCommand = useCallback((command: 'play' | 'pause') => {
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: 'englizeka-player-command', command },
+      window.location.origin
+    );
+  }, []);
+
+  const showSecurityOverlay = useCallback(
+    (reason: 'interaction' | 'focus') => {
+      sendYouTubeCommand('pause');
+      setYoutubePlaying(false);
+      setSecurityMessage(
+        reason === 'focus'
+          ? 'تم إيقاف الفيديو بسبب مغادرة صفحة المشاهدة'
+          : 'تم إيقاف الفيديو بسبب محاولة غير مسموح بها'
+      );
+    },
+    [sendYouTubeCommand]
+  );
 
   const completeLesson = useCallback(async (videoId: string) => {
     if (completionInFlight.current.has(videoId)) return;
@@ -99,14 +122,37 @@ export default function SecureVideoPlayer({
     const receivePlayerEvent = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       if (event.source !== iframeRef.current?.contentWindow) return;
-      const data = event.data as { type?: string; videoId?: string } | null;
+      const data = event.data as { type?: string; videoId?: string; state?: string } | null;
       if (data?.type === 'englizeka-video-ended' && data.videoId === activeId) {
+        setYoutubePlaying(false);
         void completeLesson(activeId);
+      }
+      if (data?.type === 'englizeka-video-state' && data.videoId === activeId) {
+        setYoutubePlaying(data.state === 'playing');
       }
     };
     window.addEventListener('message', receivePlayerEvent);
     return () => window.removeEventListener('message', receivePlayerEvent);
   }, [activeId, completeLesson]);
+
+  useEffect(() => {
+    const protectOnVisibilityChange = () => {
+      if (document.hidden && resolved?.videoId === activeId && resolved.kind === 'youtube') {
+        showSecurityOverlay('focus');
+      }
+    };
+    const protectOnWindowBlur = () => {
+      if (resolved?.videoId === activeId && resolved.kind === 'youtube') {
+        showSecurityOverlay('focus');
+      }
+    };
+    document.addEventListener('visibilitychange', protectOnVisibilityChange);
+    window.addEventListener('blur', protectOnWindowBlur);
+    return () => {
+      document.removeEventListener('visibilitychange', protectOnVisibilityChange);
+      window.removeEventListener('blur', protectOnWindowBlur);
+    };
+  }, [activeId, resolved, showSecurityOverlay]);
 
   if (!lessons.length) {
     return (
@@ -124,7 +170,13 @@ export default function SecureVideoPlayer({
     <div className="learning-layout">
       <section className="secure-player-card">
         {active?.unlocked ? (
-          <div className="video-frame" onContextMenu={(event) => event.preventDefault()}>
+          <div
+            className="video-frame"
+            onContextMenu={(event) => {
+              event.preventDefault();
+              if (activeSource?.kind === 'youtube') showSecurityOverlay('interaction');
+            }}
+          >
             {!activeSource ? (
               <div className="video-source-state" role="status">
                 <LoaderCircle className="spin" />
@@ -146,9 +198,8 @@ export default function SecureVideoPlayer({
                 className="youtube-player-host"
                 src={activeSource.sourceUrl}
                 title={active.title}
-                allow="accelerometer; autoplay; encrypted-media; gyroscope; fullscreen"
-                allowFullScreen
-                referrerPolicy="no-referrer"
+                allow="autoplay; encrypted-media"
+                referrerPolicy="strict-origin-when-cross-origin"
                 sandbox="allow-scripts allow-same-origin allow-presentation"
               />
             ) : (
@@ -166,6 +217,32 @@ export default function SecureVideoPlayer({
                 متصفحك لا يدعم تشغيل الفيديو.
               </video>
             )}
+            {activeSource?.kind === 'youtube' && !activeSource.error && (
+              <>
+                <div
+                  className="youtube-click-shield"
+                  aria-label="منطقة فيديو محمية"
+                  onClick={() => showSecurityOverlay('interaction')}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    showSecurityOverlay('interaction');
+                  }}
+                />
+                {!securityMessage && (
+                  <button
+                    type="button"
+                    className="secure-player-control"
+                    aria-label={youtubePlaying ? 'إيقاف الفيديو مؤقتاً' : 'تشغيل الفيديو'}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      sendYouTubeCommand(youtubePlaying ? 'pause' : 'play');
+                    }}
+                  >
+                    {youtubePlaying ? <PauseCircle /> : <PlayCircle />}
+                  </button>
+                )}
+              </>
+            )}
             <div
               className="video-watermark video-watermark-top"
               aria-label={`المشاهد ${viewerEmail}`}
@@ -175,6 +252,23 @@ export default function SecureVideoPlayer({
             <div className="video-watermark video-watermark-trace" aria-hidden="true">
               {viewerEmail}
             </div>
+            {securityMessage && (
+              <div className="video-protection-overlay" role="alert" aria-live="assertive">
+                <ShieldCheck />
+                <h2>نظام المشاهدة الآمن</h2>
+                <p>{securityMessage}</p>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setSecurityMessage('');
+                    sendYouTubeCommand('play');
+                  }}
+                >
+                  <PlayCircle /> العودة للمشاهدة
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="locked-lesson">
@@ -213,6 +307,8 @@ export default function SecureVideoPlayer({
               onClick={() => {
                 setActiveId(video.id);
                 setCompletionMessage('');
+                setSecurityMessage('');
+                setYoutubePlaying(false);
               }}
             >
               <span>{index + 1}</span>
