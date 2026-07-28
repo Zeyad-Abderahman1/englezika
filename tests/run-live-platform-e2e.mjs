@@ -42,6 +42,7 @@ const server = spawn(
     cwd: fileURLToPath(new URL('..', import.meta.url)),
     env: serverEnvironment,
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
     windowsHide: true,
   }
 );
@@ -52,6 +53,23 @@ const collectOutput = (chunk) => {
 server.stdout.on('data', collectOutput);
 server.stderr.on('data', collectOutput);
 
+function waitForServerExit(timeoutMs) {
+  if (server.exitCode !== null) return Promise.resolve(true);
+
+  return new Promise((resolve) => {
+    const onExit = () => {
+      clearTimeout(timeout);
+      resolve(true);
+    };
+    const timeout = setTimeout(() => {
+      server.off('exit', onExit);
+      resolve(server.exitCode !== null);
+    }, timeoutMs);
+
+    server.once('exit', onExit);
+  });
+}
+
 async function stopServer() {
   if (server.exitCode !== null) return;
   if (process.platform === 'win32') {
@@ -60,7 +78,23 @@ async function stopServer() {
     });
     return;
   }
-  server.kill('SIGTERM');
+
+  const serverPid = server.pid;
+  if (!serverPid) return;
+
+  try {
+    process.kill(-serverPid, 'SIGTERM');
+  } catch {
+    server.kill('SIGTERM');
+  }
+  if (await waitForServerExit(5_000)) return;
+
+  try {
+    process.kill(-serverPid, 'SIGKILL');
+  } catch {
+    server.kill('SIGKILL');
+  }
+  await waitForServerExit(5_000);
 }
 
 try {
