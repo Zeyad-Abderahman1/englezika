@@ -1,0 +1,92 @@
+import { execFile, spawn } from 'node:child_process';
+import { pbkdf2Sync, randomBytes, randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+
+if (process.env.TEST_BASE_URL) {
+  await import('./live-platform-e2e.mjs');
+  process.exit(0);
+}
+
+const port = 4300 + Math.floor(Math.random() * 500);
+const baseUrl = `http://127.0.0.1:${port}`;
+const teacherEmail = `e2e-bootstrap-${randomUUID().slice(0, 8)}@example.test`;
+const teacherPassword = 'TestTeacher!2026';
+const salt = randomBytes(16).toString('hex');
+const passwordHash = pbkdf2Sync(
+  teacherPassword,
+  Buffer.from(salt, 'hex'),
+  100_000,
+  32,
+  'sha256'
+).toString('hex');
+const serverEnvironment = {
+  ...process.env,
+  NODE_ENV: 'development',
+  E2E_TEST_MODE: 'true',
+  CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false',
+  EMAIL_TEST_MODE: 'true',
+  VERIFICATION_SECRET: randomBytes(32).toString('hex'),
+  VIDEO_RESOLVE_SECRET: randomBytes(32).toString('hex'),
+  INITIAL_STAFF_EMAIL: teacherEmail,
+  INITIAL_STAFF_NAME: 'E2E Bootstrap Teacher',
+  INITIAL_STAFF_PASSWORD_HASH: passwordHash,
+  INITIAL_STAFF_PASSWORD_SALT: salt,
+  INITIAL_STAFF_PASSWORD_ITERATIONS: '100000',
+};
+const npmCli = process.env.npm_execpath;
+if (!npmCli) throw new Error('npm_execpath is unavailable; run this test through npm run test:e2e');
+const server = spawn(
+  process.execPath,
+  [npmCli, 'run', 'dev', '--', '--port', String(port), '--strictPort'],
+  {
+    cwd: fileURLToPath(new URL('..', import.meta.url)),
+    env: serverEnvironment,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  }
+);
+let serverOutput = '';
+const collectOutput = (chunk) => {
+  serverOutput = `${serverOutput}${chunk}`.slice(-20_000);
+};
+server.stdout.on('data', collectOutput);
+server.stderr.on('data', collectOutput);
+
+async function stopServer() {
+  if (server.exitCode !== null) return;
+  if (process.platform === 'win32') {
+    await new Promise((resolve) => {
+      execFile('taskkill', ['/pid', String(server.pid), '/t', '/f'], () => resolve());
+    });
+    return;
+  }
+  server.kill('SIGTERM');
+}
+
+try {
+  const deadline = Date.now() + 60_000;
+  let ready = false;
+  while (Date.now() < deadline) {
+    if (server.exitCode !== null) {
+      throw new Error(`E2E server exited before startup.\n${serverOutput}`);
+    }
+    try {
+      const response = await fetch(`${baseUrl}/api/ready`);
+      if (response.ok) {
+        ready = true;
+        break;
+      }
+    } catch {
+      // Server is still starting.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  if (!ready) throw new Error(`E2E server did not become ready.\n${serverOutput}`);
+
+  process.env.TEST_BASE_URL = baseUrl;
+  process.env.TEST_TEACHER_EMAIL = teacherEmail;
+  process.env.TEST_TEACHER_PASSWORD = teacherPassword;
+  await import(`./live-platform-e2e.mjs?run=${Date.now()}`);
+} finally {
+  await stopServer();
+}

@@ -10,6 +10,12 @@ interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
   VIDEOS: R2Bucket;
+  GMAIL_USER?: string;
+  GMAIL_APP_PASSWORD?: string;
+  SERVERSMTP_CONSUMER_KEY?: string;
+  SERVERSMTP_CONSUMER_SECRET?: string;
+  TURBO_SMTP_CONSUMER_KEY?: string;
+  TURBO_SMTP_CONSUMER_SECRET?: string;
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
   EMAIL_TEST_MODE?: string;

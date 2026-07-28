@@ -1,5 +1,6 @@
 import { getPlatformEnv } from './platform';
 import { captureException, captureMessage } from './observability';
+import { emailTestModeEnabled } from './email-config';
 
 export type EmailTemplate =
   | { type: 'verification'; code: string }
@@ -26,12 +27,18 @@ export async function sendTransactionalEmail(
   const consumerSecret =
     env.SERVERSMTP_CONSUMER_SECRET?.trim() || env.TURBO_SMTP_CONSUMER_SECRET?.trim();
   const apiKey = env.RESEND_API_KEY?.trim();
-  const from = env.EMAIL_FROM?.trim() || 'verify@englizeka.com';
+  const from = env.EMAIL_FROM?.trim();
 
-  // Test mode or unconfigured fallback
-  if (env.EMAIL_TEST_MODE === 'true' || (!apiKey && (!consumerKey || !consumerSecret))) {
-    captureMessage(`[TEST_EMAIL_DELIVERY] To: ${toEmail}, Template: ${template.type}`, 'INFO');
+  if (emailTestModeEnabled(env)) {
+    captureMessage(`[TEST_EMAIL_DELIVERY] Template: ${template.type}`, 'INFO');
     return { success: true, deliveryId: `test-${Date.now()}` };
+  }
+  if ((!apiKey && (!consumerKey || !consumerSecret)) || !from) {
+    captureException(new Error('Transactional email provider is not configured'), {
+      module: 'email-delivery',
+      templateType: template.type,
+    });
+    return { success: false };
   }
 
   let subject = '';

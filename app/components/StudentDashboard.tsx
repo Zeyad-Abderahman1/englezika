@@ -57,6 +57,17 @@ type DashboardData = {
     maxAttempts: number;
     attemptCount: number;
     bestPercentage: number;
+    isRead: number;
+  }>;
+  assignments: Array<{
+    id: string;
+    courseId: string;
+    courseTitle: string;
+    title: string;
+    description: string;
+    dueAt?: number | null;
+    maxScore: number;
+    isRead: number;
   }>;
   attempts: Array<{
     id: string;
@@ -67,7 +78,13 @@ type DashboardData = {
     feedback: string;
     submittedAt: number;
   }>;
-  announcements: Array<{ id: string; title: string; body: string; createdAt: number }>;
+  announcements: Array<{
+    id: string;
+    title: string;
+    body: string;
+    createdAt: number;
+    isRead: number;
+  }>;
   leaderboards: Record<
     string,
     Array<{
@@ -134,6 +151,9 @@ export default function StudentDashboard() {
   const visibleAttempts = activeCourseId
     ? (data?.attempts.filter((attempt) => visibleExamIds.has(attempt.examId)) ?? [])
     : (data?.attempts ?? []);
+  const visibleAssignments = activeCourseId
+    ? (data?.assignments.filter((assignment) => assignment.courseId === activeCourseId) ?? [])
+    : (data?.assignments ?? []);
   const visibleAverage = visibleAttempts.length
     ? Math.round(
         visibleAttempts.reduce((sum, item) => sum + percent(item.score, item.maxScore), 0) /
@@ -146,8 +166,39 @@ export default function StudentDashboard() {
           data.attempts.length
       )
     : 0;
+  const markNotificationsRead = useCallback(
+    async (
+      types: Array<'announcement' | 'exam' | 'assignment'> = ['announcement', 'exam', 'assignment']
+    ) => {
+      const response = await fetch('/api/notifications/read', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ types }),
+      });
+      if (!response.ok) return;
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              exams: types.includes('exam')
+                ? current.exams.map((item) => ({ ...item, isRead: 1 }))
+                : current.exams,
+              assignments: types.includes('assignment')
+                ? current.assignments.map((item) => ({ ...item, isRead: 1 }))
+                : current.assignments,
+              announcements: types.includes('announcement')
+                ? current.announcements.map((item) => ({ ...item, isRead: 1 }))
+                : current.announcements,
+            }
+          : current
+      );
+    },
+    []
+  );
   const navigate = (next: View, courseId?: string) => {
     if (courseId !== undefined) setActiveCourseId(courseId);
+    if (next === 'exams') void markNotificationsRead(['exam']);
+    if (next === 'assignments') void markNotificationsRead(['assignment']);
     setView(next);
     setMobileMenu(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -179,6 +230,10 @@ export default function StudentDashboard() {
 
   const displayName = data.user.profile?.name || data.user.displayName;
   const pendingCount = data.enrollments.filter((item) => item.status === 'pending').length;
+  const unreadCount =
+    data.exams.filter((item) => !item.isRead).length +
+    data.assignments.filter((item) => !item.isRead).length +
+    data.announcements.filter((item) => !item.isRead).length;
   const sidebar = (
     <aside
       className={`student-sidebar ${mobileMenu ? 'is-open' : ''}`}
@@ -238,7 +293,9 @@ export default function StudentDashboard() {
         <button className={view === 'exams' ? 'active' : ''} onClick={() => navigate('exams', '')}>
           <ClipboardCheck />
           <span>الامتحانات</span>
-          {data.exams.length > 0 && <b>{data.exams.length}</b>}
+          {data.exams.filter((item) => !item.isRead).length > 0 && (
+            <b>{data.exams.filter((item) => !item.isRead).length}</b>
+          )}
         </button>
         <button
           className={view === 'assignments' ? 'active' : ''}
@@ -246,6 +303,9 @@ export default function StudentDashboard() {
         >
           <FileText />
           <span>الواجبات</span>
+          {data.assignments.filter((item) => !item.isRead).length > 0 && (
+            <b>{data.assignments.filter((item) => !item.isRead).length}</b>
+          )}
         </button>
         <button
           className={view === 'grades' ? 'active' : ''}
@@ -323,9 +383,17 @@ export default function StudentDashboard() {
                             : 'الأمان وكلمة السر'}
             </strong>
           </div>
-          <button className="notification-button" aria-label="الإشعارات">
+          <button
+            className="notification-button"
+            aria-label="الإشعارات"
+            title={unreadCount ? `${unreadCount} إشعارات جديدة` : 'لا توجد إشعارات جديدة'}
+            onClick={() => {
+              navigate('home');
+              void markNotificationsRead();
+            }}
+          >
             <Bell />
-            {data.announcements.length > 0 && <i />}
+            {unreadCount > 0 && <i />}
           </button>
         </header>
         {view === 'home' && (
@@ -495,6 +563,7 @@ export default function StudentDashboard() {
                   {data.announcements.slice(0, 3).map((item) => (
                     <article key={item.id}>
                       <strong>{item.title}</strong>
+                      {!item.isRead && <small className="status-pill status-pending">جديد</small>}
                       <p>{item.body}</p>
                     </article>
                   ))}
@@ -622,11 +691,36 @@ export default function StudentDashboard() {
             title="الواجبات"
             description="مكان واحد لمتابعة واجبات كل كورس ونتائج التصحيح."
           >
-            <EmptyPanel
-              icon={<FileText />}
-              title="لا توجد واجبات مطلوبة الآن"
-              text="أي واجب جديد يضيفه المدرس سيظهر هنا مع موعد التسليم والدرجة."
-            />
+            {visibleAssignments.length ? (
+              <div className="full-list">
+                {visibleAssignments.map((assignment) => (
+                  <article className="exam-row detailed" key={assignment.id}>
+                    <span className="exam-date">
+                      <FileText />
+                      <small>واجب</small>
+                    </span>
+                    <div className="exam-copy">
+                      <strong>{assignment.title}</strong>
+                      <small>
+                        {assignment.courseTitle} ·{' '}
+                        {assignment.dueAt
+                          ? `التسليم ${new Date(assignment.dueAt).toLocaleString('ar-EG')}`
+                          : 'بدون موعد تسليم'}
+                        {assignment.maxScore > 0 ? ` · ${assignment.maxScore} درجة` : ''}
+                      </small>
+                      {assignment.description && <p>{assignment.description}</p>}
+                    </div>
+                    {!assignment.isRead && <span className="status-pill status-pending">جديد</span>}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <EmptyPanel
+                icon={<FileText />}
+                title="لا توجد واجبات مطلوبة الآن"
+                text="أي واجب جديد يضيفه المدرس سيظهر هنا مع موعد التسليم والدرجة."
+              />
+            )}
           </ListPage>
         )}
         {view === 'grades' && (
@@ -989,6 +1083,7 @@ function ExamRow({
       </span>
       <div className="exam-copy">
         <strong>{exam.title}</strong>
+        {!exam.isRead && <span className="status-pill status-pending">جديد</span>}
         <small>
           {exam.courseTitle || 'امتحان عام'} · {attemptsLeft} محاولات متبقية
         </small>

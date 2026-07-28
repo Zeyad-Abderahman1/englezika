@@ -25,58 +25,42 @@ export async function checkRateLimit(
   windowSeconds: number
 ): Promise<RateLimitResult> {
   const safeWindow = Number.isFinite(windowSeconds) && windowSeconds > 0 ? windowSeconds : 60;
+  const safeMaximum = Number.isSafeInteger(maxRequests) && maxRequests > 0 ? maxRequests : 1;
   const now = Date.now();
   const resetAt = now + Math.round(safeWindow * 1000);
-  const key = `ratelimit:${action}:${identifier}`;
+  const key = `ratelimit:${action.slice(0, 64)}:${identifier.slice(0, 160)}`;
 
   await ensureDatabase();
   const db = getD1();
 
-  try {
-    await db
-      .prepare('DELETE FROM rate_limits WHERE key = ? OR reset_at IS NULL OR reset_at < ?;')
-      .bind(key, now)
-      .run();
-  } catch {
-    await db
-      .prepare('DROP TABLE IF EXISTS rate_limits;')
-      .run()
-      .catch(() => {});
-    await db
-      .prepare(
-        'CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 1, reset_at INTEGER NOT NULL DEFAULT 0);'
-      )
-      .run()
-      .catch(() => {});
-  }
-
   const current = await db
-    .prepare('SELECT count, reset_at AS resetAt FROM rate_limits WHERE key = ?')
-    .bind(key)
+    .prepare(
+      `INSERT INTO rate_limits (key, count, reset_at) VALUES (?, 1, ?)
+       ON CONFLICT(key) DO UPDATE SET
+         count = CASE
+           WHEN rate_limits.reset_at <= ? THEN 1
+           ELSE rate_limits.count + 1
+         END,
+         reset_at = CASE
+           WHEN rate_limits.reset_at <= ? THEN excluded.reset_at
+           ELSE rate_limits.reset_at
+         END
+       RETURNING count, reset_at AS resetAt`
+    )
+    .bind(key, resetAt, now, now)
     .first<{ count: number; resetAt: number }>();
+
+  if (!current) throw new Error('Rate limiter failed to persist its counter');
 
   const effectiveMax =
     identifier === '127.0.0.1' || identifier === '::1' || process.env.NODE_ENV !== 'production'
-      ? Math.max(maxRequests, 30)
-      : maxRequests;
+      ? Math.max(safeMaximum, 30)
+      : safeMaximum;
 
-  if (!current) {
-    await db
-      .prepare('INSERT INTO rate_limits (key, count, reset_at) VALUES (?, 1, ?)')
-      .bind(key, resetAt)
-      .run();
+  const requestCount = Number(current.count || 0);
+  const remainingSeconds = Math.max(1, Math.ceil((current.resetAt - now) / 1000));
 
-    return {
-      allowed: true,
-      remaining: effectiveMax - 1,
-      resetAfterSeconds: safeWindow,
-    };
-  }
-
-  const newCount = Number(current.count || 0) + 1;
-  const remainingSeconds = Math.max(1, Math.ceil(((current.resetAt || resetAt) - now) / 1000));
-
-  if (newCount > effectiveMax) {
+  if (requestCount > effectiveMax) {
     return {
       allowed: false,
       remaining: 0,
@@ -84,14 +68,9 @@ export async function checkRateLimit(
     };
   }
 
-  await db
-    .prepare('UPDATE rate_limits SET count = ?, reset_at = ? WHERE key = ?')
-    .bind(newCount, current.resetAt || resetAt, key)
-    .run();
-
   return {
     allowed: true,
-    remaining: Math.max(0, maxRequests - newCount),
+    remaining: Math.max(0, effectiveMax - requestCount),
     resetAfterSeconds: remainingSeconds,
   };
 }

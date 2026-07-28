@@ -1,4 +1,6 @@
 import { getPlatformEnv } from './platform';
+import { getBootstrapStaffConfig } from './bootstrap-config';
+import { validateEmailConfiguration } from './email-config';
 
 export type EnvValidationResult = {
   valid: boolean;
@@ -28,6 +30,14 @@ export function validatePlatformEnv(): EnvValidationResult {
       "Required secret 'VERIFICATION_SECRET' (or 'SESSION_SECRET') is missing or too short (< 24 characters)"
     );
   }
+
+  try {
+    getBootstrapStaffConfig(env);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : 'Initial staff bootstrap is invalid');
+  }
+
+  errors.push(...validateEmailConfiguration(env, process.env.NODE_ENV));
 
   return {
     valid: errors.length === 0,

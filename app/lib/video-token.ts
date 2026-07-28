@@ -1,4 +1,5 @@
 export const VIDEO_EMBED_TOKEN_TTL_MS = 3 * 60_000;
+export const VIDEO_COMPLETION_TOKEN_AFTER_READY_TTL_MS = 24 * 60 * 60_000;
 
 function normalizedEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -80,6 +81,66 @@ export async function verifySignedVideoToken(
     return (
       decoded.email === normalizedEmail(email) &&
       decoded.videoId === videoId &&
+      typeof decoded.expiresAt === 'number' &&
+      decoded.expiresAt > now
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function requiredVideoWatchMs(durationSeconds: number): number {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return 30_000;
+  return Math.max(1_000, Math.ceil(durationSeconds * 0.9) * 1000);
+}
+
+export async function createSignedVideoCompletionToken(
+  secret: string,
+  email: string,
+  videoId: string,
+  durationSeconds: number,
+  now = Date.now()
+): Promise<string> {
+  const nonce = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(12)));
+  const notBefore = now + requiredVideoWatchMs(durationSeconds);
+  const payload = textToBase64Url(
+    JSON.stringify({
+      purpose: 'video-completion',
+      email: normalizedEmail(email),
+      videoId,
+      notBefore,
+      expiresAt: notBefore + VIDEO_COMPLETION_TOKEN_AFTER_READY_TTL_MS,
+      nonce,
+    })
+  );
+  return `${payload}.${await sign(secret, payload)}`;
+}
+
+export async function verifySignedVideoCompletionToken(
+  secret: string,
+  token: string,
+  email: string,
+  videoId: string,
+  now = Date.now()
+): Promise<boolean> {
+  const [payload, suppliedSignature, extra] = token.split('.');
+  if (!payload || !suppliedSignature || extra) return false;
+  const expectedSignature = await sign(secret, payload);
+  if (!constantTimeEqual(suppliedSignature, expectedSignature)) return false;
+  try {
+    const decoded = JSON.parse(base64UrlToText(payload)) as {
+      purpose?: string;
+      email?: string;
+      videoId?: string;
+      notBefore?: number;
+      expiresAt?: number;
+    };
+    return (
+      decoded.purpose === 'video-completion' &&
+      decoded.email === normalizedEmail(email) &&
+      decoded.videoId === videoId &&
+      typeof decoded.notBefore === 'number' &&
+      decoded.notBefore <= now &&
       typeof decoded.expiresAt === 'number' &&
       decoded.expiresAt > now
     );

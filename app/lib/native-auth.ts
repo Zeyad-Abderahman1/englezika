@@ -208,11 +208,10 @@ export async function registerStudent(data: {
   return 'ok';
 }
 
-/** Update a student's password after code verification. Resets lockout counters. Auto-creates user if new. */
+/** Update an existing student's password and revoke every active session. */
 export async function updateStudentPassword(email: string, newPassword: string): Promise<boolean> {
   await ensureDatabase();
   const normalized = email.trim().toLowerCase();
-  const student = await findStudentByEmail(normalized);
   const { hash, salt, iterations } = await hashPassword(
     newPassword,
     undefined,
@@ -220,25 +219,18 @@ export async function updateStudentPassword(email: string, newPassword: string):
   );
   const now = Date.now();
 
-  if (student) {
-    await getD1()
+  const db = getD1();
+  const [passwordUpdate] = await db.batch([
+    db
       .prepare(
         `UPDATE users
        SET password_hash = ?, password_salt = ?, password_iterations = ?,
            failed_attempts = 0, locked_until = NULL, updated_at = ?
-       WHERE email = ?`
+       WHERE email = ? AND role = 'student'`
       )
-      .bind(hash, salt, iterations, now, normalized)
-      .run();
-  } else {
-    await getD1()
-      .prepare(
-        `INSERT INTO users (email, name, password_hash, password_salt, password_iterations, role, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'student', ?, ?)`
-      )
-      .bind(normalized, normalized.split('@')[0], hash, salt, iterations, now, now)
-      .run();
-  }
+      .bind(hash, salt, iterations, now, normalized),
+    db.prepare('DELETE FROM native_sessions WHERE email = ?').bind(normalized),
+  ]);
 
-  return true;
+  return passwordUpdate.meta.changes === 1;
 }

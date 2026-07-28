@@ -1,10 +1,12 @@
+import { isEmailTestMode } from '../../../lib/email-verification';
 import {
-  createVerificationCode,
-  hashVerificationCode,
-  saveVerificationCode,
-  sendVerificationEmail,
-  isEmailTestMode,
-} from '../../../lib/email-verification';
+  createPasswordResetCode,
+  hashPasswordResetCode,
+  invalidatePasswordResetCode,
+  recordPasswordResetDelivery,
+  savePasswordResetCode,
+  sendPasswordResetEmail,
+} from '../../../lib/password-reset';
 import { checkRateLimit } from '../../../lib/rate-limit';
 
 function jsonResponse(data: Record<string, unknown>, status = 200): Response {
@@ -32,17 +34,20 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const now = Date.now();
-    const code = createVerificationCode();
-    const codeHash = await hashVerificationCode(rawEmail, code);
+    const code = createPasswordResetCode();
+    const codeHash = await hashPasswordResetCode(rawEmail, code);
     const idempotencyKey = `reset-${rawEmail}-${now}`;
 
-    try {
-      await saveVerificationCode(rawEmail, codeHash, now);
-    } catch (err) {
-      console.warn('DB saveVerificationCode warning:', err);
-    }
+    await savePasswordResetCode(rawEmail, codeHash, now);
 
-    const deliveryId = await sendVerificationEmail(rawEmail, code, idempotencyKey);
+    let deliveryId: string;
+    try {
+      deliveryId = await sendPasswordResetEmail(rawEmail, code, idempotencyKey);
+      await recordPasswordResetDelivery(rawEmail, codeHash, deliveryId);
+    } catch (error) {
+      await invalidatePasswordResetCode(rawEmail, codeHash).catch(() => {});
+      throw error;
+    }
     const testCode = isEmailTestMode() ? code : undefined;
 
     return jsonResponse({

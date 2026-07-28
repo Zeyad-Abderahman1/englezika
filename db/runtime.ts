@@ -1,6 +1,7 @@
 import { getD1 } from '../app/lib/platform';
 import { getPlatformEnv } from '../app/lib/platform';
 import { STAFF_PRESETS } from '../app/lib/staff-permissions';
+import { getBootstrapStaffConfig } from '../app/lib/bootstrap-config';
 
 let initialization: Promise<void> | null = null;
 
@@ -15,6 +16,11 @@ const schemaStatements = [
     email TEXT PRIMARY KEY, code_hash TEXT NOT NULL, expires_at INTEGER NOT NULL,
     attempts INTEGER NOT NULL DEFAULT 0, sent_at INTEGER NOT NULL,
     verified_at INTEGER, delivery_id TEXT
+  )`,
+  `CREATE TABLE IF NOT EXISTS password_reset_codes (
+    email TEXT PRIMARY KEY, code_hash TEXT NOT NULL, expires_at INTEGER NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0, sent_at INTEGER NOT NULL,
+    consumed_at INTEGER, delivery_id TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS courses (
     id TEXT PRIMARY KEY, title TEXT NOT NULL, grade TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
@@ -94,6 +100,19 @@ const schemaStatements = [
     id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'published', created_at INTEGER NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS assignments (
+    id TEXT PRIMARY KEY, course_id TEXT NOT NULL, title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '', due_at INTEGER, max_score INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'draft', created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS assignments_course_idx ON assignments (course_id)',
+  `CREATE TABLE IF NOT EXISTS notification_reads (
+    user_email TEXT NOT NULL, notification_type TEXT NOT NULL,
+    notification_id TEXT NOT NULL, read_at INTEGER NOT NULL
+  )`,
+  'CREATE UNIQUE INDEX IF NOT EXISTS notification_reads_user_item_idx ON notification_reads (user_email, notification_type, notification_id)',
+  'CREATE INDEX IF NOT EXISTS notification_reads_user_idx ON notification_reads (user_email)',
   `CREATE TABLE IF NOT EXISTS native_sessions (
     session_hash TEXT PRIMARY KEY,
     email TEXT NOT NULL,
@@ -134,6 +153,8 @@ const seedCourses = [
 export function ensureDatabase(): Promise<void> {
   if (initialization) return initialization;
   initialization = (async () => {
+    const env = getPlatformEnv();
+    const initialStaff = getBootstrapStaffConfig(env);
     const db = getD1();
     // Enforce foreign key constraints (DB-04)
     await db
@@ -241,36 +262,21 @@ export function ensureDatabase(): Promise<void> {
           .bind(...course, now, now)
       )
     );
-    const env = getPlatformEnv();
-    const initialEmail = env.INITIAL_STAFF_EMAIL?.trim().toLowerCase() || 'admin@englizeka.com';
-    const initialHash =
-      env.INITIAL_STAFF_PASSWORD_HASH ||
-      '5edd6ddce8c584b61abae1f004bd5ca1e96e9fff09c31f940096ce80591c3f7f';
-    const initialSalt = env.INITIAL_STAFF_PASSWORD_SALT || 'e3c8a797c8950b1e5287fceeb1271069';
-    const initialIter = Number(env.INITIAL_STAFF_PASSWORD_ITERATIONS || '100000');
-
     await db
       .prepare(
         `INSERT INTO staff_users
        (email, name, role, permissions, password_hash, password_salt, password_iterations,
         active, failed_attempts, locked_until, created_by, created_at, updated_at)
        VALUES (?, ?, 'teacher', ?, ?, ?, ?, 1, 0, NULL, 'platform-bootstrap', ?, ?)
-       ON CONFLICT(email) DO UPDATE SET
-         password_hash = excluded.password_hash,
-         password_salt = excluded.password_salt,
-         password_iterations = excluded.password_iterations,
-         failed_attempts = 0,
-         locked_until = NULL,
-         updated_at = excluded.updated_at
-       WHERE staff_users.created_by = 'platform-bootstrap'`
+       ON CONFLICT(email) DO NOTHING`
       )
       .bind(
-        initialEmail,
-        env.INITIAL_STAFF_NAME?.trim() || 'مستر أحمد حسن',
+        initialStaff.email,
+        initialStaff.name,
         JSON.stringify(STAFF_PRESETS.full_access),
-        initialHash,
-        initialSalt,
-        initialIter,
+        initialStaff.passwordHash,
+        initialStaff.passwordSalt,
+        initialStaff.passwordIterations,
         now,
         now
       )

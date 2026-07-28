@@ -1,6 +1,7 @@
 import { ensureDatabase } from '../../db/runtime';
 import { getD1, getPlatformEnv } from './platform';
 import nodemailer from 'nodemailer';
+import { emailTestModeEnabled } from './email-config';
 
 export const VERIFICATION_CODE_TTL_MS = 10 * 60_000;
 export const VERIFICATION_RESEND_MS = 60_000;
@@ -45,16 +46,7 @@ export async function hashVerificationCode(email: string, code: string): Promise
 }
 
 export function isEmailTestMode(): boolean {
-  const env = getPlatformEnv();
-  const hasKey =
-    Boolean(env.GMAIL_USER?.trim() && env.GMAIL_APP_PASSWORD?.trim()) ||
-    Boolean(
-      (env.SERVERSMTP_CONSUMER_KEY || env.TURBO_SMTP_CONSUMER_KEY) &&
-      (env.SERVERSMTP_CONSUMER_SECRET || env.TURBO_SMTP_CONSUMER_SECRET)
-    ) ||
-    Boolean(env.RESEND_API_KEY?.trim());
-
-  return env.EMAIL_TEST_MODE === 'true' || !hasKey;
+  return emailTestModeEnabled(getPlatformEnv());
 }
 
 export async function isEmailVerified(email: string): Promise<boolean> {
@@ -213,9 +205,10 @@ export async function sendVerificationEmail(
   const consumerSecret =
     env.SERVERSMTP_CONSUMER_SECRET?.trim() || env.TURBO_SMTP_CONSUMER_SECRET?.trim();
   const resendApiKey = env.RESEND_API_KEY?.trim();
-  const from = env.EMAIL_FROM?.trim() || 'verify@englizeka.com';
+  const from = env.EMAIL_FROM?.trim();
 
   if (consumerKey && consumerSecret) {
+    if (!from) throw new Error('EMAIL_FROM is not configured');
     const fromAddr = from.includes('<') ? from.split('<')[1].replace('>', '').trim() : from;
     const response = await fetch('https://api.turbo-smtp.com/api/v2/mail/send', {
       method: 'POST',
@@ -251,6 +244,7 @@ export async function sendVerificationEmail(
   }
 
   if (resendApiKey) {
+    if (!from) throw new Error('EMAIL_FROM is not configured');
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {

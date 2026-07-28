@@ -1,6 +1,7 @@
 export const STAFF_PERMISSIONS = [
   'manage_courses',
   'manage_exams',
+  'manage_assignments',
   'manage_videos',
   'manage_enrollments',
   'grade_exams',
@@ -16,7 +17,7 @@ export type StaffPreset = 'full_access' | 'grader' | 'course_manager' | 'enrollm
 export const STAFF_PRESETS: Record<StaffPreset, StaffPermission[]> = {
   full_access: [...STAFF_PERMISSIONS],
   grader: ['grade_exams', 'view_students'],
-  course_manager: ['manage_courses', 'manage_exams', 'manage_videos'],
+  course_manager: ['manage_courses', 'manage_exams', 'manage_assignments', 'manage_videos'],
   enrollment_manager: ['manage_enrollments', 'view_students'],
 };
 

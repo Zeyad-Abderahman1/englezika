@@ -21,7 +21,7 @@ type ExamPayload = {
     durationMinutes: number;
     passingScore: number;
   };
-  session: { startedAt: number; expiresAt: number };
+  session: { id: string; startedAt: number; expiresAt: number };
   questions: Question[];
 };
 type Result = {
@@ -108,7 +108,7 @@ export default function QuizRunner({ examId }: { examId: string }) {
     const response = await fetch(`/api/exams/${examId}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ answers }),
+      body: JSON.stringify({ sessionId: payload.session.id, answers }),
     });
     const data = (await response.json().catch(() => ({}))) as Result & { error?: string };
     setSubmitting(false);

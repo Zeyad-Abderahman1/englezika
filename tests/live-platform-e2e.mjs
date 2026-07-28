@@ -82,6 +82,19 @@ const course = await call('/api/admin/courses', {
 });
 expectStatus(course, 200, 'teacher creates course');
 const courseId = course.result.id;
+const editedCourseTitle = `Edited E2E Course ${suffix}`;
+const editedCourse = await call(`/api/admin/courses/${courseId}`, {
+  method: 'PATCH',
+  cookie: teacherLogin.cookie,
+  json: {
+    title: editedCourseTitle,
+    grade: 'تالتة ثانوي',
+    description: 'Edited from the teacher dashboard',
+    price: 175,
+    status: 'published',
+  },
+});
+expectStatus(editedCourse, 200, 'teacher edits any course');
 
 const exam = await call('/api/admin/exams', {
   method: 'POST',
@@ -107,6 +120,49 @@ const exam = await call('/api/admin/exams', {
 });
 expectStatus(exam, 200, 'teacher creates quiz');
 const examId = exam.result.id;
+const editedExam = await call(`/api/admin/exams/${examId}`, {
+  method: 'PATCH',
+  cookie: teacherLogin.cookie,
+  json: {
+    title: `Edited Lesson Quiz ${suffix}`,
+    courseId,
+    description: 'Updated exam alert details',
+    instructions: 'Read every question carefully',
+    durationMinutes: 12,
+    passingScore: 50,
+    maxAttempts: 3,
+    status: 'published',
+  },
+});
+expectStatus(editedExam, 200, 'teacher edits exam details');
+
+const announcement = await call('/api/admin/announcements', {
+  method: 'POST',
+  cookie: teacherLogin.cookie,
+  json: { title: `E2E Alert ${suffix}`, body: 'Original notification body' },
+});
+expectStatus(announcement, 200, 'teacher creates an alert');
+const editedAnnouncement = await call(`/api/admin/announcements/${announcement.result.id}`, {
+  method: 'PATCH',
+  cookie: teacherLogin.cookie,
+  json: { title: `Edited E2E Alert ${suffix}`, body: 'Updated notification body' },
+});
+expectStatus(editedAnnouncement, 200, 'teacher edits an alert');
+
+const assignment = await call('/api/admin/assignments', {
+  method: 'POST',
+  cookie: teacherLogin.cookie,
+  json: {
+    courseId,
+    title: `Homework ${suffix}`,
+    description: 'Complete the revision worksheet',
+    dueAt: Date.now() + 86_400_000,
+    maxScore: 20,
+    status: 'published',
+  },
+});
+expectStatus(assignment, 200, 'teacher creates a course assignment');
+const assignmentId = assignment.result.id;
 
 const video = await call('/api/admin/videos', {
   method: 'POST',
@@ -115,37 +171,56 @@ const video = await call('/api/admin/videos', {
     'content-type': 'video/mp4',
     'x-course-id': courseId,
     'x-video-title': encodeURIComponent(`Protected lesson ${suffix}`),
-    'x-video-duration': '60',
-    'x-prerequisite-exam-id': examId,
-    'x-minimum-score': '50',
+    'x-video-duration': '1',
   },
   body: new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112]),
 });
 expectStatus(video, 200, 'teacher uploads gated lesson');
 const videoId = video.result.id;
+const lessonGate = await call(`/api/admin/videos/${videoId}`, {
+  method: 'PATCH',
+  cookie: teacherLogin.cookie,
+  json: {
+    title: `Protected lesson ${suffix}`,
+    prerequisiteExamId: examId,
+    minimumScore: 70,
+    status: 'published',
+  },
+});
+expectStatus(lessonGate, 200, 'teacher places an exam with a pass percentage before a lesson');
 
 const studentEmail = `student-${suffix}@example.test`;
 const studentPassword = 'Student!2026';
+const registrationForm = new FormData();
+for (const [key, value] of Object.entries({
+  email: studentEmail,
+  password: studentPassword,
+  password_confirm: studentPassword,
+  first_name: 'Test',
+  second_name: 'Student',
+  third_name: '',
+  last_name: suffix,
+  phone: '01000000001',
+  father_phone: '01000000002',
+  mother_phone: '01000000003',
+  school_name: 'E2E School',
+  parent_job: 'Tester',
+  governorate: 'القاهرة',
+  gender: 'ذكر',
+  grade: 'تالتة ثانوي',
+  section: 'علمي علوم',
+  account_use_agreement: 'accepted',
+})) {
+  registrationForm.set(key, value);
+}
+registrationForm.set(
+  'birth_certificate',
+  new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], { type: 'image/png' }),
+  'certificate.png'
+);
 const studentRegistration = await call('/api/auth/register', {
   method: 'POST',
-  json: {
-    email: studentEmail,
-    password: studentPassword,
-    password_confirm: studentPassword,
-    first_name: 'Test',
-    second_name: 'Student',
-    third_name: '',
-    last_name: suffix,
-    phone: '01000000001',
-    father_phone: '01000000002',
-    mother_phone: '01000000003',
-    school_name: 'E2E School',
-    parent_job: 'Tester',
-    governorate: 'القاهرة',
-    gender: 'ذكر',
-    grade: 'تالتة ثانوي',
-    section: 'علمي علوم',
-  },
+  body: registrationForm,
 });
 expectStatus(studentRegistration, 200, 'student registration creates application session');
 assert.ok(studentRegistration.cookie);
@@ -183,23 +258,64 @@ const approved = await call(`/api/admin/enrollments/${enrollmentRow.id}`, {
 });
 expectStatus(approved, 200, 'teacher approves payment');
 
+const notificationsBeforeRead = await call('/api/dashboard', { cookie: studentCookie });
+expectStatus(notificationsBeforeRead, 200, 'student receives assignments and alerts');
+assert.equal(
+  notificationsBeforeRead.result.assignments.find((item) => item.id === assignmentId)?.isRead,
+  0
+);
+assert.equal(notificationsBeforeRead.result.exams.find((item) => item.id === examId)?.isRead, 0);
+assert.ok(notificationsBeforeRead.result.announcements.some((item) => item.isRead === 0));
+const markNotificationsRead = await call('/api/notifications/read', {
+  method: 'POST',
+  cookie: studentCookie,
+  json: {},
+});
+expectStatus(markNotificationsRead, 200, 'student marks visible notifications read');
+const notificationsAfterRead = await call('/api/dashboard', { cookie: studentCookie });
+assert.equal(
+  notificationsAfterRead.result.assignments.find((item) => item.id === assignmentId)?.isRead,
+  1
+);
+assert.equal(notificationsAfterRead.result.exams.find((item) => item.id === examId)?.isRead, 1);
+assert.ok(notificationsAfterRead.result.announcements.every((item) => item.isRead === 1));
+
 const lockedVideo = await call(`/api/videos/${videoId}`, { cookie: studentCookie });
 expectStatus(lockedVideo, 403, 'lesson blocked before quiz');
 assert.equal(lockedVideo.result.code, 'LESSON_QUIZ_REQUIRED');
 
 const openedExam = await call(`/api/exams/${examId}`, { cookie: studentCookie });
 expectStatus(openedExam, 200, 'student opens quiz');
+const resumedExam = await call(`/api/exams/${examId}`, { cookie: studentCookie });
+expectStatus(resumedExam, 200, 'student resumes quiz');
+assert.equal(resumedExam.result.session.id, openedExam.result.session.id);
+assert.equal(resumedExam.result.session.expiresAt, openedExam.result.session.expiresAt);
 const questionId = openedExam.result.questions[0].id;
 const submitted = await call(`/api/exams/${examId}`, {
   method: 'POST',
   cookie: studentCookie,
-  json: { answers: { [questionId]: 'A' } },
+  json: { sessionId: openedExam.result.session.id, answers: { [questionId]: 'A' } },
 });
 expectStatus(submitted, 200, 'student submits quiz');
 assert.equal(submitted.result.passed, true);
 
 const unlockedVideo = await call(`/api/videos/${videoId}`, { cookie: studentCookie });
 expectStatus(unlockedVideo, 200, 'lesson unlocked after quiz');
+const resolvedVideo = await call(`/api/videos/${videoId}/resolve`, { cookie: studentCookie });
+expectStatus(resolvedVideo, 200, 'student resolves completion proof');
+const earlyCompletion = await call(`/api/videos/${videoId}/complete`, {
+  method: 'POST',
+  cookie: studentCookie,
+  json: { completionToken: resolvedVideo.result.completionToken },
+});
+expectStatus(earlyCompletion, 403, 'lesson cannot complete before required watch time');
+await new Promise((resolve) => setTimeout(resolve, 1100));
+const completedVideo = await call(`/api/videos/${videoId}/complete`, {
+  method: 'POST',
+  cookie: studentCookie,
+  json: { completionToken: resolvedVideo.result.completionToken },
+});
+expectStatus(completedVideo, 200, 'signed lesson completion proof succeeds after watch time');
 const studentLogout = await call('/student/logout', { cookie: studentCookie });
 expectStatus(studentLogout, 303, 'student logout');
 assert.ok(studentLogout.cookie);
@@ -236,6 +352,12 @@ const graderCourse = await call('/api/admin/courses', {
   json: { title: 'Forbidden course', grade: 'أولى ثانوي' },
 });
 expectStatus(graderCourse, 403, 'grader cannot create courses');
+const graderAssignment = await call('/api/admin/assignments', {
+  method: 'POST',
+  cookie: graderLogin.cookie,
+  json: { courseId, title: 'Forbidden assignment' },
+});
+expectStatus(graderAssignment, 403, 'grader cannot create assignments');
 
 const managerEmail = `manager-${suffix}@staff.test`;
 const createManager = await call('/api/admin/staff', {
@@ -261,6 +383,17 @@ const managerCourse = await call('/api/admin/courses', {
   json: { title: `Manager Course ${suffix}`, grade: 'أولى ثانوي', status: 'draft' },
 });
 expectStatus(managerCourse, 200, 'course manager can create courses');
+const managerAssignment = await call('/api/admin/assignments', {
+  method: 'POST',
+  cookie: managerLogin.cookie,
+  json: {
+    courseId,
+    title: `Assistant Homework ${suffix}`,
+    description: 'Created by an authorized assistant',
+    status: 'published',
+  },
+});
+expectStatus(managerAssignment, 200, 'course manager assistant can create assignments');
 const managerGrade = await call(`/api/admin/attempts/${submitted.result.attemptId}`, {
   method: 'PATCH',
   cookie: managerLogin.cookie,
@@ -268,4 +401,51 @@ const managerGrade = await call(`/api/admin/attempts/${submitted.result.attemptI
 });
 expectStatus(managerGrade, 403, 'course manager cannot edit grades');
 
-console.log('E2E PASS: student, payment, quiz gate, secure video, staff auth, and permissions');
+const preResetLogin = await call('/api/auth/login', {
+  method: 'POST',
+  json: { email: studentEmail, password: studentPassword },
+});
+expectStatus(preResetLogin, 200, 'student signs in before password reset');
+const resetRequest = await call('/api/auth/forgot-password', {
+  method: 'POST',
+  json: { email: studentEmail },
+});
+expectStatus(resetRequest, 200, 'student requests a purpose-specific reset code');
+assert.match(resetRequest.result.testCode, /^\d{6}$/);
+const newStudentPassword = 'NewStudent!2026';
+const resetPassword = await call('/api/auth/reset-password', {
+  method: 'POST',
+  json: {
+    email: studentEmail,
+    code: resetRequest.result.testCode,
+    new_password: newStudentPassword,
+  },
+});
+expectStatus(resetPassword, 200, 'student consumes reset code once');
+const replayReset = await call('/api/auth/reset-password', {
+  method: 'POST',
+  json: {
+    email: studentEmail,
+    code: resetRequest.result.testCode,
+    new_password: 'ReplayBlocked!2026',
+  },
+});
+expectStatus(replayReset, 400, 'password reset code replay is rejected');
+const revokedSession = await call('/api/dashboard', { cookie: preResetLogin.cookie });
+expectStatus(revokedSession, 401, 'password reset revokes existing sessions');
+const postResetLogin = await call('/api/auth/login', {
+  method: 'POST',
+  json: { email: studentEmail, password: newStudentPassword },
+});
+expectStatus(postResetLogin, 200, 'new student password works');
+
+const accountDeletion = await call('/api/users/me', {
+  method: 'DELETE',
+  cookie: postResetLogin.cookie,
+  json: { password: newStudentPassword },
+});
+expectStatus(accountDeletion, 200, 'student account and birth certificate are deleted');
+
+console.log(
+  'E2E PASS: auth, reset, course/exam editing, assignments, read notifications, payment, quiz timing/gate, completion proof, storage deletion, and staff permissions'
+);

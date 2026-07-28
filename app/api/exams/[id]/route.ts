@@ -3,6 +3,11 @@ import { apiVerifiedUser, isResponse } from '../../../lib/api-auth';
 import { gradeWrittenAnswers, type WrittenGradingInput } from '../../../lib/grading';
 import { getD1 } from '../../../lib/platform';
 import { jsonError, requireSameOrigin, safeText } from '../../../lib/security';
+import {
+  claimExamSession,
+  releaseExamSessionClaim,
+  startOrResumeExamSession,
+} from '../../../lib/exam-session';
 
 type QuestionRow = {
   id: string;
@@ -44,12 +49,19 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if (exam.closesAt && Number(exam.closesAt) < now)
     return jsonError('انتهى وقت إتاحة الامتحان', 403);
   const email = user.email.toLowerCase();
-  const attemptCount = await getD1()
-    .prepare('SELECT COUNT(*) AS count FROM attempts WHERE exam_id = ? AND user_email = ?')
-    .bind(id, email)
-    .first<{ count: number }>();
-  if (Number(attemptCount?.count || 0) >= Number(exam.maxAttempts || 3)) {
+  const sessionResult = await startOrResumeExamSession(
+    getD1(),
+    id,
+    email,
+    Number(exam.durationMinutes || 30),
+    Number(exam.maxAttempts || 3),
+    now
+  );
+  if (sessionResult.kind === 'attempt_limit') {
     return jsonError('انتهى عدد المحاولات المتاحة لهذا الاختبار', 409);
+  }
+  if (sessionResult.kind === 'busy') {
+    return jsonError('جاري تسليم هذا الامتحان', 409);
   }
   const result = await getD1()
     .prepare(
@@ -58,27 +70,9 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     )
     .bind(id)
     .all();
-  const sessionId = crypto.randomUUID();
-  const startedAt = Date.now();
-  const expiresAt = startedAt + Number(exam.durationMinutes || 30) * 60_000;
-  await getD1()
-    .prepare(
-      `INSERT INTO exam_sessions (id, exam_id, user_email, started_at, expires_at, status)
-     VALUES (?, ?, ?, ?, ?, 'active')
-     ON CONFLICT(exam_id, user_email) DO UPDATE SET id = excluded.id,
-     started_at = excluded.started_at, expires_at = excluded.expires_at, status = 'active'`
-    )
-    .bind(sessionId, id, email, startedAt, expiresAt)
-    .run();
-  const session = await getD1()
-    .prepare(
-      'SELECT id, started_at AS startedAt, expires_at AS expiresAt, status FROM exam_sessions WHERE exam_id = ? AND user_email = ?'
-    )
-    .bind(id, email)
-    .first();
   return Response.json({
     exam,
-    session,
+    session: sessionResult.session,
     questions: result.results.map((question) => ({
       ...question,
       options: question.options ? JSON.parse(String(question.options)) : [],
@@ -106,16 +100,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (Number(attemptCount?.count || 0) >= Number(exam.maxAttempts || 3)) {
     return jsonError('انتهى عدد المحاولات المتاحة لهذا الاختبار', 409);
   }
+  const payload = (await request.json().catch(() => ({}))) as {
+    sessionId?: string;
+    answers?: Record<string, unknown>;
+  };
+  const sessionId = safeText(payload.sessionId, 100);
+  if (!sessionId) return jsonError('جلسة الامتحان مطلوبة', 400);
   const session = await getD1()
     .prepare(
-      'SELECT id, started_at AS startedAt, expires_at AS expiresAt, status FROM exam_sessions WHERE exam_id = ? AND user_email = ?'
+      `SELECT id, started_at AS startedAt, expires_at AS expiresAt, status
+       FROM exam_sessions WHERE id = ? AND exam_id = ? AND user_email = ?`
     )
-    .bind(id, email)
+    .bind(sessionId, id, email)
     .first<{ id: string; startedAt: number; expiresAt: number; status: string }>();
   if (!session || session.status !== 'active')
     return jsonError('جلسة الامتحان غير صالحة، افتح الامتحان من حسابك', 409);
-  if (now > Number(session.expiresAt) + 120_000) return jsonError('انتهى وقت الامتحان', 408);
-  const payload = (await request.json().catch(() => ({}))) as { answers?: Record<string, unknown> };
+  if (now > Number(session.expiresAt)) return jsonError('انتهى وقت الامتحان', 408);
   const answers = payload.answers && typeof payload.answers === 'object' ? payload.answers : {};
   const questionResult = await getD1()
     .prepare(
@@ -171,37 +171,61 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const score = allAnswers.reduce((total, item) => total + item.score, 0);
   const maxScore = questionResult.results.reduce((total, question) => total + question.points, 0);
   const percentage = maxScore ? Math.round((score / maxScore) * 100) : 0;
+  const submittedAt = Date.now();
+  const claimedSession = await claimExamSession(getD1(), sessionId, id, email, submittedAt);
+  if (!claimedSession) {
+    return jsonError('جلسة الامتحان انتهت أو تم تسليمها', 409);
+  }
   const attemptId = crypto.randomUUID();
-  const startedAt = Number(session.startedAt);
+  const startedAt = Number(claimedSession.startedAt);
   const feedback =
     percentage >= Number(exam.passingScore || 50)
       ? 'أداء ممتاز، استمر على نفس المستوى.'
       : 'راجع ملاحظات كل سؤال ثم حاول تثبيت النقاط التي فقدتها.';
   const db = getD1();
-  await db.batch([
-    db
-      .prepare(
-        `INSERT INTO attempts
-       (id, exam_id, user_email, status, score, max_score, feedback, grading_method, started_at, submitted_at)
-       VALUES (?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(attemptId, id, email, score, maxScore, feedback, written.method, startedAt, now),
-    ...allAnswers.map((item) =>
+  try {
+    await db.batch([
       db
         .prepare(
-          'INSERT INTO answers (id, attempt_id, question_id, answer, score, feedback) VALUES (?, ?, ?, ?, ?, ?)'
+          `INSERT INTO attempts
+       (id, exam_id, user_email, status, score, max_score, feedback, grading_method, started_at, submitted_at)
+       VALUES (?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?)`
         )
         .bind(
-          crypto.randomUUID(),
           attemptId,
-          item.question.id,
-          item.answer,
-          item.score,
-          item.feedback
+          id,
+          email,
+          score,
+          maxScore,
+          feedback,
+          written.method,
+          startedAt,
+          submittedAt
+        ),
+      ...allAnswers.map((item) =>
+        db
+          .prepare(
+            'INSERT INTO answers (id, attempt_id, question_id, answer, score, feedback) VALUES (?, ?, ?, ?, ?, ?)'
+          )
+          .bind(
+            crypto.randomUUID(),
+            attemptId,
+            item.question.id,
+            item.answer,
+            item.score,
+            item.feedback
+          )
+      ),
+      db
+        .prepare(
+          "UPDATE exam_sessions SET status = 'submitted' WHERE id = ? AND status = 'submitting'"
         )
-    ),
-    db.prepare("UPDATE exam_sessions SET status = 'submitted' WHERE id = ?").bind(session.id),
-  ]);
+        .bind(claimedSession.id),
+    ]);
+  } catch (error) {
+    await releaseExamSessionClaim(db, claimedSession.id).catch(() => {});
+    throw error;
+  }
   return Response.json({
     attemptId,
     score,

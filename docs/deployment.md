@@ -21,19 +21,19 @@
 All variables go in `.env.local` for local development.
 For production they are set as **Cloudflare Workers Secrets** (see CI/CD section).
 
-| Variable                            | Required | Description                                                                         |
-| ----------------------------------- | -------- | ----------------------------------------------------------------------------------- |
-| `RESEND_API_KEY`                    | Yes      | API key from [resend.com](https://resend.com) for transactional email               |
-| `EMAIL_FROM`                        | Yes      | Sender address, e.g. `Englizeka <verify@englizeka.com>`                             |
-| `VERIFICATION_SECRET`               | Yes      | Long random string (≥ 32 chars) used to hash verification codes. **Never commit.**  |
-| `INITIAL_STAFF_EMAIL`               | Yes      | Email address for the first teacher/admin account                                   |
-| `INITIAL_STAFF_NAME`                | No       | Display name for the initial account (default: `مستر أحمد حسن`)                     |
-| `INITIAL_STAFF_PASSWORD_HASH`       | Yes      | PBKDF2-SHA256 hash of the initial password                                          |
-| `INITIAL_STAFF_PASSWORD_SALT`       | Yes      | Hex-encoded salt used to produce the hash                                           |
-| `INITIAL_STAFF_PASSWORD_ITERATIONS` | No       | Default: `100000`                                                                   |
-| `EMAIL_TEST_MODE`                   | No       | Set `true` in staging to skip real email delivery and return codes in API responses |
-| `SERVERSMTP_CONSUMER_KEY`           | No       | Alternative SMTP provider key (ServerSMTP)                                          |
-| `SERVERSMTP_CONSUMER_SECRET`        | No       | Alternative SMTP provider secret                                                    |
+| Variable                            | Required | Description                                                                        |
+| ----------------------------------- | -------- | ---------------------------------------------------------------------------------- |
+| `RESEND_API_KEY`                    | Yes      | API key from [resend.com](https://resend.com) for transactional email              |
+| `EMAIL_FROM`                        | Yes      | Sender address, e.g. `Englizeka <verify@englizeka.com>`                            |
+| `VERIFICATION_SECRET`               | Yes      | Long random string (≥ 32 chars) used to hash verification codes. **Never commit.** |
+| `INITIAL_STAFF_EMAIL`               | Yes      | Email address for the first teacher/admin account                                  |
+| `INITIAL_STAFF_NAME`                | Yes      | Display name for the initial account                                               |
+| `INITIAL_STAFF_PASSWORD_HASH`       | Yes      | PBKDF2-SHA256 hash of the initial password                                         |
+| `INITIAL_STAFF_PASSWORD_SALT`       | Yes      | Hex-encoded salt used to produce the hash                                          |
+| `INITIAL_STAFF_PASSWORD_ITERATIONS` | Yes      | Must be explicitly set to `100000`                                                 |
+| `EMAIL_TEST_MODE`                   | No       | Local tests only; production rejects `true`                                        |
+| `SERVERSMTP_CONSUMER_KEY`           | No       | Alternative SMTP provider key (ServerSMTP)                                         |
+| `SERVERSMTP_CONSUMER_SECRET`        | No       | Alternative SMTP provider secret                                                   |
 
 ### Generating the Initial Staff Password Hash
 

@@ -43,14 +43,19 @@ function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function parsePermissions(value: string): StaffPermission[] {
+function parsePermissions(value: string, role?: string): StaffPermission[] {
+  if (role === 'teacher') return [...STAFF_PERMISSIONS];
   try {
     const parsed = JSON.parse(value);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
+    const permissions = parsed.filter(
       (item): item is StaffPermission =>
         typeof item === 'string' && (STAFF_PERMISSIONS as readonly string[]).includes(item)
     );
+    if (permissions.includes('manage_courses') && !permissions.includes('manage_assignments')) {
+      permissions.push('manage_assignments');
+    }
+    return permissions;
   } catch {
     return [];
   }
@@ -148,7 +153,7 @@ export async function verifyStaffCredentials(
     email: row.email,
     name: row.name,
     role: row.role === 'teacher' ? 'teacher' : 'assistant',
-    permissions: parsePermissions(row.permissions),
+    permissions: parsePermissions(row.permissions, row.role),
     expiresAt: Date.now() + STAFF_SESSION_MS,
   };
 }
@@ -206,7 +211,7 @@ export async function getCurrentStaff(request?: Request): Promise<StaffSession |
     email: row.email,
     name: row.name,
     role: row.role === 'teacher' ? 'teacher' : 'assistant',
-    permissions: parsePermissions(row.permissions),
+    permissions: parsePermissions(row.permissions, row.role),
     expiresAt: row.expiresAt,
   };
 }

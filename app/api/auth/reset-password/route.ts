@@ -1,4 +1,4 @@
-import { verifyStoredCode } from '../../../lib/email-verification';
+import { consumePasswordResetCode } from '../../../lib/password-reset';
 import { updateStudentPassword } from '../../../lib/native-auth';
 
 function jsonResponse(data: Record<string, unknown>, status = 200): Response {
@@ -34,14 +34,22 @@ export async function POST(request: Request): Promise<Response> {
       return jsonResponse({ error: 'كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل' }, 400);
     }
 
-    const result = await verifyStoredCode(email, code);
+    const result = await consumePasswordResetCode(email, code);
     if (result === 'expired') {
       return jsonResponse({ error: 'انتهت صلاحية كود التحقق. اطلب كوداً جديداً.' }, 400);
     }
     if (result === 'locked') {
       return jsonResponse({ error: 'تم تجاوز عدد المحاولات المسموحة للكود.' }, 400);
     }
-    if (result !== 'verified' && result !== 'already_verified') {
+    if (result === 'used') {
+      return jsonResponse(
+        {
+          error: 'كود إعادة الضبط استُخدم من قبل. اطلب كوداً جديداً.',
+        },
+        400
+      );
+    }
+    if (result !== 'verified') {
       return jsonResponse({ error: 'كود التحقق غير صحيح. تأكد من الرقم المكتب.' }, 400);
     }
 

@@ -146,6 +146,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   } else {
     await updateStmt.run();
   }
+  await db
+    .prepare(
+      "DELETE FROM notification_reads WHERE notification_type = 'exam' AND notification_id = ?"
+    )
+    .bind(id)
+    .run();
   return Response.json({ ok: true });
 }
 
@@ -172,6 +178,11 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     .bind(id)
     .all<{ id: string }>();
   await db.batch([
+    db
+      .prepare(
+        "DELETE FROM notification_reads WHERE notification_type = 'exam' AND notification_id = ?"
+      )
+      .bind(id),
     ...questionIds.results.map((question) =>
       db.prepare('DELETE FROM questions WHERE id = ?').bind(question.id)
     ),

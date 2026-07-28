@@ -29,6 +29,16 @@ export const emailVerifications = sqliteTable('email_verifications', {
   deliveryId: text('delivery_id'),
 });
 
+export const passwordResetCodes = sqliteTable('password_reset_codes', {
+  email: text('email').primaryKey(),
+  codeHash: text('code_hash').notNull(),
+  expiresAt: integer('expires_at').notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  sentAt: integer('sent_at').notNull(),
+  consumedAt: integer('consumed_at'),
+  deliveryId: text('delivery_id'),
+});
+
 export const courses = sqliteTable('courses', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
@@ -217,6 +227,41 @@ export const announcements = sqliteTable('announcements', {
   status: text('status').notNull().default('published'),
   createdAt: integer('created_at').notNull(),
 });
+
+export const assignments = sqliteTable(
+  'assignments',
+  {
+    id: text('id').primaryKey(),
+    courseId: text('course_id').notNull(),
+    title: text('title').notNull(),
+    description: text('description').notNull().default(''),
+    dueAt: integer('due_at'),
+    maxScore: integer('max_score').notNull().default(0),
+    status: text('status').notNull().default('draft'),
+    createdBy: text('created_by').notNull(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [index('assignments_course_idx').on(table.courseId)]
+);
+
+export const notificationReads = sqliteTable(
+  'notification_reads',
+  {
+    userEmail: text('user_email').notNull(),
+    notificationType: text('notification_type').notNull(),
+    notificationId: text('notification_id').notNull(),
+    readAt: integer('read_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('notification_reads_user_item_idx').on(
+      table.userEmail,
+      table.notificationType,
+      table.notificationId
+    ),
+    index('notification_reads_user_idx').on(table.userEmail),
+  ]
+);
 
 export const staffUsers = sqliteTable('staff_users', {
   email: text('email').primaryKey(),

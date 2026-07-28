@@ -3158,6 +3158,241 @@ html[data-theme='light'] .feature-number {
   align-items: center;
   gap: 9px;
 }
+.list-actions details {
+  position: relative;
+}
+.list-actions summary {
+  cursor: pointer;
+  list-style: none;
+}
+.list-actions summary::-webkit-details-marker {
+  display: none;
+}
+.dashboard-popover-form {
+  position: absolute;
+  z-index: 30;
+  top: 44px;
+  inset-inline-end: 0;
+  width: min(380px, calc(100vw - 48px));
+  max-height: 70vh;
+  overflow: auto;
+  padding: 18px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+.course-content-actions {
+  display: grid;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.course-content-actions > strong {
+  font-size: 12px;
+}
+.course-content-actions .btn {
+  width: 100%;
+  justify-content: center;
+}
+.management-list > article.focused-course {
+  border-color: rgba(239, 35, 60, 0.55);
+  box-shadow: 0 0 0 3px rgba(207, 11, 39, 0.1);
+}
+.teacher-course-workspace {
+  padding: 24px;
+  display: grid;
+  gap: 20px;
+  background:
+    radial-gradient(circle at 90% 5%, rgba(207, 11, 39, 0.12), transparent 32%), var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+.workspace-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+}
+.workspace-heading h2 {
+  margin: 5px 0 4px;
+  font-size: clamp(22px, 3vw, 30px);
+}
+.workspace-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.workspace-filters {
+  display: flex;
+  gap: 10px;
+}
+.workspace-search {
+  min-width: min(310px, 48vw);
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+}
+.workspace-search svg {
+  width: 17px;
+  color: var(--muted);
+}
+.workspace-search input,
+.workspace-filters select {
+  min-height: 42px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+.workspace-search input {
+  width: 100%;
+}
+.workspace-filters select {
+  padding: 0 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+}
+.teacher-course-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr));
+  gap: 14px;
+}
+.teacher-course-card {
+  min-width: 0;
+  padding: 18px;
+  display: grid;
+  gap: 15px;
+  background: color-mix(in srgb, var(--surface-2) 92%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+.teacher-course-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(239, 35, 60, 0.35);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.14);
+}
+.teacher-course-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.teacher-course-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--red-bright), var(--red-dark));
+  border-radius: 13px;
+  box-shadow: 0 10px 24px rgba(207, 11, 39, 0.24);
+}
+.teacher-course-icon svg {
+  width: 20px;
+}
+.teacher-course-copy small {
+  color: var(--red-bright);
+  font-size: 11px;
+  font-weight: 800;
+}
+.teacher-course-copy h3 {
+  margin: 4px 0 7px;
+  font-size: 19px;
+}
+.teacher-course-copy p {
+  min-height: 42px;
+  margin: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.teacher-course-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 7px;
+}
+.teacher-course-metrics span {
+  min-width: 0;
+  padding: 9px 4px;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.teacher-course-metrics svg {
+  width: 15px;
+  color: var(--red-bright);
+}
+.teacher-course-metrics b {
+  font-size: 16px;
+}
+.teacher-course-metrics small {
+  color: var(--muted);
+  font-size: 8px;
+}
+.teacher-course-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+.teacher-course-actions .btn {
+  min-width: 0;
+  padding-inline: 8px;
+  justify-content: center;
+  font-size: 10px;
+}
+.teacher-course-actions .btn-primary {
+  grid-column: 1 / -1;
+}
+.teacher-course-actions svg {
+  width: 15px;
+}
+.workspace-empty {
+  grid-column: 1 / -1;
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 7px;
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+}
+.workspace-empty svg {
+  width: 30px;
+}
+.workspace-empty strong {
+  color: var(--text);
+}
+@media (max-width: 760px) {
+  .teacher-course-workspace {
+    padding: 17px;
+  }
+  .workspace-heading,
+  .workspace-filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .workspace-search {
+    min-width: 0;
+  }
+}
 .status-pill {
   min-height: 28px;
   padding: 5px 10px;
@@ -4683,6 +4918,17 @@ html[data-theme='light'] .error-toast {
     grid-template-columns: 1fr !important;
   }
 
+  .admin-main {
+    min-width: 0;
+    padding: 0;
+  }
+
+  .admin-split,
+  .exam-admin-grid,
+  .admin-overview-grid {
+    gap: 14px;
+  }
+
   .data-table {
     display: block;
     overflow-x: auto;
@@ -4722,6 +4968,95 @@ html[data-theme='light'] .error-toast {
     width: 100%;
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .management-list > article > div:first-child {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .management-list article .list-actions details[open] {
+    width: 100%;
+    flex-basis: 100%;
+    order: 3;
+  }
+
+  .management-list article .dashboard-popover-form {
+    position: static;
+    width: 100%;
+    max-height: none;
+    margin-top: 10px;
+    padding: 15px;
+    box-shadow: none;
+  }
+
+  .management-list article .dashboard-popover-form .form-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .filter-tabs {
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: grid;
+    overflow: visible;
+  }
+
+  .filter-tabs button {
+    width: 100%;
+    min-height: 44px;
+    padding-inline: 10px;
+  }
+
+  .admin-page {
+    padding-inline: 10px;
+  }
+
+  .admin-topbar {
+    padding-inline: 12px;
+  }
+
+  .admin-main .dashboard-panel {
+    min-width: 0;
+    padding: 16px;
+  }
+
+  .panel-title {
+    align-items: flex-start;
+  }
+
+  .panel-title h2 {
+    font-size: 18px;
+  }
+
+  .teacher-course-workspace {
+    padding: 15px;
+  }
+
+  .teacher-course-card {
+    padding: 15px;
+  }
+
+  .teacher-course-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .modal-backdrop,
+  .student-modal {
+    padding: 12px !important;
+  }
+
+  .student-modal-card {
+    max-height: calc(100dvh - 24px);
+    padding: 22px 18px;
+    overflow-y: auto;
   }
 }
 

@@ -7,7 +7,8 @@
 
 'use client';
 
-import { BookOpen, CirclePlus, Save, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { BookOpen, CirclePlus, PencilLine, Save, Trash2 } from 'lucide-react';
 
 type Course = {
   id: string;
@@ -20,17 +21,28 @@ type Course = {
 
 interface AdminCourseListProps {
   courses: Course[];
+  focusedCourseId?: string;
   busy: boolean;
   onAddCourse: (values: Record<string, string>, resetForm: () => void) => void;
+  onEditCourse: (id: string, values: Record<string, string>) => void;
+  onAddExam: (courseId: string) => void;
+  onAddAssignment: (courseId: string) => void;
+  onManageLessonGates: (courseId: string) => void;
   onDeleteCourse: (id: string) => void;
 }
 
 export function AdminCourseList({
   courses,
+  focusedCourseId,
   busy,
   onAddCourse,
+  onEditCourse,
+  onAddExam,
+  onAddAssignment,
+  onManageLessonGates,
   onDeleteCourse,
 }: AdminCourseListProps) {
+  const [openCourseId, setOpenCourseId] = useState(focusedCourseId || '');
   return (
     <div className="admin-split">
       {/* ── Add course form ─────────────────────────────────────── */}
@@ -99,7 +111,10 @@ export function AdminCourseList({
         </div>
         <div className="management-list">
           {courses.map((course) => (
-            <article key={course.id}>
+            <article
+              key={course.id}
+              className={course.id === focusedCourseId ? 'focused-course' : undefined}
+            >
               <div>
                 <strong>{course.title}</strong>
                 <small>
@@ -113,6 +128,85 @@ export function AdminCourseList({
                 >
                   {course.status === 'published' ? 'منشور' : 'مسودة'}
                 </span>
+                <details
+                  open={openCourseId === course.id}
+                  onToggle={(event) => {
+                    if (event.currentTarget.open) setOpenCourseId(course.id);
+                    else if (openCourseId === course.id) setOpenCourseId('');
+                  }}
+                >
+                  <summary className="icon-button" aria-label="تعديل الكورس">
+                    <PencilLine />
+                  </summary>
+                  <form
+                    className="stack-form dashboard-popover-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const values = Object.fromEntries(
+                        new FormData(event.currentTarget)
+                      ) as Record<string, string>;
+                      onEditCourse(course.id, values);
+                    }}
+                  >
+                    <label>
+                      اسم الكورس
+                      <input name="title" defaultValue={course.title} required />
+                    </label>
+                    <label>
+                      الصف
+                      <select name="grade" defaultValue={course.grade} required>
+                        <option>أولى ثانوي</option>
+                        <option>تانية ثانوي</option>
+                        <option>تالتة ثانوي</option>
+                        <option>كل الصفوف</option>
+                      </select>
+                    </label>
+                    <label>
+                      الوصف
+                      <textarea name="description" rows={3} defaultValue={course.description} />
+                    </label>
+                    <div className="form-row">
+                      <label>
+                        السعر
+                        <input name="price" type="number" min="0" defaultValue={course.price} />
+                      </label>
+                      <label>
+                        الحالة
+                        <select name="status" defaultValue={course.status}>
+                          <option value="draft">مسودة</option>
+                          <option value="published">منشور</option>
+                        </select>
+                      </label>
+                    </div>
+                    <button className="btn btn-primary" disabled={busy}>
+                      <Save /> حفظ التعديلات
+                    </button>
+                    <div className="course-content-actions">
+                      <strong>إضافة محتوى لهذا الكورس</strong>
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        onClick={() => onAddExam(course.id)}
+                      >
+                        إضافة امتحان ونسبة نجاح
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        onClick={() => onAddAssignment(course.id)}
+                      >
+                        إضافة واجب
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        onClick={() => onManageLessonGates(course.id)}
+                      >
+                        وضع امتحان بين المحاضرات
+                      </button>
+                    </div>
+                  </form>
+                </details>
                 <button
                   className="icon-button danger"
                   aria-label="حذف"

@@ -2,6 +2,7 @@ import { apiVerifiedUser, isResponse } from '../../../../lib/api-auth';
 import {
   authorizeVideoAccess,
   createVideoEmbedToken,
+  createVideoCompletionToken,
   VIDEO_EMBED_TOKEN_TTL_MS,
 } from '../../../../lib/video-access';
 
@@ -17,9 +18,19 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     );
   }
 
+  const completionToken = await createVideoCompletionToken(
+    user.email,
+    id,
+    access.video.durationSeconds
+  );
+
   if (access.video.sourceType !== 'youtube') {
     return Response.json(
-      { kind: 'upload', sourceUrl: `/api/videos/${encodeURIComponent(id)}` },
+      {
+        kind: 'upload',
+        sourceUrl: `/api/videos/${encodeURIComponent(id)}`,
+        completionToken,
+      },
       { headers: { 'cache-control': 'private, no-store', vary: 'Cookie' } }
     );
   }
@@ -29,6 +40,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     {
       kind: 'youtube',
       sourceUrl: `/api/videos/${encodeURIComponent(id)}/embed?token=${encodeURIComponent(token)}`,
+      completionToken,
       expiresIn: Math.round(VIDEO_EMBED_TOKEN_TTL_MS / 1000),
     },
     { headers: { 'cache-control': 'private, no-store', vary: 'Cookie' } }

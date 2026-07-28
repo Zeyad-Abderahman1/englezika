@@ -16,12 +16,13 @@ export async function GET() {
       verificationRequired: true,
       enrollments: [],
       exams: [],
+      assignments: [],
       attempts: [],
       announcements: [],
     });
   }
-  const [profile, enrollments, exams, attempts, announcements, leaderboardRows] = await Promise.all(
-    [
+  const [profile, enrollments, exams, assignments, attempts, announcements, leaderboardRows] =
+    await Promise.all([
       db
         .prepare(
           `SELECT email, name, first_name AS firstName, second_name AS secondName,
@@ -45,17 +46,34 @@ export async function GET() {
         .prepare(
           `SELECT DISTINCT x.id, x.course_id AS courseId, x.title, x.description, x.duration_minutes AS durationMinutes,
        x.passing_score AS passingScore, x.max_attempts AS maxAttempts, c.title AS courseTitle,
+       CASE WHEN nr.notification_id IS NULL THEN 0 ELSE 1 END AS isRead,
        (SELECT COUNT(*) FROM attempts ax WHERE ax.exam_id = x.id AND ax.user_email = ?) AS attemptCount,
        (SELECT COALESCE(MAX(CASE WHEN ax2.max_score > 0 THEN ax2.score * 100.0 / ax2.max_score END), 0)
         FROM attempts ax2 WHERE ax2.exam_id = x.id AND ax2.user_email = ?) AS bestPercentage,
        COALESCE((SELECT SUM(points) FROM questions q WHERE q.exam_id = x.id), 0) AS maxScore
        FROM exams x LEFT JOIN courses c ON c.id = x.course_id
        LEFT JOIN enrollments e ON e.course_id = x.course_id AND e.user_email = ? AND e.status = 'approved'
+       LEFT JOIN notification_reads nr ON nr.user_email = ? AND nr.notification_type = 'exam'
+         AND nr.notification_id = x.id
        WHERE x.status = 'published' AND (x.course_id IS NULL OR e.id IS NOT NULL)
        AND (x.opens_at IS NULL OR x.opens_at <= ?) AND (x.closes_at IS NULL OR x.closes_at >= ?)
        ORDER BY x.created_at DESC`
         )
-        .bind(email, email, email, Date.now(), Date.now())
+        .bind(email, email, email, email, Date.now(), Date.now())
+        .all(),
+      db
+        .prepare(
+          `SELECT DISTINCT a.id, a.course_id AS courseId, a.title, a.description,
+       a.due_at AS dueAt, a.max_score AS maxScore, c.title AS courseTitle,
+       CASE WHEN nr.notification_id IS NULL THEN 0 ELSE 1 END AS isRead
+       FROM assignments a JOIN courses c ON c.id = a.course_id
+       JOIN enrollments e ON e.course_id = a.course_id
+       LEFT JOIN notification_reads nr ON nr.user_email = ? AND nr.notification_type = 'assignment'
+         AND nr.notification_id = a.id
+       WHERE e.user_email = ? AND e.status = 'approved' AND a.status = 'published'
+       ORDER BY a.created_at DESC`
+        )
+        .bind(email, email)
         .all(),
       db
         .prepare(
@@ -68,8 +86,14 @@ export async function GET() {
         .all(),
       db
         .prepare(
-          "SELECT id, title, body, created_at AS createdAt FROM announcements WHERE status = 'published' ORDER BY created_at DESC LIMIT 10"
+          `SELECT a.id, a.title, a.body, a.created_at AS createdAt,
+           CASE WHEN nr.notification_id IS NULL THEN 0 ELSE 1 END AS isRead
+           FROM announcements a LEFT JOIN notification_reads nr
+             ON nr.user_email = ? AND nr.notification_type = 'announcement'
+             AND nr.notification_id = a.id
+           WHERE a.status = 'published' ORDER BY a.created_at DESC LIMIT 10`
         )
+        .bind(email)
         .all(),
       db
         .prepare(
@@ -99,8 +123,7 @@ export async function GET() {
           examsCompleted: number;
           lastAttemptAt: number;
         }>(),
-    ]
-  );
+    ]);
   const leaderboards = leaderboardRows.results.reduce<
     Record<
       string,
@@ -131,6 +154,7 @@ export async function GET() {
     verificationRequired: false,
     enrollments: enrollments.results,
     exams: exams.results,
+    assignments: assignments.results,
     attempts: attempts.results,
     announcements: announcements.results,
     leaderboards,

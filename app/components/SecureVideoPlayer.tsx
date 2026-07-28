@@ -26,6 +26,7 @@ type ResolvedSource = {
   videoId: string;
   kind: 'upload' | 'youtube';
   sourceUrl: string;
+  completionToken: string;
   error?: string;
 };
 
@@ -96,25 +97,34 @@ export default function SecureVideoPlayer({
     setSecurityMessage('تم إيقاف الفيديو بسبب مغادرة صفحة المشاهدة');
   }, [sendYouTubeCommand]);
 
-  const completeLesson = useCallback(async (videoId: string) => {
-    if (completionInFlight.current.has(videoId)) return;
-    completionInFlight.current.add(videoId);
-    try {
-      const response = await fetch(`/api/videos/${videoId}/complete`, { method: 'POST' });
-      if (!response.ok) return;
-      setLessons((current) => {
-        const completedIndex = current.findIndex((lesson) => lesson.id === videoId);
-        return current.map((lesson, index) => ({
-          ...lesson,
-          completed: index === completedIndex ? 1 : lesson.completed,
-          unlocked: index === completedIndex + 1 ? 1 : lesson.unlocked,
-        }));
-      });
-      setCompletionMessage('تم إنهاء المحاضرة وفتح المحاضرة التالية بنجاح.');
-    } finally {
-      completionInFlight.current.delete(videoId);
-    }
-  }, []);
+  const completeLesson = useCallback(
+    async (videoId: string) => {
+      if (completionInFlight.current.has(videoId)) return;
+      const completionToken = resolved?.videoId === videoId ? resolved.completionToken : undefined;
+      if (!completionToken) return;
+      completionInFlight.current.add(videoId);
+      try {
+        const response = await fetch(`/api/videos/${videoId}/complete`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ completionToken }),
+        });
+        if (!response.ok) return;
+        setLessons((current) => {
+          const completedIndex = current.findIndex((lesson) => lesson.id === videoId);
+          return current.map((lesson, index) => ({
+            ...lesson,
+            completed: index === completedIndex ? 1 : lesson.completed,
+            unlocked: index === completedIndex + 1 ? 1 : lesson.unlocked,
+          }));
+        });
+        setCompletionMessage('تم إنهاء المحاضرة وفتح المحاضرة التالية بنجاح.');
+      } finally {
+        completionInFlight.current.delete(videoId);
+      }
+    },
+    [resolved]
+  );
 
   useEffect(() => {
     if (!activeId || !active?.unlocked) return;
@@ -128,12 +138,18 @@ export default function SecureVideoPlayer({
         const result = (await response.json().catch(() => ({}))) as {
           kind?: 'upload' | 'youtube';
           sourceUrl?: string;
+          completionToken?: string;
           error?: string;
         };
-        if (!response.ok || !result.kind || !result.sourceUrl) {
+        if (!response.ok || !result.kind || !result.sourceUrl || !result.completionToken) {
           throw new Error(result.error || 'تعذر تجهيز مصدر الفيديو');
         }
-        setResolved({ videoId: activeId, kind: result.kind, sourceUrl: result.sourceUrl });
+        setResolved({
+          videoId: activeId,
+          kind: result.kind,
+          sourceUrl: result.sourceUrl,
+          completionToken: result.completionToken,
+        });
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -141,6 +157,7 @@ export default function SecureVideoPlayer({
           videoId: activeId,
           kind: 'upload',
           sourceUrl: '',
+          completionToken: '',
           error: error instanceof Error ? error.message : 'تعذر تجهيز مصدر الفيديو',
         });
       });

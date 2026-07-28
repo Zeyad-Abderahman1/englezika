@@ -9,6 +9,7 @@
  *
  * On success:
  *   - User row is anonymised (name, phone, etc. cleared) and role set to 'deleted'
+ *   - Birth-certificate storage object is deleted
  *   - All native_sessions for the user are revoked
  *   - Returns 200 { message: 'Account deleted' }
  *
@@ -18,9 +19,10 @@
 import { ensureDatabase } from '../../../../db/runtime';
 import { apiUser, isResponse } from '../../../lib/api-auth';
 import { verifyStudentPassword } from '../../../lib/native-auth';
-import { getD1 } from '../../../lib/platform';
+import { getD1, getVideoBucket } from '../../../lib/platform';
 import { clearStudentSessionCookie } from '../../../lib/student-session';
 import { jsonError, requireSameOrigin, safeText } from '../../../lib/security';
+import { deleteStudentAccountData } from '../../../lib/account-deletion';
 
 export async function DELETE(request: Request) {
   const originError = requireSameOrigin(request);
@@ -44,38 +46,8 @@ export async function DELETE(request: Request) {
 
   await ensureDatabase();
   const db = getD1();
-  const now = Date.now();
-
-  // Anonymise the user row — clear all PII fields.
-  await db
-    .prepare(
-      `UPDATE users SET
-         name = '[deleted]',
-         first_name = '',
-         second_name = '',
-         third_name = '',
-         last_name = '',
-         phone = '',
-         father_phone = '',
-         mother_phone = '',
-         school_name = '',
-         parent_job = '',
-         governorate = '',
-         gender = '',
-         grade = '',
-         section = '',
-         password_hash = '',
-         password_salt = '',
-         password_iterations = 0,
-         role = 'deleted',
-         updated_at = ?
-       WHERE email = ?`
-    )
-    .bind(now, user.email)
-    .run();
-
-  // Revoke all active sessions.
-  await db.prepare('DELETE FROM native_sessions WHERE email = ?').bind(user.email).run();
+  const deleted = await deleteStudentAccountData(db, getVideoBucket(), user.email);
+  if (!deleted) return jsonError('الحساب غير موجود أو تم حذفه من قبل', 404);
 
   // Clear the session cookie in the response.
   const isSecure = request.url.startsWith('https://');

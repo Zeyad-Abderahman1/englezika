@@ -13,11 +13,12 @@ export async function POST(request: Request) {
   const content = safeText(body.body, 2000);
   if (title.length < 3 || content.length < 3) return jsonError('عنوان الإعلان ومحتواه مطلوبان');
   await ensureDatabase();
+  const id = crypto.randomUUID();
   await getD1()
     .prepare(
       "INSERT INTO announcements (id, title, body, status, created_at) VALUES (?, ?, ?, 'published', ?)"
     )
-    .bind(crypto.randomUUID(), title, content, Date.now())
+    .bind(id, title, content, Date.now())
     .run();
-  return Response.json({ ok: true });
+  return Response.json({ ok: true, id });
 }

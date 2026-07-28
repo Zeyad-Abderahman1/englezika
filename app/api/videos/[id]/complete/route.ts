@@ -1,44 +1,23 @@
-import { ensureDatabase } from '../../../../../db/runtime';
 import { apiVerifiedUser, isResponse } from '../../../../lib/api-auth';
 import { getD1 } from '../../../../lib/platform';
-import { jsonError, requireSameOrigin } from '../../../../lib/security';
+import { jsonError, requireSameOrigin, safeText } from '../../../../lib/security';
+import { authorizeVideoAccess, verifyVideoCompletionToken } from '../../../../lib/video-access';
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
   const user = await apiVerifiedUser();
   if (isResponse(user)) return user;
-  await ensureDatabase();
   const { id } = await params;
   const email = user.email.toLowerCase();
-  const db = getD1();
-  const video = await db
-    .prepare(
-      `SELECT v.id, v.course_id AS courseId
-       FROM videos v JOIN enrollments e ON e.course_id = v.course_id
-       WHERE v.id = ? AND v.status = 'published'
-       AND e.user_email = ? AND e.status = 'approved' LIMIT 1`
-    )
-    .bind(id, email)
-    .first<{ id: string; courseId: string }>();
-  if (!video) return jsonError('المحاضرة غير متاحة لهذا الحساب', 403);
-
-  const previousVideo = await db
-    .prepare(
-      `SELECT id FROM videos
-       WHERE course_id = ? AND status = 'published' AND created_at < (
-         SELECT created_at FROM videos WHERE id = ?
-       ) ORDER BY created_at DESC LIMIT 1`
-    )
-    .bind(video.courseId, id)
-    .first<{ id: string }>();
-  if (previousVideo) {
-    const previousCompleted = await db
-      .prepare('SELECT id FROM video_progress WHERE user_email = ? AND video_id = ? LIMIT 1')
-      .bind(email, previousVideo.id)
-      .first();
-    if (!previousCompleted) return jsonError('يجب إنهاء المحاضرة السابقة أولًا', 409);
+  const payload = (await request.json().catch(() => ({}))) as { completionToken?: string };
+  const completionToken = safeText(payload.completionToken, 4096);
+  if (!completionToken || !(await verifyVideoCompletionToken(completionToken, email, id))) {
+    return jsonError('إثبات مشاهدة المحاضرة غير صالح أو لم يحن وقت الإكمال بعد', 403);
   }
+  const access = await authorizeVideoAccess(email, id);
+  if (!access.ok) return jsonError(access.error, access.status);
+  const db = getD1();
 
   await db
     .prepare(
