@@ -232,120 +232,126 @@ export default function SecureVideoPlayer({
             onTouchStart={() => revealControls(youtubePlaying)}
             onContextMenu={(event) => event.preventDefault()}
           >
-            {!activeSource ? (
-              <div className="video-source-state" role="status">
-                <LoaderCircle className="spin" />
-                <strong>جاري تجهيز الفيديو الآمن...</strong>
-                <small>يتم التحقق من اشتراكك قبل تشغيل كل محاضرة.</small>
-              </div>
-            ) : activeSource.error ? (
-              <div className="video-source-state" role="alert">
-                <LockKeyhole />
-                <strong>{activeSource.error}</strong>
-                <button className="btn btn-outline" onClick={() => setResolveAttempt((v) => v + 1)}>
-                  <RefreshCw /> إعادة المحاولة
-                </button>
-              </div>
-            ) : activeSource.kind === 'youtube' ? (
-              <iframe
-                key={activeSource.sourceUrl}
-                ref={iframeRef}
-                className="youtube-player-host"
-                src={activeSource.sourceUrl}
-                title={active.title}
-                allow="autoplay; encrypted-media"
-                referrerPolicy="strict-origin-when-cross-origin"
-                sandbox="allow-scripts allow-same-origin allow-presentation"
-                onLoad={() => sendYouTubeCommand('get-state')}
-              />
-            ) : (
-              <video
-                key={activeSource.sourceUrl}
-                controls
-                controlsList="nodownload noplaybackrate noremoteplayback"
-                disablePictureInPicture
-                disableRemotePlayback
-                preload="metadata"
-                src={activeSource.sourceUrl}
-                onEnded={() => void completeLesson(active.id)}
-                onContextMenu={(event) => event.preventDefault()}
-              >
-                متصفحك لا يدعم تشغيل الفيديو.
-              </video>
-            )}
-            {activeSource?.kind === 'youtube' && !activeSource.error && (
-              <>
-                <div className="youtube-top-mask" aria-hidden="true" />
-                <div
-                  className="youtube-click-shield"
-                  aria-label="تشغيل أو إيقاف الفيديو"
-                  onClick={() => sendYouTubeCommand(youtubePlaying ? 'pause' : 'play')}
-                  onContextMenu={(event) => event.preventDefault()}
-                />
-                <div
-                  className={`englizeka-video-controls ${controlsVisible ? 'is-visible' : ''}`}
-                  onFocus={() => revealControls(false)}
-                  onBlur={() => revealControls(youtubePlaying)}
-                  onContextMenu={(event) => event.preventDefault()}
-                >
+            <div className="video-stage">
+              {!activeSource ? (
+                <div className="video-source-state" role="status">
+                  <LoaderCircle className="spin" />
+                  <strong>جاري تجهيز الفيديو الآمن...</strong>
+                  <small>يتم التحقق من اشتراكك قبل تشغيل كل محاضرة.</small>
+                </div>
+              ) : activeSource.error ? (
+                <div className="video-source-state" role="alert">
+                  <LockKeyhole />
+                  <strong>{activeSource.error}</strong>
                   <button
-                    type="button"
-                    aria-label={youtubePlaying ? 'إيقاف الفيديو مؤقتاً' : 'تشغيل الفيديو'}
-                    onClick={() => sendYouTubeCommand(youtubePlaying ? 'pause' : 'play')}
+                    className="btn btn-outline"
+                    onClick={() => setResolveAttempt((v) => v + 1)}
                   >
-                    {youtubePlaying ? <PauseCircle /> : <PlayCircle />}
-                  </button>
-                  <label>
-                    <span>الجودة</span>
-                    <select
-                      aria-label="جودة الفيديو"
-                      value={selectedQuality}
-                      onChange={(event) => {
-                        setSelectedQuality(event.target.value);
-                        sendYouTubeCommand('quality', event.target.value);
-                      }}
-                    >
-                      <option value="default">تلقائي</option>
-                      {qualityLevels.map((quality) => (
-                        <option key={quality} value={quality}>
-                          {QUALITY_LABELS[quality] || quality}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    aria-label={isFullscreen ? 'الخروج من ملء الشاشة' : 'ملء الشاشة'}
-                    onClick={() => void toggleFullscreen()}
-                  >
-                    {isFullscreen ? <Minimize2 /> : <Maximize2 />}
+                    <RefreshCw /> إعادة المحاولة
                   </button>
                 </div>
-              </>
-            )}
-            <div
-              className="video-watermark video-watermark-top"
-              aria-label={`المشاهد ${viewerEmail}`}
-            >
-              <UserRound /> {viewerEmail}
+              ) : activeSource.kind === 'youtube' ? (
+                <iframe
+                  key={activeSource.sourceUrl}
+                  ref={iframeRef}
+                  className="youtube-player-host"
+                  src={activeSource.sourceUrl}
+                  title={active.title}
+                  allow="autoplay; encrypted-media"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  sandbox="allow-scripts allow-same-origin allow-presentation"
+                  onLoad={() => sendYouTubeCommand('get-state')}
+                />
+              ) : (
+                <video
+                  key={activeSource.sourceUrl}
+                  controls
+                  controlsList="nodownload noplaybackrate noremoteplayback"
+                  disablePictureInPicture
+                  disableRemotePlayback
+                  preload="metadata"
+                  src={activeSource.sourceUrl}
+                  onEnded={() => void completeLesson(active.id)}
+                  onContextMenu={(event) => event.preventDefault()}
+                >
+                  متصفحك لا يدعم تشغيل الفيديو.
+                </video>
+              )}
+              {activeSource?.kind === 'youtube' && !activeSource.error && (
+                <>
+                  <div
+                    className="youtube-click-shield"
+                    aria-label="تشغيل أو إيقاف الفيديو"
+                    onClick={() => sendYouTubeCommand(youtubePlaying ? 'pause' : 'play')}
+                    onContextMenu={(event) => event.preventDefault()}
+                  />
+                </>
+              )}
+              <div
+                className="video-watermark video-watermark-top"
+                aria-label={`المشاهد ${viewerEmail}`}
+              >
+                <UserRound /> {viewerEmail}
+              </div>
+              <div className="video-watermark video-watermark-trace" aria-hidden="true">
+                {viewerEmail}
+              </div>
+              {securityMessage && (
+                <div className="video-protection-overlay" role="alert" aria-live="assertive">
+                  <ShieldCheck />
+                  <h2>نظام المشاهدة الآمن</h2>
+                  <p>{securityMessage}</p>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => {
+                      setSecurityMessage('');
+                      sendYouTubeCommand('play');
+                    }}
+                  >
+                    <PlayCircle /> العودة للمشاهدة
+                  </button>
+                </div>
+              )}
             </div>
-            <div className="video-watermark video-watermark-trace" aria-hidden="true">
-              {viewerEmail}
-            </div>
-            {securityMessage && (
-              <div className="video-protection-overlay" role="alert" aria-live="assertive">
-                <ShieldCheck />
-                <h2>نظام المشاهدة الآمن</h2>
-                <p>{securityMessage}</p>
+            {activeSource?.kind === 'youtube' && !activeSource.error && (
+              <div
+                className={`englizeka-video-controls ${controlsVisible ? 'is-visible' : ''}`}
+                onFocus={() => revealControls(false)}
+                onBlur={() => revealControls(youtubePlaying)}
+                onContextMenu={(event) => event.preventDefault()}
+              >
                 <button
                   type="button"
-                  className="btn btn-primary"
-                  onClick={() => {
-                    setSecurityMessage('');
-                    sendYouTubeCommand('play');
-                  }}
+                  aria-label={youtubePlaying ? 'إيقاف الفيديو مؤقتاً' : 'تشغيل الفيديو'}
+                  onClick={() => sendYouTubeCommand(youtubePlaying ? 'pause' : 'play')}
                 >
-                  <PlayCircle /> العودة للمشاهدة
+                  {youtubePlaying ? <PauseCircle /> : <PlayCircle />}
+                </button>
+                <label>
+                  <span>الجودة</span>
+                  <select
+                    aria-label="جودة الفيديو"
+                    value={selectedQuality}
+                    onChange={(event) => {
+                      setSelectedQuality(event.target.value);
+                      sendYouTubeCommand('quality', event.target.value);
+                    }}
+                  >
+                    <option value="default">تلقائي</option>
+                    {qualityLevels.map((quality) => (
+                      <option key={quality} value={quality}>
+                        {QUALITY_LABELS[quality] || quality}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  aria-label={isFullscreen ? 'الخروج من ملء الشاشة' : 'ملء الشاشة'}
+                  onClick={() => void toggleFullscreen()}
+                >
+                  {isFullscreen ? <Minimize2 /> : <Maximize2 />}
                 </button>
               </div>
             )}
