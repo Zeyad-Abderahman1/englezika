@@ -25,6 +25,12 @@ const revealSelector = [
 
 export default function ScrollEffects() {
   useEffect(() => {
+    const blockContextMenu = (event: MouseEvent) => event.preventDefault();
+    document.addEventListener('contextmenu', blockContextMenu, true);
+    return () => document.removeEventListener('contextmenu', blockContextMenu, true);
+  }, []);
+
+  useEffect(() => {
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const revealItems = Array.from(document.querySelectorAll<HTMLElement>(revealSelector));
 

@@ -39,7 +39,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       var pendingCommand = null;
       var player = new YT.Player('player', {
         videoId: ${youtubeId},
-        playerVars: { controls: 0, disablekb: 1, fs: 0, modestbranding: 1, origin: ${embedOrigin}, playsinline: 1, rel: 0 },
+        playerVars: { controls: 1, disablekb: 1, fs: 1, modestbranding: 1, origin: ${embedOrigin}, playsinline: 1, rel: 0 },
         events: {
           onReady: function () {
             playerReady = true;
