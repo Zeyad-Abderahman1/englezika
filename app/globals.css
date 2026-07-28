@@ -3996,6 +3996,9 @@ html[data-theme='light'] .feature-number {
   inset: 0;
   cursor: pointer;
 }
+.video-frame.controls-hidden .youtube-click-shield {
+  cursor: none;
+}
 .englizeka-video-controls {
   position: absolute;
   z-index: 5;
@@ -4007,6 +4010,17 @@ html[data-theme='light'] .feature-number {
   gap: 10px;
   color: #fff;
   background: linear-gradient(0deg, rgba(0, 0, 0, 0.96), rgba(0, 0, 0, 0.72), transparent);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(12px);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+.englizeka-video-controls.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 .englizeka-video-controls button {
   width: 38px;

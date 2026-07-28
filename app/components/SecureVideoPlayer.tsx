@@ -62,8 +62,19 @@ export default function SecureVideoPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const videoFrameRef = useRef<HTMLDivElement>(null);
+  const controlsHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const completionInFlight = useRef(new Set<string>());
   const active = lessons.find((video) => video.id === activeId);
+
+  const [controlsVisible, setControlsVisible] = useState(true);
+
+  const revealControls = useCallback((autoHide: boolean) => {
+    if (controlsHideTimer.current) clearTimeout(controlsHideTimer.current);
+    setControlsVisible(true);
+    if (autoHide) {
+      controlsHideTimer.current = setTimeout(() => setControlsVisible(false), 1800);
+    }
+  }, []);
 
   const sendYouTubeCommand = useCallback((command: string, value?: string) => {
     iframeRef.current?.contentWindow?.postMessage(
@@ -152,7 +163,9 @@ export default function SecureVideoPlayer({
         void completeLesson(activeId);
       }
       if (data?.type === 'englizeka-video-state' && data.videoId === activeId) {
-        setYoutubePlaying(data.state === 'playing');
+        const playing = data.state === 'playing';
+        setYoutubePlaying(playing);
+        revealControls(playing);
       }
       if (data?.type === 'englizeka-video-ready' && data.videoId === activeId) {
         setQualityLevels(Array.isArray(data.qualities) ? data.qualities : []);
@@ -164,7 +177,14 @@ export default function SecureVideoPlayer({
     };
     window.addEventListener('message', receivePlayerEvent);
     return () => window.removeEventListener('message', receivePlayerEvent);
-  }, [activeId, completeLesson]);
+  }, [activeId, completeLesson, revealControls]);
+
+  useEffect(
+    () => () => {
+      if (controlsHideTimer.current) clearTimeout(controlsHideTimer.current);
+    },
+    []
+  );
 
   useEffect(() => {
     const syncFullscreen = () =>
@@ -203,7 +223,13 @@ export default function SecureVideoPlayer({
         {active?.unlocked ? (
           <div
             ref={videoFrameRef}
-            className="video-frame"
+            className={`video-frame ${controlsVisible ? 'controls-visible' : 'controls-hidden'}`}
+            onMouseMove={() => revealControls(youtubePlaying)}
+            onMouseEnter={() => revealControls(youtubePlaying)}
+            onMouseLeave={() => {
+              if (youtubePlaying) revealControls(true);
+            }}
+            onTouchStart={() => revealControls(youtubePlaying)}
             onContextMenu={(event) => event.preventDefault()}
           >
             {!activeSource ? (
@@ -257,7 +283,9 @@ export default function SecureVideoPlayer({
                   onContextMenu={(event) => event.preventDefault()}
                 />
                 <div
-                  className="englizeka-video-controls"
+                  className={`englizeka-video-controls ${controlsVisible ? 'is-visible' : ''}`}
+                  onFocus={() => revealControls(false)}
+                  onBlur={() => revealControls(youtubePlaying)}
                   onContextMenu={(event) => event.preventDefault()}
                 >
                   <button
