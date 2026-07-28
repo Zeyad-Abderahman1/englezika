@@ -18,8 +18,6 @@ WHERE `exam_id` IN (SELECT `id` FROM `exams` WHERE `course_id` = 'free-demo-engl
 --> statement-breakpoint
 DELETE FROM `exams` WHERE `course_id` = 'free-demo-english';
 --> statement-breakpoint
-DELETE FROM `payment_intents` WHERE `course_id` = 'free-demo-english';
---> statement-breakpoint
 DELETE FROM `enrollments` WHERE `course_id` = 'free-demo-english';
 --> statement-breakpoint
 DELETE FROM `videos` WHERE `course_id` = 'free-demo-english';
