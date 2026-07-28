@@ -13,31 +13,50 @@
  * Fully keyboard-accessible and ARIA-labelled.
  */
 
-import { useEffect, useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { Cookie, X } from 'lucide-react';
 import Link from 'next/link';
 
 const STORAGE_KEY = 'cookie_consent';
+const CONSENT_CHANGE_EVENT = 'cookie-consent-change';
+const STORAGE_UNAVAILABLE = 'unavailable';
+
+function subscribeToConsent(onStoreChange: () => void) {
+  const notify = () => onStoreChange();
+  window.addEventListener('storage', notify);
+  window.addEventListener(CONSENT_CHANGE_EVENT, notify);
+
+  return () => {
+    window.removeEventListener('storage', notify);
+    window.removeEventListener(CONSENT_CHANGE_EVENT, notify);
+  };
+}
+
+function getConsentSnapshot() {
+  try {
+    return localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return STORAGE_UNAVAILABLE;
+  }
+}
 
 export default function CookieConsent() {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    try {
-      const existing = localStorage.getItem(STORAGE_KEY);
-      if (!existing) setVisible(true);
-    } catch {
-      // localStorage unavailable (SSR / private mode) — hide banner
-    }
-  }, []);
+  const consent = useSyncExternalStore(
+    subscribeToConsent,
+    getConsentSnapshot,
+    () => STORAGE_UNAVAILABLE
+  );
+  const [dismissed, setDismissed] = useState(false);
+  const visible = consent === null && !dismissed;
 
   const respond = (value: 'accepted' | 'rejected') => {
     try {
       localStorage.setItem(STORAGE_KEY, value);
+      window.dispatchEvent(new Event(CONSENT_CHANGE_EVENT));
     } catch {
       /* ignore */
     }
-    setVisible(false);
+    setDismissed(true);
   };
 
   if (!visible) return null;
