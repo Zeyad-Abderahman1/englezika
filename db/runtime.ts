@@ -179,6 +179,10 @@ export function ensureDatabase(): Promise<void> {
     await ensureColumn(db, 'users', 'governorate', "TEXT NOT NULL DEFAULT ''");
     await ensureColumn(db, 'users', 'gender', "TEXT NOT NULL DEFAULT ''");
     await ensureColumn(db, 'users', 'section', "TEXT NOT NULL DEFAULT ''");
+    await ensureColumn(db, 'users', 'birth_certificate_key', 'TEXT');
+    await ensureColumn(db, 'users', 'birth_certificate_content_type', 'TEXT');
+    await ensureColumn(db, 'users', 'account_use_agreement_accepted_at', 'INTEGER');
+    await ensureColumn(db, 'users', 'account_use_agreement_version', 'TEXT');
     // Native auth fields
     await ensureColumn(db, 'users', 'password_hash', "TEXT NOT NULL DEFAULT ''");
     await ensureColumn(db, 'users', 'password_salt', "TEXT NOT NULL DEFAULT ''");

@@ -120,6 +120,7 @@ type Student = {
   createdAt: number;
   activeEnrollments: number;
   totalAttempts: number;
+  hasBirthCertificate: number;
 };
 type Announcement = { id: string; title: string; body: string; createdAt: number };
 type Permission =
@@ -1758,6 +1759,21 @@ function StudentsPanel() {
                   {student.createdAt
                     ? new Date(student.createdAt).toLocaleDateString('ar-EG')
                     : '—'}
+                </div>
+                <div>
+                  <b>شهادة الميلاد:</b>{' '}
+                  {student.hasBirthCertificate ? (
+                    <a
+                      href={`/api/admin/students/${encodeURIComponent(student.email)}/birth-certificate`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: 'var(--red-bright)', fontWeight: 800 }}
+                    >
+                      عرض الملف الخاص
+                    </a>
+                  ) : (
+                    'غير مرفوعة'
+                  )}
                 </div>
               </div>
             )}

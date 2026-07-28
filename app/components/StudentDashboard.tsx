@@ -22,9 +22,11 @@ import {
   LockKeyhole,
   LogOut,
   Menu,
+  Medal,
   Play,
   ShieldCheck,
   UserRound,
+  Trophy,
   X,
 } from 'lucide-react';
 import EmailVerification from './EmailVerification';
@@ -66,8 +68,20 @@ type DashboardData = {
     submittedAt: number;
   }>;
   announcements: Array<{ id: string; title: string; body: string; createdAt: number }>;
+  leaderboards: Record<
+    string,
+    Array<{
+      rank: number;
+      name: string;
+      averagePercentage: number;
+      examsCompleted: number;
+      isCurrentStudent: boolean;
+    }>
+  >;
 };
-type View = 'home' | 'course' | 'exams' | 'assignments' | 'grades' | 'profile' | 'security';
+type View =
+  'home' | 'course' | 'exams' | 'assignments' | 'grades' | 'leaderboard' | 'profile' | 'security';
+const LEADERBOARD_GRADES = ['أولى ثانوي', 'تانية ثانوي', 'تالتة ثانوي'];
 function percent(score: number, maxScore: number) {
   return maxScore > 0 ? Math.round((score * 100) / maxScore) : 0;
 }
@@ -87,6 +101,7 @@ export default function StudentDashboard() {
   const [deletePassword, setDeletePassword] = useState('');
   const [deleteErr, setDeleteErr] = useState('');
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [leaderboardGrade, setLeaderboardGrade] = useState('');
 
   const load = useCallback(async () => {
     const response = await fetch('/api/dashboard', { cache: 'no-store' });
@@ -232,6 +247,13 @@ export default function StudentDashboard() {
           <BarChart3 />
           <span>الدرجات</span>
         </button>
+        <button
+          className={view === 'leaderboard' ? 'active' : ''}
+          onClick={() => navigate('leaderboard', '')}
+        >
+          <Trophy />
+          <span>أوائل كل صف</span>
+        </button>
         <div className="sidebar-divider" />
         <button className={view === 'profile' ? 'active' : ''} onClick={() => navigate('profile')}>
           <UserRound />
@@ -287,9 +309,11 @@ export default function StudentDashboard() {
                       ? 'الواجبات'
                       : view === 'grades'
                         ? 'الدرجات'
-                        : view === 'profile'
-                          ? 'بيانات الحساب'
-                          : 'الأمان وكلمة السر'}
+                        : view === 'leaderboard'
+                          ? 'أوائل الطلاب'
+                          : view === 'profile'
+                            ? 'بيانات الحساب'
+                            : 'الأمان وكلمة السر'}
             </strong>
           </div>
           <button className="notification-button" aria-label="الإشعارات">
@@ -643,6 +667,70 @@ export default function StudentDashboard() {
                 text="بعد تسليم أول امتحان أو واجب ستظهر نتيجتك هنا."
               />
             )}
+          </ListPage>
+        )}
+        {view === 'leaderboard' && (
+          <ListPage
+            icon={<Trophy />}
+            eyebrow="نافس وتقدّم"
+            title="أوائل الطلاب"
+            description="أفضل 10 طلاب في كل صف، محسوبة من متوسط أفضل نتيجة للطالب في كل امتحان مكتمل."
+          >
+            <div className="leaderboard-tabs" role="tablist" aria-label="اختيار الصف الدراسي">
+              {LEADERBOARD_GRADES.map((gradeName) => {
+                const selectedGrade =
+                  leaderboardGrade || data.user.profile?.grade || LEADERBOARD_GRADES[0];
+                return (
+                  <button
+                    key={gradeName}
+                    type="button"
+                    className={selectedGrade === gradeName ? 'active' : ''}
+                    onClick={() => setLeaderboardGrade(gradeName)}
+                  >
+                    {gradeName}
+                  </button>
+                );
+              })}
+            </div>
+            {(() => {
+              const selectedGrade =
+                leaderboardGrade || data.user.profile?.grade || LEADERBOARD_GRADES[0];
+              const leaders = data.leaderboards?.[selectedGrade] ?? [];
+              if (!leaders.length) {
+                return (
+                  <EmptyPanel
+                    icon={<Trophy />}
+                    title="لا توجد نتائج كافية بعد"
+                    text="تظهر قائمة الأوائل بعد إكمال الطلاب لأول امتحان في هذا الصف."
+                  />
+                );
+              }
+              return (
+                <div className="leaderboard-list">
+                  {leaders.map((student) => (
+                    <article
+                      key={`${selectedGrade}-${student.rank}-${student.name}`}
+                      className={`${student.rank <= 3 ? `top-${student.rank}` : ''} ${student.isCurrentStudent ? 'is-current' : ''}`}
+                    >
+                      <div className="leaderboard-rank">
+                        {student.rank <= 3 ? <Medal /> : <span>{student.rank}</span>}
+                      </div>
+                      <div className="leaderboard-name">
+                        <strong>{student.name}</strong>
+                        <small>
+                          {student.examsCompleted} امتحانات مكتملة
+                          {student.isCurrentStudent ? ' · أنت' : ''}
+                        </small>
+                      </div>
+                      <div className="leaderboard-score">
+                        <strong>{student.averagePercentage}%</strong>
+                        <small>المتوسط</small>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              );
+            })()}
           </ListPage>
         )}
         {view === 'profile' && (

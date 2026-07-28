@@ -22,6 +22,10 @@ export type StudentRow = {
   gender: string;
   grade: string;
   section: string;
+  birthCertificateKey?: string;
+  birthCertificateContentType?: string;
+  accountUseAgreementAcceptedAt?: number;
+  accountUseAgreementVersion?: string;
   passwordHash: string;
   passwordSalt: string;
   passwordIterations: number;
@@ -125,6 +129,10 @@ export async function registerStudent(data: {
   gender: string;
   grade: string;
   section: string;
+  birthCertificateKey: string;
+  birthCertificateContentType: string;
+  accountUseAgreementAcceptedAt: number;
+  accountUseAgreementVersion: string;
 }): Promise<'ok' | 'email_taken'> {
   await ensureDatabase();
   const email = data.email.trim().toLowerCase();
@@ -146,10 +154,12 @@ export async function registerStudent(data: {
       `INSERT INTO users
      (email, name, first_name, second_name, third_name, last_name,
       phone, father_phone, mother_phone, school_name, parent_job,
-      governorate, gender, grade, section,
+      governorate, gender, grade, section, birth_certificate_key,
+      birth_certificate_content_type, account_use_agreement_accepted_at,
+      account_use_agreement_version,
       password_hash, password_salt, password_iterations,
       role, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'student', ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'student', ?, ?)
      ON CONFLICT(email) DO UPDATE SET
        name = excluded.name,
        first_name = excluded.first_name, second_name = excluded.second_name,
@@ -158,6 +168,10 @@ export async function registerStudent(data: {
        mother_phone = excluded.mother_phone, school_name = excluded.school_name,
        parent_job = excluded.parent_job, governorate = excluded.governorate,
        gender = excluded.gender, grade = excluded.grade, section = excluded.section,
+       birth_certificate_key = excluded.birth_certificate_key,
+       birth_certificate_content_type = excluded.birth_certificate_content_type,
+       account_use_agreement_accepted_at = excluded.account_use_agreement_accepted_at,
+       account_use_agreement_version = excluded.account_use_agreement_version,
        password_hash = excluded.password_hash, password_salt = excluded.password_salt,
        password_iterations = excluded.password_iterations,
        updated_at = excluded.updated_at
@@ -179,6 +193,10 @@ export async function registerStudent(data: {
       data.gender.trim(),
       data.grade.trim(),
       data.section.trim(),
+      data.birthCertificateKey,
+      data.birthCertificateContentType,
+      data.accountUseAgreementAcceptedAt,
+      data.accountUseAgreementVersion,
       hash,
       salt,
       iterations,

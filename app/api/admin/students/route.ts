@@ -41,6 +41,7 @@ export async function GET(request: Request) {
      u.phone, u.father_phone AS fatherPhone, u.mother_phone AS motherPhone,
      u.school_name AS schoolName, u.parent_job AS parentJob,
      u.governorate, u.gender, u.grade, u.section,
+     CASE WHEN u.birth_certificate_key IS NOT NULL AND u.birth_certificate_key != '' THEN 1 ELSE 0 END AS hasBirthCertificate,
      u.created_at AS createdAt,
      (SELECT COUNT(*) FROM enrollments e WHERE e.user_email = u.email AND e.status = 'approved') AS activeEnrollments,
      (SELECT COUNT(*) FROM attempts a WHERE a.user_email = u.email) AS totalAttempts
