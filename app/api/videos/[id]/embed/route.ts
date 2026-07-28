@@ -39,10 +39,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       var pendingCommand = null;
       var player = new YT.Player('player', {
         videoId: ${youtubeId},
-        playerVars: { controls: 1, disablekb: 1, fs: 1, modestbranding: 1, origin: ${embedOrigin}, playsinline: 1, rel: 0 },
+        playerVars: { controls: 0, disablekb: 1, fs: 0, modestbranding: 1, origin: ${embedOrigin}, playsinline: 1, rel: 0 },
         events: {
           onReady: function () {
             playerReady = true;
+            window.parent.postMessage({ type: 'englizeka-video-ready', videoId: ${lessonId}, qualities: player.getAvailableQualityLevels(), quality: player.getPlaybackQuality() || 'default' }, window.location.origin);
             if (pendingCommand === 'play') player.playVideo();
             if (pendingCommand === 'pause') player.pauseVideo();
             pendingCommand = null;
@@ -50,9 +51,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
           onStateChange: function (event) {
             var state = event.data === YT.PlayerState.PLAYING ? 'playing' : event.data === YT.PlayerState.PAUSED ? 'paused' : event.data === YT.PlayerState.ENDED ? 'ended' : 'other';
             window.parent.postMessage({ type: 'englizeka-video-state', videoId: ${lessonId}, state: state }, window.location.origin);
+            if (event.data === YT.PlayerState.PLAYING) {
+              window.parent.postMessage({ type: 'englizeka-video-ready', videoId: ${lessonId}, qualities: player.getAvailableQualityLevels(), quality: player.getPlaybackQuality() || 'default' }, window.location.origin);
+            }
             if (event.data === YT.PlayerState.ENDED) {
               window.parent.postMessage({ type: 'englizeka-video-ended', videoId: ${lessonId} }, window.location.origin);
             }
+          },
+          onPlaybackQualityChange: function (event) {
+            window.parent.postMessage({ type: 'englizeka-video-quality', videoId: ${lessonId}, quality: event.data || 'default' }, window.location.origin);
           }
         }
       });
@@ -64,6 +71,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         }
         if (event.data.command === 'play') player.playVideo();
         if (event.data.command === 'pause') player.pauseVideo();
+        if (event.data.command === 'quality' && typeof event.data.value === 'string') player.setPlaybackQuality(event.data.value);
+        if (event.data.command === 'get-state') window.parent.postMessage({ type: 'englizeka-video-ready', videoId: ${lessonId}, qualities: player.getAvailableQualityLevels(), quality: player.getPlaybackQuality() || 'default' }, window.location.origin);
       });
     };
   </script>

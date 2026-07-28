@@ -5,6 +5,9 @@ import {
   CheckCircle2,
   LoaderCircle,
   LockKeyhole,
+  Maximize2,
+  Minimize2,
+  PauseCircle,
   PlayCircle,
   RefreshCw,
   ShieldCheck,
@@ -26,6 +29,18 @@ type ResolvedSource = {
   error?: string;
 };
 
+const QUALITY_LABELS: Record<string, string> = {
+  highres: '4K+',
+  hd2160: '2160p',
+  hd1440: '1440p',
+  hd1080: '1080p',
+  hd720: '720p',
+  large: '480p',
+  medium: '360p',
+  small: '240p',
+  tiny: '144p',
+};
+
 export default function SecureVideoPlayer({
   videos,
   viewerEmail,
@@ -41,15 +56,28 @@ export default function SecureVideoPlayer({
   const [resolveAttempt, setResolveAttempt] = useState(0);
   const [completionMessage, setCompletionMessage] = useState('');
   const [securityMessage, setSecurityMessage] = useState('');
+  const [youtubePlaying, setYoutubePlaying] = useState(false);
+  const [qualityLevels, setQualityLevels] = useState<string[]>([]);
+  const [selectedQuality, setSelectedQuality] = useState('default');
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const videoFrameRef = useRef<HTMLDivElement>(null);
   const completionInFlight = useRef(new Set<string>());
   const active = lessons.find((video) => video.id === activeId);
 
-  const sendYouTubeCommand = useCallback((command: 'play' | 'pause') => {
+  const sendYouTubeCommand = useCallback((command: string, value?: string) => {
     iframeRef.current?.contentWindow?.postMessage(
-      { type: 'englizeka-player-command', command },
+      { type: 'englizeka-player-command', command, value },
       window.location.origin
     );
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+    await videoFrameRef.current?.requestFullscreen();
   }, []);
 
   const showSecurityOverlay = useCallback(() => {
@@ -112,14 +140,38 @@ export default function SecureVideoPlayer({
     const receivePlayerEvent = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       if (event.source !== iframeRef.current?.contentWindow) return;
-      const data = event.data as { type?: string; videoId?: string; state?: string } | null;
+      const data = event.data as {
+        type?: string;
+        videoId?: string;
+        state?: string;
+        qualities?: string[];
+        quality?: string;
+      } | null;
       if (data?.type === 'englizeka-video-ended' && data.videoId === activeId) {
+        setYoutubePlaying(false);
         void completeLesson(activeId);
+      }
+      if (data?.type === 'englizeka-video-state' && data.videoId === activeId) {
+        setYoutubePlaying(data.state === 'playing');
+      }
+      if (data?.type === 'englizeka-video-ready' && data.videoId === activeId) {
+        setQualityLevels(Array.isArray(data.qualities) ? data.qualities : []);
+        setSelectedQuality(data.quality || 'default');
+      }
+      if (data?.type === 'englizeka-video-quality' && data.videoId === activeId) {
+        setSelectedQuality(data.quality || 'default');
       }
     };
     window.addEventListener('message', receivePlayerEvent);
     return () => window.removeEventListener('message', receivePlayerEvent);
   }, [activeId, completeLesson]);
+
+  useEffect(() => {
+    const syncFullscreen = () =>
+      setIsFullscreen(document.fullscreenElement === videoFrameRef.current);
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen);
+  }, []);
 
   useEffect(() => {
     const protectOnVisibilityChange = () => {
@@ -149,7 +201,11 @@ export default function SecureVideoPlayer({
     <div className="learning-layout">
       <section className="secure-player-card">
         {active?.unlocked ? (
-          <div className="video-frame" onContextMenu={(event) => event.preventDefault()}>
+          <div
+            ref={videoFrameRef}
+            className="video-frame"
+            onContextMenu={(event) => event.preventDefault()}
+          >
             {!activeSource ? (
               <div className="video-source-state" role="status">
                 <LoaderCircle className="spin" />
@@ -171,10 +227,10 @@ export default function SecureVideoPlayer({
                 className="youtube-player-host"
                 src={activeSource.sourceUrl}
                 title={active.title}
-                allow="autoplay; encrypted-media; fullscreen"
-                allowFullScreen
+                allow="autoplay; encrypted-media"
                 referrerPolicy="strict-origin-when-cross-origin"
                 sandbox="allow-scripts allow-same-origin allow-presentation"
+                onLoad={() => sendYouTubeCommand('get-state')}
               />
             ) : (
               <video
@@ -190,6 +246,54 @@ export default function SecureVideoPlayer({
               >
                 متصفحك لا يدعم تشغيل الفيديو.
               </video>
+            )}
+            {activeSource?.kind === 'youtube' && !activeSource.error && (
+              <>
+                <div className="youtube-top-mask" aria-hidden="true" />
+                <div
+                  className="youtube-click-shield"
+                  aria-label="تشغيل أو إيقاف الفيديو"
+                  onClick={() => sendYouTubeCommand(youtubePlaying ? 'pause' : 'play')}
+                  onContextMenu={(event) => event.preventDefault()}
+                />
+                <div
+                  className="englizeka-video-controls"
+                  onContextMenu={(event) => event.preventDefault()}
+                >
+                  <button
+                    type="button"
+                    aria-label={youtubePlaying ? 'إيقاف الفيديو مؤقتاً' : 'تشغيل الفيديو'}
+                    onClick={() => sendYouTubeCommand(youtubePlaying ? 'pause' : 'play')}
+                  >
+                    {youtubePlaying ? <PauseCircle /> : <PlayCircle />}
+                  </button>
+                  <label>
+                    <span>الجودة</span>
+                    <select
+                      aria-label="جودة الفيديو"
+                      value={selectedQuality}
+                      onChange={(event) => {
+                        setSelectedQuality(event.target.value);
+                        sendYouTubeCommand('quality', event.target.value);
+                      }}
+                    >
+                      <option value="default">تلقائي</option>
+                      {qualityLevels.map((quality) => (
+                        <option key={quality} value={quality}>
+                          {QUALITY_LABELS[quality] || quality}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    aria-label={isFullscreen ? 'الخروج من ملء الشاشة' : 'ملء الشاشة'}
+                    onClick={() => void toggleFullscreen()}
+                  >
+                    {isFullscreen ? <Minimize2 /> : <Maximize2 />}
+                  </button>
+                </div>
+              </>
             )}
             <div
               className="video-watermark video-watermark-top"
@@ -256,6 +360,9 @@ export default function SecureVideoPlayer({
                 setActiveId(video.id);
                 setCompletionMessage('');
                 setSecurityMessage('');
+                setYoutubePlaying(false);
+                setQualityLevels([]);
+                setSelectedQuality('default');
               }}
             >
               <span>{index + 1}</span>
