@@ -1,97 +1,30 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, LockKeyhole, PlayCircle, ShieldCheck, UserRound } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  CheckCircle2,
+  LoaderCircle,
+  LockKeyhole,
+  PlayCircle,
+  RefreshCw,
+  ShieldCheck,
+  UserRound,
+} from 'lucide-react';
 
 type Video = {
   id: string;
   title: string;
   durationSeconds: number;
-  sourceType: string;
-  youtubeId: string | null;
   completed: number;
   unlocked: number;
 };
 
-type YouTubePlayerInstance = { destroy: () => void };
-type YouTubeStateEvent = { data: number };
-
-declare global {
-  interface Window {
-    YT?: {
-      Player: new (
-        element: HTMLElement,
-        options: {
-          videoId: string;
-          playerVars: Record<string, number>;
-          events: { onStateChange: (event: YouTubeStateEvent) => void };
-        }
-      ) => YouTubePlayerInstance;
-    };
-    onYouTubeIframeAPIReady?: () => void;
-  }
-}
-
-let youtubeApiPromise: Promise<void> | null = null;
-
-function loadYouTubeApi() {
-  if (window.YT?.Player) return Promise.resolve();
-  if (youtubeApiPromise) return youtubeApiPromise;
-  youtubeApiPromise = new Promise<void>((resolve) => {
-    const previousReady = window.onYouTubeIframeAPIReady;
-    window.onYouTubeIframeAPIReady = () => {
-      previousReady?.();
-      resolve();
-    };
-    if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
-      const script = document.createElement('script');
-      script.src = 'https://www.youtube.com/iframe_api';
-      script.async = true;
-      document.head.appendChild(script);
-    }
-  });
-  return youtubeApiPromise;
-}
-
-function YouTubeLesson({ videoId, onEnded }: { videoId: string; onEnded: () => void }) {
-  const hostRef = useRef<HTMLDivElement>(null);
-  const onEndedRef = useRef(onEnded);
-
-  useEffect(() => {
-    onEndedRef.current = onEnded;
-  }, [onEnded]);
-
-  useEffect(() => {
-    let disposed = false;
-    let player: YouTubePlayerInstance | null = null;
-    void loadYouTubeApi().then(() => {
-      if (disposed || !hostRef.current || !window.YT?.Player) return;
-      player = new window.YT.Player(hostRef.current, {
-        videoId,
-        playerVars: {
-          autoplay: 0,
-          controls: 1,
-          disablekb: 1,
-          fs: 1,
-          modestbranding: 1,
-          playsinline: 1,
-          rel: 0,
-        },
-        events: {
-          onStateChange: (event) => {
-            if (event.data === 0) onEndedRef.current();
-          },
-        },
-      });
-    });
-    return () => {
-      disposed = true;
-      player?.destroy();
-    };
-  }, [videoId]);
-
-  return <div ref={hostRef} className="youtube-player-host" />;
-}
+type ResolvedSource = {
+  videoId: string;
+  kind: 'upload' | 'youtube';
+  sourceUrl: string;
+  error?: string;
+};
 
 export default function SecureVideoPlayer({
   videos,
@@ -104,25 +37,78 @@ export default function SecureVideoPlayer({
   const [activeId, setActiveId] = useState(
     videos.find((video) => video.unlocked)?.id || videos[0]?.id || ''
   );
+  const [resolved, setResolved] = useState<ResolvedSource | null>(null);
+  const [resolveAttempt, setResolveAttempt] = useState(0);
   const [completionMessage, setCompletionMessage] = useState('');
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const completionInFlight = useRef(new Set<string>());
   const active = lessons.find((video) => video.id === activeId);
 
-  async function completeLesson(videoId: string) {
-    const response = await fetch(`/api/videos/${videoId}/complete`, { method: 'POST' });
-    if (!response.ok) return;
-    setLessons((current) => {
-      const completedIndex = current.findIndex((lesson) => lesson.id === videoId);
-      return current.map((lesson, index) => ({
-        ...lesson,
-        completed: index === completedIndex ? 1 : lesson.completed,
-        unlocked: index === completedIndex + 1 ? 1 : lesson.unlocked,
-      }));
-    });
-    setCompletionMessage('تم إنهاء المحاضرة وفتح المحاضرة التالية بنجاح.');
-  }
+  const completeLesson = useCallback(async (videoId: string) => {
+    if (completionInFlight.current.has(videoId)) return;
+    completionInFlight.current.add(videoId);
+    try {
+      const response = await fetch(`/api/videos/${videoId}/complete`, { method: 'POST' });
+      if (!response.ok) return;
+      setLessons((current) => {
+        const completedIndex = current.findIndex((lesson) => lesson.id === videoId);
+        return current.map((lesson, index) => ({
+          ...lesson,
+          completed: index === completedIndex ? 1 : lesson.completed,
+          unlocked: index === completedIndex + 1 ? 1 : lesson.unlocked,
+        }));
+      });
+      setCompletionMessage('تم إنهاء المحاضرة وفتح المحاضرة التالية بنجاح.');
+    } finally {
+      completionInFlight.current.delete(videoId);
+    }
+  }, []);
 
-  if (!lessons.length)
+  useEffect(() => {
+    if (!activeId || !active?.unlocked) return;
+    const controller = new AbortController();
+    void fetch(`/api/videos/${encodeURIComponent(activeId)}/resolve`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const result = (await response.json().catch(() => ({}))) as {
+          kind?: 'upload' | 'youtube';
+          sourceUrl?: string;
+          error?: string;
+        };
+        if (!response.ok || !result.kind || !result.sourceUrl) {
+          throw new Error(result.error || 'تعذر تجهيز مصدر الفيديو');
+        }
+        setResolved({ videoId: activeId, kind: result.kind, sourceUrl: result.sourceUrl });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setResolved({
+          videoId: activeId,
+          kind: 'upload',
+          sourceUrl: '',
+          error: error instanceof Error ? error.message : 'تعذر تجهيز مصدر الفيديو',
+        });
+      });
+    return () => controller.abort();
+  }, [active?.unlocked, activeId, resolveAttempt]);
+
+  useEffect(() => {
+    const receivePlayerEvent = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      const data = event.data as { type?: string; videoId?: string } | null;
+      if (data?.type === 'englizeka-video-ended' && data.videoId === activeId) {
+        void completeLesson(activeId);
+      }
+    };
+    window.addEventListener('message', receivePlayerEvent);
+    return () => window.removeEventListener('message', receivePlayerEvent);
+  }, [activeId, completeLesson]);
+
+  if (!lessons.length) {
     return (
       <div className="empty-course">
         <PlayCircle />
@@ -130,29 +116,50 @@ export default function SecureVideoPlayer({
         <p>سيتم إضافة فيديوهات الكورس هنا قريباً.</p>
       </div>
     );
+  }
 
-  const isYouTube = active?.sourceType === 'youtube' && Boolean(active.youtubeId);
+  const activeSource = resolved?.videoId === activeId ? resolved : null;
 
   return (
     <div className="learning-layout">
       <section className="secure-player-card">
         {active?.unlocked ? (
           <div className="video-frame" onContextMenu={(event) => event.preventDefault()}>
-            {isYouTube && active.youtubeId ? (
-              <YouTubeLesson
-                key={active.id}
-                videoId={active.youtubeId}
-                onEnded={() => void completeLesson(active.id)}
+            {!activeSource ? (
+              <div className="video-source-state" role="status">
+                <LoaderCircle className="spin" />
+                <strong>جاري تجهيز الفيديو الآمن...</strong>
+                <small>يتم التحقق من اشتراكك قبل تشغيل كل محاضرة.</small>
+              </div>
+            ) : activeSource.error ? (
+              <div className="video-source-state" role="alert">
+                <LockKeyhole />
+                <strong>{activeSource.error}</strong>
+                <button className="btn btn-outline" onClick={() => setResolveAttempt((v) => v + 1)}>
+                  <RefreshCw /> إعادة المحاولة
+                </button>
+              </div>
+            ) : activeSource.kind === 'youtube' ? (
+              <iframe
+                key={activeSource.sourceUrl}
+                ref={iframeRef}
+                className="youtube-player-host"
+                src={activeSource.sourceUrl}
+                title={active.title}
+                allow="accelerometer; autoplay; encrypted-media; gyroscope; fullscreen"
+                allowFullScreen
+                referrerPolicy="no-referrer"
+                sandbox="allow-scripts allow-same-origin allow-presentation"
               />
             ) : (
               <video
-                ref={videoRef}
+                key={activeSource.sourceUrl}
                 controls
                 controlsList="nodownload noplaybackrate noremoteplayback"
                 disablePictureInPicture
                 disableRemotePlayback
                 preload="metadata"
-                src={`/api/videos/${activeId}`}
+                src={activeSource.sourceUrl}
                 onEnded={() => void completeLesson(active.id)}
                 onContextMenu={(event) => event.preventDefault()}
               >

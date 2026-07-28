@@ -1,0 +1,63 @@
+import { apiVerifiedUser, isResponse } from '../../../../lib/api-auth';
+import { authorizeVideoAccess, verifyVideoEmbedToken } from '../../../../lib/video-access';
+
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const user = await apiVerifiedUser();
+  if (isResponse(user)) return user;
+  const { id } = await params;
+  const token = new URL(request.url).searchParams.get('token') || '';
+  if (!(await verifyVideoEmbedToken(token, user.email, id))) {
+    return new Response('انتهت صلاحية رابط تشغيل الفيديو', { status: 403 });
+  }
+
+  const access = await authorizeVideoAccess(user.email, id);
+  if (!access.ok || access.video.sourceType !== 'youtube' || !access.video.youtubeId) {
+    return new Response(access.ok ? 'الفيديو غير متاح' : access.error, {
+      status: access.ok ? 404 : access.status,
+    });
+  }
+  if (!/^[A-Za-z0-9_-]{11}$/.test(access.video.youtubeId)) {
+    return new Response('مصدر الفيديو غير صالح', { status: 500 });
+  }
+
+  const youtubeId = JSON.stringify(access.video.youtubeId);
+  const lessonId = JSON.stringify(id);
+  const html = `<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>html,body,#player{width:100%;height:100%;margin:0;background:#000;overflow:hidden}</style>
+</head>
+<body oncontextmenu="return false">
+  <div id="player"></div>
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <script>
+    window.onYouTubeIframeAPIReady = function () {
+      new YT.Player('player', {
+        videoId: ${youtubeId},
+        playerVars: { controls: 1, disablekb: 1, fs: 1, modestbranding: 1, playsinline: 1, rel: 0 },
+        events: {
+          onStateChange: function (event) {
+            if (event.data === YT.PlayerState.ENDED) {
+              window.parent.postMessage({ type: 'englizeka-video-ended', videoId: ${lessonId} }, window.location.origin);
+            }
+          }
+        }
+      });
+    };
+  </script>
+</body>
+</html>`;
+
+  return new Response(html, {
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'private, no-store, max-age=0',
+      'content-security-policy':
+        "default-src 'none'; script-src 'unsafe-inline' https://www.youtube.com https://s.ytimg.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; connect-src https://www.youtube.com https://*.googlevideo.com; img-src data: https://i.ytimg.com https://*.ggpht.com; style-src 'unsafe-inline'; frame-ancestors 'self'",
+      'referrer-policy': 'no-referrer',
+      'x-content-type-options': 'nosniff',
+    },
+  });
+}

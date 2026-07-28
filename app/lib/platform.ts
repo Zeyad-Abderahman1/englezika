@@ -11,6 +11,7 @@ export type PlatformEnv = {
   EMAIL_FROM?: string;
   EMAIL_TEST_MODE?: string;
   VERIFICATION_SECRET?: string;
+  VIDEO_RESOLVE_SECRET?: string;
   INITIAL_STAFF_EMAIL?: string;
   INITIAL_STAFF_NAME?: string;
   INITIAL_STAFF_PASSWORD_HASH?: string;
@@ -37,6 +38,7 @@ export function getPlatformEnv(): PlatformEnv {
       currentEnv.VERIFICATION_SECRET ||
       process.env.VERIFICATION_SECRET ||
       'englizeka-local-development-secret-key-32-chars-long',
+    VIDEO_RESOLVE_SECRET: currentEnv.VIDEO_RESOLVE_SECRET || process.env.VIDEO_RESOLVE_SECRET,
     GMAIL_USER: currentEnv.GMAIL_USER || process.env.GMAIL_USER,
     GMAIL_APP_PASSWORD: currentEnv.GMAIL_APP_PASSWORD || process.env.GMAIL_APP_PASSWORD,
     SERVERSMTP_CONSUMER_KEY:

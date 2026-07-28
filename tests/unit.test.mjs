@@ -9,6 +9,11 @@ import {
   isAllowedFawaterakCheckoutUrl,
   resolvePublicAppOrigin,
 } from '../app/lib/fawaterak-validation.ts';
+import {
+  createSignedVideoToken,
+  verifySignedVideoToken,
+  VIDEO_EMBED_TOKEN_TTL_MS,
+} from '../app/lib/video-token.ts';
 
 test('safeText trims and caps max string length', () => {
   assert.equal(safeText('  hello world  ', 5), 'hello');
@@ -93,5 +98,43 @@ test('production payment redirects require an explicit HTTPS application origin'
         true
       ),
     /APP_URL_INVALID/
+  );
+});
+
+test('video embed tokens are short-lived, signed, and bound to the student and lesson', async () => {
+  const secret = 'test-video-token-secret-that-is-long-enough';
+  const now = 1_800_000_000_000;
+  const token = await createSignedVideoToken(secret, 'Student@Example.test', 'lesson-123', now);
+  assert.equal(
+    await verifySignedVideoToken(secret, token, 'student@example.test', 'lesson-123', now),
+    true
+  );
+  assert.equal(
+    await verifySignedVideoToken(secret, token, 'another@example.test', 'lesson-123', now),
+    false
+  );
+  assert.equal(
+    await verifySignedVideoToken(secret, token, 'student@example.test', 'lesson-999', now),
+    false
+  );
+  assert.equal(
+    await verifySignedVideoToken(
+      secret,
+      token,
+      'student@example.test',
+      'lesson-123',
+      now + VIDEO_EMBED_TOKEN_TTL_MS + 1
+    ),
+    false
+  );
+  assert.equal(
+    await verifySignedVideoToken(
+      secret,
+      `${token.slice(0, -1)}x`,
+      'student@example.test',
+      'lesson-123',
+      now
+    ),
+    false
   );
 });

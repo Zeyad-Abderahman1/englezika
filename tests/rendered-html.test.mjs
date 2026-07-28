@@ -72,4 +72,8 @@ test('protected pages and APIs reject anonymous access', async () => {
   assert.equal(adminApi.status, 401);
   const accountApi = await render('/api/dashboard');
   assert.equal(accountApi.status, 401);
+  const videoResolve = await render('/api/videos/example-video/resolve');
+  assert.equal(videoResolve.status, 401);
+  const videoEmbed = await render('/api/videos/example-video/embed?token=invalid');
+  assert.equal(videoEmbed.status, 401);
 });
