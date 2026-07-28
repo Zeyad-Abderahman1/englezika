@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, LoaderCircle, Send } from 'lucide-react';
 
@@ -21,7 +21,7 @@ type ExamPayload = {
     durationMinutes: number;
     passingScore: number;
   };
-  session: { startedAt: number; expiresAt: number };
+  session: { id: string; startedAt: number; expiresAt: number };
   questions: Question[];
 };
 type Result = {
@@ -43,6 +43,8 @@ export default function QuizRunner({ examId }: { examId: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<Result | null>(null);
+  const [focusWarning, setFocusWarning] = useState(false);
+  const visibilityViolations = useRef(0);
   const draftKey = `englizeka-exam-${examId}`;
 
   useEffect(() => {
@@ -83,6 +85,22 @@ export default function QuizRunner({ examId }: { examId: string }) {
     if (payload) localStorage.setItem(draftKey, JSON.stringify(answers));
   }, [answers, draftKey, payload]);
 
+  useEffect(() => {
+    if (!payload || result) return;
+    const protectExam = () => {
+      if (document.visibilityState !== 'hidden') return;
+      visibilityViolations.current += 1;
+      if (visibilityViolations.current === 1) {
+        setFocusWarning(true);
+        return;
+      }
+      localStorage.removeItem(draftKey);
+      window.location.reload();
+    };
+    document.addEventListener('visibilitychange', protectExam);
+    return () => document.removeEventListener('visibilitychange', protectExam);
+  }, [draftKey, payload, result]);
+
   const submit = useCallback(async () => {
     if (!payload || submitting || result) return;
     setSubmitting(true);
@@ -90,7 +108,7 @@ export default function QuizRunner({ examId }: { examId: string }) {
     const response = await fetch(`/api/exams/${examId}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ answers }),
+      body: JSON.stringify({ sessionId: payload.session.id, answers }),
     });
     const data = (await response.json().catch(() => ({}))) as Result & { error?: string };
     setSubmitting(false);
@@ -165,6 +183,19 @@ export default function QuizRunner({ examId }: { examId: string }) {
   const seconds = remaining % 60;
   return (
     <div className="quiz-shell">
+      {focusWarning && (
+        <div className="exam-focus-warning" role="alertdialog" aria-modal="true">
+          <div>
+            <AlertTriangle />
+            <span>التحذير الأول والأخير</span>
+            <h2>لا تفتح أي نافذة أو تبويب آخر أثناء الامتحان</h2>
+            <p>إذا غادرت صفحة الامتحان مرة ثانية سيُغلق الامتحان وتبدأ من السؤال الأول.</p>
+            <button className="btn btn-primary" onClick={() => setFocusWarning(false)}>
+              متابعة الامتحان
+            </button>
+          </div>
+        </div>
+      )}
       <header className="quiz-header">
         <div>
           <span className="section-label">امتحان إلكتروني</span>
@@ -251,7 +282,8 @@ export default function QuizRunner({ examId }: { examId: string }) {
         </section>
       </div>
       <div className="quiz-note">
-        <CheckCircle2 /> يتم حفظ إجاباتك تلقائياً على جهازك. لا تغلق الصفحة قبل التسليم.
+        <CheckCircle2 /> لا تفتح تبويبًا آخر أثناء الامتحان. لديك تحذير واحد فقط، والمخالفة الثانية
+        تعيد الامتحان من البداية.
       </div>
     </div>
   );

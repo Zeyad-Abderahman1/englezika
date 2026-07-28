@@ -33,9 +33,6 @@
           "bucket_name": "englizeka-staging-videos",
         },
       ],
-      "vars": {
-        "EMAIL_TEST_MODE": "true",
-      },
     },
   },
 }

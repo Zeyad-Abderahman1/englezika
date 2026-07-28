@@ -12,6 +12,7 @@ import {
 import { isStrongPassword, jsonError, requireSameOrigin, safeText } from '../../../lib/security';
 import { createStudentSession, studentSessionCookie } from '../../../lib/student-session';
 import { checkRateLimit, getClientIp, rateLimitResponse } from '../../../lib/rate-limit';
+import { getVideoBucket } from '../../../lib/platform';
 
 const EGYPTIAN_GOVERNORATES = [
   'القاهرة',
@@ -45,6 +46,32 @@ const EGYPTIAN_GOVERNORATES = [
 
 const VALID_GRADES = ['أولى ثانوي', 'تانية ثانوي', 'تالتة ثانوي'];
 const VALID_GENDERS = ['ذكر', 'أنثى'];
+const MAX_BIRTH_CERTIFICATE_SIZE = 5 * 1024 * 1024;
+const ACCOUNT_USE_AGREEMENT_VERSION = '2026-07-28';
+const ALLOWED_CERTIFICATE_TYPES = new Map([
+  ['image/jpeg', 'jpg'],
+  ['image/png', 'png'],
+  ['application/pdf', 'pdf'],
+]);
+
+function isValidCertificateSignature(bytes: Uint8Array, contentType: string) {
+  if (contentType === 'image/jpeg')
+    return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (contentType === 'image/png') {
+    return bytes
+      .slice(0, 8)
+      .every((value, index) => value === [137, 80, 78, 71, 13, 10, 26, 10][index]);
+  }
+  if (contentType === 'application/pdf') {
+    return new TextDecoder().decode(bytes.slice(0, 5)) === '%PDF-';
+  }
+  return false;
+}
+
+async function certificateOwnerHash(email: string) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(email));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
 
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
@@ -56,7 +83,12 @@ export async function POST(request: Request) {
     return rateLimitResponse(rateCheck.resetAfterSeconds);
   }
 
-  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!request.headers.get('content-type')?.includes('multipart/form-data')) {
+    return jsonError('يجب رفع شهادة الميلاد مع بيانات التسجيل');
+  }
+  const form = await request.formData().catch(() => null);
+  if (!form) return jsonError('تعذر قراءة بيانات التسجيل');
+  const body = Object.fromEntries(form.entries()) as Record<string, unknown>;
 
   const email = safeText(body.email, 200).toLowerCase();
   const password = typeof body.password === 'string' ? body.password : '';
@@ -74,6 +106,8 @@ export async function POST(request: Request) {
   const gender = safeText(body.gender, 20);
   const grade = safeText(body.grade, 60);
   const section = safeText(body.section, 60);
+  const agreementAccepted = body.account_use_agreement === 'accepted';
+  const birthCertificate = form.get('birth_certificate');
 
   // --- Validation ---
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -101,26 +135,64 @@ export async function POST(request: Request) {
     );
   }
   if (password !== passwordConfirm) return jsonError('كلمتا السر غير متطابقتين');
+  if (!agreementAccepted) {
+    return jsonError('يجب الموافقة على تعهد عدم مشاركة الحساب أو تسجيل الشاشة');
+  }
+  if (!birthCertificate || typeof birthCertificate === 'string') {
+    return jsonError('شهادة الميلاد مطلوبة لإتمام التسجيل');
+  }
+  const certificateType = birthCertificate.type.toLowerCase();
+  const extension = ALLOWED_CERTIFICATE_TYPES.get(certificateType);
+  if (!extension) return jsonError('شهادة الميلاد يجب أن تكون صورة JPG أو PNG أو ملف PDF');
+  if (birthCertificate.size <= 0 || birthCertificate.size > MAX_BIRTH_CERTIFICATE_SIZE) {
+    return jsonError('حجم شهادة الميلاد يجب ألا يتجاوز 5 ميجابايت');
+  }
+  const certificateBytes = new Uint8Array(await birthCertificate.arrayBuffer());
+  if (!isValidCertificateSignature(certificateBytes, certificateType)) {
+    return jsonError('ملف شهادة الميلاد غير صالح أو لا يطابق نوعه');
+  }
 
-  const result = await registerStudent({
-    email,
-    password,
-    firstName,
-    secondName,
-    thirdName,
-    lastName,
-    phone,
-    fatherPhone,
-    motherPhone,
-    schoolName,
-    parentJob,
-    governorate,
-    gender,
-    grade,
-    section,
+  const ownerHash = await certificateOwnerHash(email);
+  const certificateKey = `birth-certificates/${ownerHash}/${crypto.randomUUID()}.${extension}`;
+  const bucket = getVideoBucket();
+  await bucket.put(certificateKey, certificateBytes, {
+    httpMetadata: { contentType: certificateType },
+    customMetadata: {
+      originalName: safeText(birthCertificate.name, 120),
+      agreementVersion: ACCOUNT_USE_AGREEMENT_VERSION,
+    },
   });
 
+  let result: Awaited<ReturnType<typeof registerStudent>>;
+  try {
+    result = await registerStudent({
+      email,
+      password,
+      firstName,
+      secondName,
+      thirdName,
+      lastName,
+      phone,
+      fatherPhone,
+      motherPhone,
+      schoolName,
+      parentJob,
+      governorate,
+      gender,
+      grade,
+      section,
+      birthCertificateKey: certificateKey,
+      birthCertificateContentType: certificateType,
+      accountUseAgreementAcceptedAt: Date.now(),
+      accountUseAgreementVersion: ACCOUNT_USE_AGREEMENT_VERSION,
+    });
+  } catch (error) {
+    await bucket.delete(certificateKey);
+    throw error;
+  }
+
   if (result === 'email_taken') {
+    await bucket.delete(certificateKey);
     return jsonError('هذا البريد الإلكتروني مسجّل بالفعل. سجّل الدخول.', 409);
   }
 

@@ -35,10 +35,10 @@ export default function SubscribeClient({ courseId }: { courseId: string }) {
         </p>
         <div>
           <span>الإجمالي</span>
-          <strong>{course.price} جنيه</strong>
+          <strong>{course.price === 0 ? 'مجاني' : `${course.price} جنيه`}</strong>
         </div>
       </aside>
-      <PaymentFlow courseId={course.id} />
+      <PaymentFlow courseId={course.id} isFree={course.price === 0} />
     </div>
   );
 }

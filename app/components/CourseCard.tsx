@@ -27,8 +27,8 @@ export default function CourseCard({ course }: { course: Course }) {
       </div>
       <div className="course-bottom">
         <div className="price">
-          <strong>{course.price}</strong>
-          <span>جنيه</span>
+          <strong>{course.price === 0 ? 'مجاني' : course.price}</strong>
+          {course.price !== 0 && <span>جنيه</span>}
         </div>
         {course.available ? (
           <Link className="btn btn-primary" href={`/course/${course.id}`}>

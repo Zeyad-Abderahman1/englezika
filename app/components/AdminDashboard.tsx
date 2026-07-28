@@ -13,7 +13,6 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import {
   BarChart3,
-  BellRing,
   BookOpen,
   Check,
   CirclePlus,
@@ -39,6 +38,8 @@ import {
 import { AdminStatsPanel } from './admin/AdminStatsPanel';
 import { AdminCourseList } from './admin/AdminCourseList';
 import { AdminAnnouncementsList } from './admin/AdminAnnouncementsList';
+import { AdminAssignmentList } from './admin/AdminAssignmentList';
+import { TeacherCourseWorkspace } from './admin/TeacherCourseWorkspace';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -93,6 +94,9 @@ type Video = {
   prerequisiteExamId?: string;
   prerequisiteExamTitle?: string;
   minimumScore: number;
+  sourceType: string;
+  sourceUrl?: string;
+  youtubeId?: string;
 };
 type Contact = {
   id: string;
@@ -118,11 +122,23 @@ type Student = {
   createdAt: number;
   activeEnrollments: number;
   totalAttempts: number;
+  hasBirthCertificate: number;
 };
 type Announcement = { id: string; title: string; body: string; createdAt: number };
+type Assignment = {
+  id: string;
+  courseId: string;
+  courseTitle: string;
+  title: string;
+  description: string;
+  dueAt?: number | null;
+  maxScore: number;
+  status: string;
+};
 type Permission =
   | 'manage_courses'
   | 'manage_exams'
+  | 'manage_assignments'
   | 'manage_videos'
   | 'manage_enrollments'
   | 'grade_exams'
@@ -150,6 +166,7 @@ type AdminData = {
   };
   courses: Course[];
   exams: Exam[];
+  assignments: Assignment[];
   enrollments: Enrollment[];
   attempts: Attempt[];
   videos: Video[];
@@ -160,6 +177,7 @@ type Tab =
   | 'overview'
   | 'courses'
   | 'exams'
+  | 'assignments'
   | 'videos'
   | 'students'
   | 'enrollments'
@@ -193,6 +211,7 @@ const tabs: Array<{
   { id: 'overview', label: 'نظرة عامة', icon: LayoutDashboard },
   { id: 'courses', label: 'الكورسات', icon: BookOpen, permission: 'manage_courses' },
   { id: 'exams', label: 'الامتحانات', icon: FileQuestion, permission: 'manage_exams' },
+  { id: 'assignments', label: 'الواجبات', icon: ClipboardCheck, permission: 'manage_assignments' },
   { id: 'videos', label: 'المحاضرات', icon: PlaySquare, permission: 'manage_videos' },
   { id: 'students', label: 'الطلاب', icon: GraduationCap, permission: 'view_students' },
   { id: 'enrollments', label: 'الاشتراكات', icon: Users, permission: 'manage_enrollments' },
@@ -221,7 +240,13 @@ async function apiRequest(path: string, init?: RequestInit) {
 type PromptState = {
   isOpen: boolean;
   title: string;
-  fields: { name: string; label: string; defaultValue?: string; type?: string }[];
+  fields: {
+    name: string;
+    label: string;
+    defaultValue?: string;
+    type?: string;
+    required?: boolean;
+  }[];
   onSubmit: (values: Record<string, string>) => void;
 };
 
@@ -230,6 +255,7 @@ type PromptState = {
 export default function AdminDashboard() {
   const [data, setData] = useState<AdminData | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
+  const [selectedCourseId, setSelectedCourseId] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -381,6 +407,30 @@ export default function AdminDashboard() {
         {/* ══ OVERVIEW ══════════════════════════════════════════════════════ */}
         {tab === 'overview' && (
           <>
+            <section className="teacher-welcome-hero">
+              <div>
+                <span>لوحة المدرس</span>
+                <h2>أهلًا، {data.admin.name}</h2>
+                <p>أنشئ الكورسات، ارفع المحاضرات، وابنِ الامتحانات من مكان واحد.</p>
+              </div>
+              <div className="teacher-quick-actions">
+                {can('manage_courses') && (
+                  <button onClick={() => goTab('courses')}>
+                    <CirclePlus /> إضافة كورس
+                  </button>
+                )}
+                {can('manage_videos') && (
+                  <button onClick={() => goTab('videos')}>
+                    <Upload /> رفع محاضرة
+                  </button>
+                )}
+                {can('manage_exams') && (
+                  <button onClick={() => goTab('exams')}>
+                    <FileQuestion /> إنشاء امتحان
+                  </button>
+                )}
+              </div>
+            </section>
             <AdminStatsPanel
               counts={data.counts}
               contacts={data.contacts}
@@ -399,6 +449,35 @@ export default function AdminDashboard() {
                 ).then(reset);
               }}
             />
+            {can('manage_courses') && (
+              <TeacherCourseWorkspace
+                courses={data.courses}
+                exams={data.exams}
+                assignments={data.assignments}
+                videos={data.videos}
+                enrollments={data.enrollments}
+                canManageExams={can('manage_exams')}
+                canManageAssignments={can('manage_assignments')}
+                canManageVideos={can('manage_videos')}
+                onEditCourse={(courseId) => {
+                  setSelectedCourseId(courseId);
+                  goTab('courses');
+                }}
+                onAddExam={(courseId) => {
+                  setSelectedCourseId(courseId);
+                  setQuestions([emptyQuestion()]);
+                  goTab('exams');
+                }}
+                onAddAssignment={(courseId) => {
+                  setSelectedCourseId(courseId);
+                  goTab('assignments');
+                }}
+                onManageLessons={(courseId) => {
+                  setSelectedCourseId(courseId);
+                  goTab('videos');
+                }}
+              />
+            )}
             {can('manage_announcements') &&
               (data as AdminData & { announcements?: Announcement[] }).announcements && (
                 <AdminAnnouncementsList
@@ -406,6 +485,17 @@ export default function AdminDashboard() {
                     (data as AdminData & { announcements?: Announcement[] }).announcements ?? []
                   }
                   busy={busy}
+                  onEdit={(id, values) =>
+                    void mutate(
+                      () =>
+                        apiRequest(`/api/admin/announcements/${id}`, {
+                          method: 'PATCH',
+                          headers: { 'content-type': 'application/json' },
+                          body: JSON.stringify(values),
+                        }),
+                      'تم تحديث الإعلان'
+                    )
+                  }
                   onDelete={(id) =>
                     void mutate(
                       () => apiRequest(`/api/admin/announcements/${id}`, { method: 'DELETE' }),
@@ -421,6 +511,7 @@ export default function AdminDashboard() {
         {tab === 'courses' && (
           <AdminCourseList
             courses={data.courses}
+            focusedCourseId={selectedCourseId}
             busy={busy}
             onAddCourse={(values, reset) => {
               void mutate(
@@ -433,6 +524,30 @@ export default function AdminDashboard() {
                 'تمت إضافة الكورس'
               ).then(reset);
             }}
+            onEditCourse={(id, values) =>
+              void mutate(
+                () =>
+                  apiRequest(`/api/admin/courses/${id}`, {
+                    method: 'PATCH',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify(values),
+                  }),
+                'تم تحديث الكورس'
+              )
+            }
+            onAddExam={(courseId) => {
+              setSelectedCourseId(courseId);
+              setQuestions([emptyQuestion()]);
+              goTab('exams');
+            }}
+            onAddAssignment={(courseId) => {
+              setSelectedCourseId(courseId);
+              goTab('assignments');
+            }}
+            onManageLessonGates={(courseId) => {
+              setSelectedCourseId(courseId);
+              goTab('videos');
+            }}
             onDeleteCourse={(id) =>
               void mutate(
                 () => apiRequest(`/api/admin/courses/${id}`, { method: 'DELETE' }),
@@ -442,11 +557,51 @@ export default function AdminDashboard() {
           />
         )}
 
+        {tab === 'assignments' && can('manage_assignments') && (
+          <AdminAssignmentList
+            key={`assignments-${selectedCourseId}`}
+            assignments={data.assignments}
+            courses={data.courses}
+            defaultCourseId={selectedCourseId}
+            busy={busy}
+            onAdd={(values, reset) => {
+              void mutate(
+                () =>
+                  apiRequest('/api/admin/assignments', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify(values),
+                  }),
+                'تمت إضافة الواجب'
+              ).then(reset);
+            }}
+            onEdit={(id, values) =>
+              void mutate(
+                () =>
+                  apiRequest(`/api/admin/assignments/${id}`, {
+                    method: 'PATCH',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify(values),
+                  }),
+                'تم تحديث الواجب'
+              )
+            }
+            onDelete={(id) =>
+              void mutate(
+                () => apiRequest(`/api/admin/assignments/${id}`, { method: 'DELETE' }),
+                'تم حذف الواجب'
+              )
+            }
+          />
+        )}
+
         {/* ══ EXAMS ═════════════════════════════════════════════════════════ */}
         {tab === 'exams' && (
           <div className="exam-admin-grid">
             <ExamBuilder
+              key={`exam-${selectedCourseId}`}
               courses={data.courses}
+              defaultCourseId={selectedCourseId}
               questions={questions}
               setQuestions={setQuestions}
               busy={busy}
@@ -456,13 +611,11 @@ export default function AdminDashboard() {
                 const values = Object.fromEntries(new FormData(form));
                 const prepared = questions.map((q) => ({
                   ...q,
-                  options:
-                    q.type === 'true_false'
-                      ? ['صح', 'خطأ']
-                      : q.options
-                          .split('\n')
-                          .map((o) => o.trim())
-                          .filter(Boolean),
+                  type: 'multiple_choice',
+                  options: q.options
+                    .split('\n')
+                    .map((o) => o.trim())
+                    .filter(Boolean),
                 }));
                 void mutate(
                   () =>
@@ -497,6 +650,59 @@ export default function AdminDashboard() {
                       </small>
                     </div>
                     <div className="list-actions">
+                      <button
+                        className="status-button"
+                        onClick={() =>
+                          openPrompt({
+                            title: 'تعديل بيانات الامتحان',
+                            fields: [
+                              { name: 'title', label: 'عنوان الامتحان', defaultValue: exam.title },
+                              {
+                                name: 'description',
+                                label: 'الوصف',
+                                defaultValue: exam.description || '',
+                                required: false,
+                              },
+                              {
+                                name: 'instructions',
+                                label: 'التعليمات',
+                                defaultValue: exam.instructions || '',
+                                required: false,
+                              },
+                              {
+                                name: 'durationMinutes',
+                                label: 'المدة بالدقائق',
+                                defaultValue: String(exam.durationMinutes),
+                                type: 'number',
+                              },
+                              {
+                                name: 'passingScore',
+                                label: 'درجة النجاح %',
+                                defaultValue: String(exam.passingScore),
+                                type: 'number',
+                              },
+                              {
+                                name: 'maxAttempts',
+                                label: 'عدد المحاولات',
+                                defaultValue: String(exam.maxAttempts),
+                                type: 'number',
+                              },
+                            ],
+                            onSubmit: (values) =>
+                              void mutate(
+                                () =>
+                                  apiRequest(`/api/admin/exams/${exam.id}`, {
+                                    method: 'PATCH',
+                                    headers: { 'content-type': 'application/json' },
+                                    body: JSON.stringify({ ...exam, ...values }),
+                                  }),
+                                'تم تحديث بيانات الامتحان'
+                              ),
+                          })
+                        }
+                      >
+                        <PencilLine /> تعديل
+                      </button>
                       <button
                         className="status-button"
                         onClick={() =>
@@ -547,8 +753,11 @@ export default function AdminDashboard() {
                 </div>
               </div>
               <VideoUploader
+                key={`video-${selectedCourseId}`}
                 courses={data.courses}
+                defaultCourseId={selectedCourseId}
                 exams={data.exams}
+                videos={data.videos}
                 busy={busy}
                 progressPct={uploadProgressPct}
                 uploadDone={uploadDone}
@@ -576,47 +785,77 @@ export default function AdminDashboard() {
                     <div>
                       <strong>{video.title}</strong>
                       <small>
-                        {video.courseTitle}
+                        {video.courseTitle} ·{' '}
+                        {video.sourceType === 'youtube' ? 'YouTube غير مدرج' : 'ملف خاص'} ·{' '}
                         {video.prerequisiteExamTitle
-                          ? ` · يفتح بعد: ${video.prerequisiteExamTitle}${video.minimumScore ? ` (${video.minimumScore}%)` : ''}`
-                          : ' · بدون اختبار سابق'}
+                          ? `يفتح بعد اجتياز ${video.prerequisiteExamTitle} بنسبة ${video.minimumScore}%`
+                          : 'بدون امتحان فاصل'}
                       </small>
                     </div>
                     <div className="list-actions">
-                      <button
-                        className="status-button"
-                        onClick={() => {
-                          openPrompt({
-                            title: 'تعديل عنوان الفيديو',
-                            fields: [
-                              {
-                                name: 'title',
-                                label: 'عنوان الفيديو الجديد',
-                                defaultValue: video.title,
-                              },
-                            ],
-                            onSubmit: (v) => {
-                              if (!v.title || v.title.trim().length < 2) return;
-                              void mutate(
-                                () =>
-                                  apiRequest(`/api/admin/videos/${video.id}`, {
-                                    method: 'PATCH',
-                                    headers: { 'content-type': 'application/json' },
-                                    body: JSON.stringify({
-                                      title: v.title.trim(),
-                                      prerequisiteExamId: video.prerequisiteExamId ?? '',
-                                      minimumScore: video.minimumScore,
-                                      status: video.status,
-                                    }),
-                                  }),
-                                'تم تعديل عنوان الفيديو'
-                              );
-                            },
-                          });
-                        }}
-                      >
-                        <PencilLine /> تعديل
-                      </button>
+                      <details>
+                        <summary className="status-button">
+                          <PencilLine /> تعديل ووضع امتحان فاصل
+                        </summary>
+                        <form
+                          className="stack-form dashboard-popover-form"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            const values = Object.fromEntries(new FormData(event.currentTarget));
+                            void mutate(
+                              () =>
+                                apiRequest(`/api/admin/videos/${video.id}`, {
+                                  method: 'PATCH',
+                                  headers: { 'content-type': 'application/json' },
+                                  body: JSON.stringify({ ...values, status: video.status }),
+                                }),
+                              'تم تحديث المحاضرة والامتحان الفاصل'
+                            );
+                          }}
+                        >
+                          <strong>المحاضرة التي ستفتح بعد الامتحان</strong>
+                          <label>
+                            عنوان المحاضرة
+                            <input name="title" defaultValue={video.title} required />
+                          </label>
+                          <label>
+                            الامتحان المطلوب قبل هذه المحاضرة
+                            <select
+                              name="prerequisiteExamId"
+                              defaultValue={video.prerequisiteExamId || ''}
+                            >
+                              <option value="">بدون امتحان فاصل</option>
+                              {data.exams
+                                .filter(
+                                  (exam) =>
+                                    exam.courseId === video.courseId && exam.status === 'published'
+                                )
+                                .map((exam) => (
+                                  <option key={exam.id} value={exam.id}>
+                                    {exam.title}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                          <label>
+                            نسبة الاجتياز المطلوبة %
+                            <input
+                              name="minimumScore"
+                              type="number"
+                              min="0"
+                              max="100"
+                              defaultValue={video.minimumScore || 50}
+                            />
+                          </label>
+                          <small>
+                            عند اختيار امتحان، لن تفتح هذه المحاضرة للطالب إلا بعد اجتيازه بهذه
+                            النسبة. بذلك يصبح الامتحان بين المحاضرة السابقة وهذه المحاضرة.
+                          </small>
+                          <button className="btn btn-primary" disabled={busy}>
+                            <Save /> حفظ ترتيب المحتوى
+                          </button>
+                        </form>
+                      </details>
                       <button
                         className="icon-button danger"
                         onClick={() =>
@@ -904,7 +1143,7 @@ export default function AdminDashboard() {
                   name={f.name}
                   type={f.type || 'text'}
                   defaultValue={f.defaultValue || ''}
-                  required
+                  required={f.required !== false}
                   className="auth-input"
                   style={{ width: '100%' }}
                 />
@@ -936,12 +1175,14 @@ export default function AdminDashboard() {
 
 function ExamBuilder({
   courses,
+  defaultCourseId,
   questions,
   setQuestions,
   busy,
   onSubmit,
 }: {
   courses: Course[];
+  defaultCourseId?: string;
   questions: QuestionDraft[];
   setQuestions: (v: QuestionDraft[]) => void;
   busy: boolean;
@@ -956,7 +1197,7 @@ function ExamBuilder({
         <CirclePlus />
         <div>
           <h2>إضافة امتحان جديد</h2>
-          <p>يدعم الاختيار، صح وخطأ، والإجابات المقالية المصححة بالذكاء الاصطناعي</p>
+          <p>أسئلة اختيار من متعدد مع تحديد الإجابة الصحيحة والتصحيح التلقائي فور التسليم</p>
         </div>
       </div>
       <form className="stack-form" onSubmit={onSubmit}>
@@ -967,7 +1208,7 @@ function ExamBuilder({
           </label>
           <label>
             الكورس
-            <select name="courseId">
+            <select name="courseId" defaultValue={defaultCourseId || ''}>
               <option value="">امتحان عام</option>
               {courses.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -1023,11 +1264,9 @@ function ExamBuilder({
               <div className="form-row">
                 <label>
                   نوع السؤال
-                  <select value={q.type} onChange={(e) => update(index, { type: e.target.value })}>
-                    <option value="multiple_choice">اختيار من متعدد</option>
-                    <option value="true_false">صح أو خطأ</option>
-                    <option value="short_answer">إجابة قصيرة / مقالية</option>
-                  </select>
+                  <div className="mcq-type-badge">
+                    <ClipboardCheck /> اختيار من متعدد — تصحيح تلقائي
+                  </div>
                 </label>
                 <label>
                   الدرجة
@@ -1049,39 +1288,36 @@ function ExamBuilder({
                   onChange={(e) => update(index, { prompt: e.target.value })}
                 />
               </label>
-              {q.type === 'multiple_choice' && (
-                <label>
-                  الاختيارات — كل اختيار في سطر
-                  <textarea
-                    required
-                    rows={4}
-                    value={q.options}
-                    onChange={(e) => update(index, { options: e.target.value })}
-                    placeholder={'الإجابة الأولى\nالإجابة الثانية\nالإجابة الثالثة'}
-                  />
-                </label>
-              )}
               <label>
-                الإجابة الصحيحة
+                الاختيارات — كل اختيار في سطر
                 <textarea
                   required
-                  rows={2}
+                  rows={4}
+                  value={q.options}
+                  onChange={(e) => update(index, { options: e.target.value })}
+                  placeholder={'الإجابة الأولى\nالإجابة الثانية\nالإجابة الثالثة\nالإجابة الرابعة'}
+                />
+                <small>أضف اختيارين على الأقل، ثم اختر الإجابة الصحيحة بالأسفل.</small>
+              </label>
+              <label>
+                الإجابة الصحيحة
+                <select
+                  required
                   value={q.correctAnswer}
                   onChange={(e) => update(index, { correctAnswer: e.target.value })}
-                  placeholder={q.type === 'true_false' ? 'صح أو خطأ' : 'اكتب الإجابة النموذجية'}
-                />
+                >
+                  <option value="">اختر الإجابة الصحيحة</option>
+                  {q.options
+                    .split('\n')
+                    .map((option) => option.trim())
+                    .filter(Boolean)
+                    .map((option, optionIndex) => (
+                      <option key={`${option}-${optionIndex}`} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                </select>
               </label>
-              {q.type === 'short_answer' && (
-                <label>
-                  معايير التصحيح
-                  <textarea
-                    rows={3}
-                    value={q.rubric}
-                    onChange={(e) => update(index, { rubric: e.target.value })}
-                    placeholder="النقاط الأساسية التي يجب أن تتضمنها الإجابة..."
-                  />
-                </label>
-              )}
             </article>
           ))}
         </div>
@@ -1104,7 +1340,9 @@ function ExamBuilder({
 
 function VideoUploader({
   courses,
+  defaultCourseId,
   exams,
+  videos,
   busy,
   progressPct,
   uploadDone,
@@ -1115,7 +1353,9 @@ function VideoUploader({
   onError,
 }: {
   courses: Course[];
+  defaultCourseId?: string;
   exams: Exam[];
+  videos: Video[];
   busy: boolean;
   progressPct: number | null;
   uploadDone: string;
@@ -1125,12 +1365,44 @@ function VideoUploader({
   onDone: () => Promise<void>;
   onError: (v: string) => void;
 }) {
-  const [courseId, setCourseId] = useState('');
+  const [courseId, setCourseId] = useState(defaultCourseId || '');
+  const [sourceMode, setSourceMode] = useState<'youtube' | 'upload'>('youtube');
+  const [linkBusy, setLinkBusy] = useState(false);
+  const courseHasLessons = videos.some((video) => video.courseId === courseId);
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
     const fd = new FormData(form);
+    if (sourceMode === 'youtube') {
+      onError('');
+      onUploadDone('');
+      setLinkBusy(true);
+      try {
+        await apiRequest('/api/admin/videos', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            courseId: fd.get('courseId'),
+            title: fd.get('title'),
+            durationSeconds: fd.get('durationSeconds'),
+            youtubeUrl: fd.get('youtubeUrl'),
+            prerequisiteExamId: fd.get('prerequisiteExamId'),
+            minimumScore: fd.get('minimumScore'),
+          }),
+        });
+        onUploadDone(String(fd.get('title') || 'فيديو YouTube'));
+        form.reset();
+        setCourseId(defaultCourseId || '');
+        await onDone();
+      } catch (uploadError) {
+        onError(uploadError instanceof Error ? uploadError.message : 'تعذر حفظ رابط YouTube');
+      } finally {
+        setLinkBusy(false);
+      }
+      return;
+    }
+
     const file = fd.get('video');
     if (!(file instanceof File)) return;
 
@@ -1154,7 +1426,7 @@ function VideoUploader({
         const fileName = (file as File).name;
         onUploadDone(fileName);
         form.reset();
-        setCourseId('');
+        setCourseId(defaultCourseId || '');
         await onDone();
       } else {
         let errMsg = 'تعذر رفع الفيديو';
@@ -1192,6 +1464,22 @@ function VideoUploader({
 
   return (
     <form className="stack-form" onSubmit={submit}>
+      <div className="video-source-switch" role="group" aria-label="مصدر الفيديو">
+        <button
+          type="button"
+          className={sourceMode === 'youtube' ? 'active' : ''}
+          onClick={() => setSourceMode('youtube')}
+        >
+          رابط YouTube
+        </button>
+        <button
+          type="button"
+          className={sourceMode === 'upload' ? 'active' : ''}
+          onClick={() => setSourceMode('upload')}
+        >
+          رفع ملف
+        </button>
+      </div>
       <label>
         الكورس
         <select
@@ -1212,36 +1500,55 @@ function VideoUploader({
         عنوان الفيديو
         <input name="title" required />
       </label>
-      <div className="form-row">
-        <label>
-          المدة بالثواني
-          <input name="durationSeconds" type="number" min="0" defaultValue="0" />
-        </label>
-        <label>
-          اختبار قبل المحاضرة
-          <select name="prerequisiteExamId">
-            <option value="">بدون اختبار</option>
-            {exams
-              .filter((e) => e.courseId === courseId && e.status === 'published')
-              .map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.title}
-                </option>
-              ))}
-          </select>
-        </label>
-      </div>
       <label>
-        أقل نسبة لفتح المحاضرة %
+        المدة بالثواني
+        <input name="durationSeconds" type="number" min="0" defaultValue="0" />
+        <small>
+          {courseHasLessons
+            ? 'ستُفتح هذه المحاضرة بعد إنهاء المحاضرة السابقة.'
+            : 'هذه أول محاضرة وستكون متاحة فورًا للطلاب المشتركين.'}
+        </small>
+      </label>
+      <label>
+        اختبار مطلوب قبل فتح المحاضرة (اختياري)
+        <select name="prerequisiteExamId" defaultValue="">
+          <option value="">بدون اختبار مطلوب</option>
+          {exams
+            .filter((exam) => exam.courseId === courseId && exam.status === 'published')
+            .map((exam) => (
+              <option key={exam.id} value={exam.id}>
+                {exam.title}
+              </option>
+            ))}
+        </select>
+      </label>
+      <label>
+        الحد الأدنى لاجتياز الاختبار (%)
         <input name="minimumScore" type="number" min="0" max="100" defaultValue="0" />
-        <small>اكتب 0 إذا كان المطلوب إكمال الاختبار فقط.</small>
       </label>
-      <label className="file-drop">
-        <Upload />
-        <strong>اختر ملف MP4 أو WebM</strong>
-        <small>يُحفظ في مساحة خاصة ويُبث للمشتركين فقط</small>
-        <input name="video" type="file" accept="video/mp4,video/webm" required />
-      </label>
+      {sourceMode === 'youtube' ? (
+        <label>
+          رابط الفيديو على YouTube
+          <input
+            name="youtubeUrl"
+            type="url"
+            dir="ltr"
+            placeholder="https://youtu.be/..."
+            required
+          />
+          <small className="youtube-unlisted-note">
+            ارفع الفيديو على YouTube كـ «غير مدرج / Unlisted» ثم الصق الرابط هنا. الفيديو الخاص
+            Private لن يعمل للطلاب إلا عند دعوتهم بحساباتهم على Google.
+          </small>
+        </label>
+      ) : (
+        <label className="file-drop">
+          <Upload />
+          <strong>اختر ملف MP4 أو WebM</strong>
+          <small>يُحفظ في مساحة خاصة ويُبث للمشتركين فقط</small>
+          <input name="video" type="file" accept="video/mp4,video/webm" required />
+        </label>
+      )}
 
       {/* ── Progress bar ─────────────────────────────────────────────────────── */}
       {progressPct !== null && (
@@ -1261,8 +1568,15 @@ function VideoUploader({
         </div>
       )}
 
-      <button className="btn btn-primary" disabled={busy || progressPct !== null}>
-        <Upload /> {progressPct !== null ? `جاري الرفع... ${progressPct}%` : 'رفع وتأمين الفيديو'}
+      <button className="btn btn-primary" disabled={busy || linkBusy || progressPct !== null}>
+        <Upload />{' '}
+        {progressPct !== null
+          ? `جاري الرفع... ${progressPct}%`
+          : linkBusy
+            ? 'جاري حفظ الرابط...'
+            : sourceMode === 'youtube'
+              ? 'حفظ رابط YouTube'
+              : 'رفع وتأمين الفيديو'}
       </button>
     </form>
   );
@@ -1397,7 +1711,7 @@ function StaffManager({ actorEmail }: { actorEmail: string }) {
             صلاحيات المساعد
             <select name="preset" defaultValue="grader">
               <option value="grader">التصحيح والدرجات فقط</option>
-              <option value="course_manager">الكورسات والامتحانات والمحاضرات</option>
+              <option value="course_manager">الكورسات والامتحانات والواجبات والمحاضرات</option>
               <option value="enrollment_manager">الطلاب والاشتراكات</option>
             </select>
           </label>
@@ -1487,7 +1801,9 @@ function StaffManager({ actorEmail }: { actorEmail: string }) {
                       }
                     >
                       <option value="grader">الدرجات فقط</option>
-                      <option value="course_manager">الكورسات فقط</option>
+                      <option value="course_manager">
+                        الكورسات والامتحانات والواجبات والمحاضرات
+                      </option>
                       <option value="enrollment_manager">الاشتراكات فقط</option>
                     </select>
                   )}
@@ -1542,7 +1858,7 @@ function presetFor(permissions: string[]): string {
 
 function permissionLabel(permissions: string[]): string {
   const preset = presetFor(permissions);
-  if (preset === 'course_manager') return 'مساعد كورسات وامتحانات';
+  if (preset === 'course_manager') return 'مساعد كورسات وامتحانات وواجبات';
   if (preset === 'enrollment_manager') return 'مساعد طلاب واشتراكات';
   return 'مساعد تصحيح ودرجات';
 }
@@ -1584,11 +1900,14 @@ function StudentsPanel() {
     [search, grade]
   );
 
+  // Load the initial unfiltered student list only once.
+  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     // Initial students synchronization.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadStudents(1, '', '');
   }, []);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1686,6 +2005,21 @@ function StudentsPanel() {
                   {student.createdAt
                     ? new Date(student.createdAt).toLocaleDateString('ar-EG')
                     : '—'}
+                </div>
+                <div>
+                  <b>شهادة الميلاد:</b>{' '}
+                  {student.hasBirthCertificate ? (
+                    <a
+                      href={`/api/admin/students/${encodeURIComponent(student.email)}/birth-certificate`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: 'var(--red-bright)', fontWeight: 800 }}
+                    >
+                      عرض الملف الخاص
+                    </a>
+                  ) : (
+                    'غير مرفوعة'
+                  )}
                 </div>
               </div>
             )}

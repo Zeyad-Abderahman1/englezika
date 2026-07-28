@@ -1,18 +1,33 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
+  AlertTriangle,
   ArrowLeft,
   BarChart3,
+  Bell,
   BookOpen,
+  CalendarDays,
   CheckCircle2,
+  ChevronDown,
+  ClipboardCheck,
   Clock3,
+  FileText,
   GraduationCap,
+  Home,
+  KeyRound,
+  LayoutDashboard,
   LoaderCircle,
-  Megaphone,
-  PlayCircle,
-  Settings,
+  LockKeyhole,
+  LogOut,
+  Menu,
+  Medal,
+  Play,
+  ShieldCheck,
+  UserRound,
+  Trophy,
+  X,
 } from 'lucide-react';
 import EmailVerification from './EmailVerification';
 
@@ -32,6 +47,7 @@ type DashboardData = {
   }>;
   exams: Array<{
     id: string;
+    courseId?: string | null;
     title: string;
     description: string;
     durationMinutes: number;
@@ -41,6 +57,17 @@ type DashboardData = {
     maxAttempts: number;
     attemptCount: number;
     bestPercentage: number;
+    isRead: number;
+  }>;
+  assignments: Array<{
+    id: string;
+    courseId: string;
+    courseTitle: string;
+    title: string;
+    description: string;
+    dueAt?: number | null;
+    maxScore: number;
+    isRead: number;
   }>;
   attempts: Array<{
     id: string;
@@ -51,18 +78,38 @@ type DashboardData = {
     feedback: string;
     submittedAt: number;
   }>;
-  announcements: Array<{ id: string; title: string; body: string; createdAt: number }>;
+  announcements: Array<{
+    id: string;
+    title: string;
+    body: string;
+    createdAt: number;
+    isRead: number;
+  }>;
+  leaderboards: Record<
+    string,
+    Array<{
+      rank: number;
+      name: string;
+      averagePercentage: number;
+      examsCompleted: number;
+      isCurrentStudent: boolean;
+    }>
+  >;
 };
-
-const statusLabel: Record<string, string> = {
-  approved: 'مفعّل',
-  pending: 'تحت المراجعة',
-  rejected: 'مرفوض',
-};
+type View =
+  'home' | 'course' | 'exams' | 'assignments' | 'grades' | 'leaderboard' | 'profile' | 'security';
+const LEADERBOARD_GRADES = ['أولى ثانوي', 'تانية ثانوي', 'تالتة ثانوي'];
+function percent(score: number, maxScore: number) {
+  return maxScore > 0 ? Math.round((score * 100) / maxScore) : 0;
+}
 
 export default function StudentDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState('');
+  const [view, setView] = useState<View>('home');
+  const [activeCourseId, setActiveCourseId] = useState('');
+  const [coursesOpen, setCoursesOpen] = useState(true);
+  const [mobileMenu, setMobileMenu] = useState(false);
   const [saved, setSaved] = useState(false);
   const [passwordMsg, setPasswordMsg] = useState('');
   const [passwordErr, setPasswordErr] = useState('');
@@ -71,6 +118,7 @@ export default function StudentDashboard() {
   const [deletePassword, setDeletePassword] = useState('');
   const [deleteErr, setDeleteErr] = useState('');
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [leaderboardGrade, setLeaderboardGrade] = useState('');
 
   const load = useCallback(async () => {
     const response = await fetch('/api/dashboard', { cache: 'no-store' });
@@ -78,22 +126,92 @@ export default function StudentDashboard() {
     if (!response.ok) return setError(result.error || 'تعذر تحميل حسابك');
     setData(result);
   }, []);
-
   useEffect(() => {
     // Initial remote dashboard synchronization.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('view') === 'leaderboard') {
+      // Open the requested dashboard section when linked from the main navbar.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setView('leaderboard');
+    }
+  }, []);
+
+  const approved = useMemo(
+    () => data?.enrollments.filter((item) => item.status === 'approved') ?? [],
+    [data]
+  );
+  const activeCourse = approved.find((item) => item.courseId === activeCourseId) ?? approved[0];
+  const activeCourseExams =
+    data?.exams.filter((exam) => !exam.courseId || exam.courseId === activeCourse?.courseId) ?? [];
+  const visibleExams = activeCourseId ? activeCourseExams : (data?.exams ?? []);
+  const visibleExamIds = new Set(visibleExams.map((exam) => exam.id));
+  const visibleAttempts = activeCourseId
+    ? (data?.attempts.filter((attempt) => visibleExamIds.has(attempt.examId)) ?? [])
+    : (data?.attempts ?? []);
+  const visibleAssignments = activeCourseId
+    ? (data?.assignments.filter((assignment) => assignment.courseId === activeCourseId) ?? [])
+    : (data?.assignments ?? []);
+  const visibleAverage = visibleAttempts.length
+    ? Math.round(
+        visibleAttempts.reduce((sum, item) => sum + percent(item.score, item.maxScore), 0) /
+          visibleAttempts.length
+      )
+    : 0;
+  const average = data?.attempts.length
+    ? Math.round(
+        data.attempts.reduce((sum, item) => sum + percent(item.score, item.maxScore), 0) /
+          data.attempts.length
+      )
+    : 0;
+  const markNotificationsRead = useCallback(
+    async (
+      types: Array<'announcement' | 'exam' | 'assignment'> = ['announcement', 'exam', 'assignment']
+    ) => {
+      const response = await fetch('/api/notifications/read', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ types }),
+      });
+      if (!response.ok) return;
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              exams: types.includes('exam')
+                ? current.exams.map((item) => ({ ...item, isRead: 1 }))
+                : current.exams,
+              assignments: types.includes('assignment')
+                ? current.assignments.map((item) => ({ ...item, isRead: 1 }))
+                : current.assignments,
+              announcements: types.includes('announcement')
+                ? current.announcements.map((item) => ({ ...item, isRead: 1 }))
+                : current.announcements,
+            }
+          : current
+      );
+    },
+    []
+  );
+  const navigate = (next: View, courseId?: string) => {
+    if (courseId !== undefined) setActiveCourseId(courseId);
+    if (next === 'exams') void markNotificationsRead(['exam']);
+    if (next === 'assignments') void markNotificationsRead(['assignment']);
+    setView(next);
+    setMobileMenu(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   if (error) return <div className="dashboard-state error-toast">{error}</div>;
   if (!data)
     return (
       <div className="dashboard-state">
-        <LoaderCircle className="spin" /> جاري تحميل بياناتك...
+        <LoaderCircle className="spin" /> جاري تجهيز مساحتك التعليمية...
       </div>
     );
-
-  if (data.verificationRequired) {
+  if (data.verificationRequired)
     return (
       <div className="dashboard-shell">
         <header className="dashboard-welcome">
@@ -109,456 +227,830 @@ export default function StudentDashboard() {
         <EmailVerification email={data.user.email} onVerified={load} />
       </div>
     );
-  }
 
-  const approved = data.enrollments.filter((item) => item.status === 'approved');
-  const gradedAttempts = data.attempts.filter((item) => item.maxScore > 0);
-  const average = gradedAttempts.length
-    ? Math.round(
-        gradedAttempts.reduce((sum, item) => sum + (item.score * 100) / item.maxScore, 0) /
-          gradedAttempts.length
-      )
-    : 0;
-
-  return (
-    <div className="dashboard-shell">
-      <header className="dashboard-welcome">
+  const displayName = data.user.profile?.name || data.user.displayName;
+  const pendingCount = data.enrollments.filter((item) => item.status === 'pending').length;
+  const unreadCount =
+    data.exams.filter((item) => !item.isRead).length +
+    data.assignments.filter((item) => !item.isRead).length +
+    data.announcements.filter((item) => !item.isRead).length;
+  const sidebar = (
+    <aside
+      className={`student-sidebar ${mobileMenu ? 'is-open' : ''}`}
+      aria-label="قائمة مساحة الطالب"
+    >
+      <div className="student-profile-mini">
+        <div className="student-avatar">{displayName.trim().charAt(0).toUpperCase()}</div>
         <div>
-          <span className="section-label">مساحتي التعليمية</span>
-          <h1>أهلاً، {data.user.profile?.name || data.user.displayName}</h1>
-          <p>كل كورساتك وامتحاناتك ونتائجك محفوظة هنا.</p>
+          <strong>{displayName}</strong>
+          <span>{data.user.profile?.grade || 'طالب إنجليزيكا'}</span>
         </div>
-        <div className="dashboard-actions">
-          <a href="/student/logout" className="btn btn-outline">
-            تسجيل الخروج
-          </a>
-        </div>
-      </header>
-
-      <section className="stats-grid">
-        <article>
-          <BookOpen />
-          <span>الكورسات المفعّلة</span>
-          <strong>{approved.length}</strong>
-        </article>
-        <article>
-          <GraduationCap />
-          <span>الامتحانات المتاحة</span>
-          <strong>{data.exams.length}</strong>
-        </article>
-        <article>
-          <BarChart3 />
-          <span>متوسط النتائج</span>
-          <strong>{average}%</strong>
-        </article>
-        <article>
-          <Clock3 />
-          <span>طلبات قيد المراجعة</span>
-          <strong>{data.enrollments.filter((item) => item.status === 'pending').length}</strong>
-        </article>
-      </section>
-
-      {data.announcements.length > 0 && (
-        <section className="dashboard-panel">
-          <div className="panel-title">
-            <Megaphone />
-            <div>
-              <h2>إعلانات مهمة</h2>
-              <p>آخر الأخبار من مستر أحمد حسن</p>
-            </div>
-          </div>
-          <div className="announcement-list">
-            {data.announcements.map((item) => (
-              <article key={item.id}>
-                <strong>{item.title}</strong>
-                <p>{item.body}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <div className="dashboard-columns">
-        <section className="dashboard-panel">
-          <div className="panel-title">
-            <BookOpen />
-            <div>
-              <h2>كورساتي</h2>
-              <p>تابع حالة اشتراكك وافتح المحتوى</p>
-            </div>
-          </div>
-          <div className="dashboard-list">
-            {data.enrollments.length ? (
-              data.enrollments.map((item) => (
-                <article key={item.id}>
-                  <div>
-                    <strong>{item.title}</strong>
-                    <small>{item.grade}</small>
-                  </div>
-                  <div className="list-actions">
-                    <span className={`status-pill status-${item.status}`}>
-                      {statusLabel[item.status] || item.status}
-                    </span>
-                    {item.status === 'approved' && (
-                      <Link
-                        href={`/learn/${item.courseId}`}
-                        className="icon-link"
-                        aria-label="فتح الكورس"
-                      >
-                        <PlayCircle />
-                      </Link>
-                    )}
-                  </div>
-                </article>
-              ))
-            ) : (
-              <div className="empty-state">
-                لسه ما اشتركتش في كورس. <Link href="/courses">شوف الكورسات</Link>
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="dashboard-panel">
-          <div className="panel-title">
-            <GraduationCap />
-            <div>
-              <h2>الامتحانات</h2>
-              <p>امتحانات كورساتك المتاحة الآن</p>
-            </div>
-          </div>
-          <div className="dashboard-list">
-            {data.exams.length ? (
-              data.exams.map((exam) => {
-                const passed = Number(exam.bestPercentage) >= Number(exam.passingScore);
-                const attemptsLeft = Math.max(
-                  0,
-                  Number(exam.maxAttempts || 3) - Number(exam.attemptCount || 0)
-                );
-                return (
-                  <article key={exam.id}>
-                    <div>
-                      <strong>{exam.title}</strong>
-                      <small>
-                        {exam.courseTitle || 'امتحان عام'} · {exam.durationMinutes} دقيقة
-                      </small>
-                    </div>
-                    {passed ? (
-                      <span className="status-pill status-approved">
-                        <CheckCircle2 /> تم الاجتياز
-                      </span>
-                    ) : attemptsLeft > 0 ? (
-                      <Link href={`/exam/${exam.id}`} className="btn btn-primary btn-small">
-                        {exam.attemptCount ? 'أعد المحاولة' : 'ابدأ'} <ArrowLeft />
-                      </Link>
-                    ) : (
-                      <span className="status-pill status-rejected">انتهت المحاولات</span>
-                    )}
-                  </article>
-                );
-              })
-            ) : (
-              <div className="empty-state">لا توجد امتحانات متاحة حالياً.</div>
-            )}
-          </div>
-        </section>
+        <button
+          className="sidebar-close"
+          onClick={() => setMobileMenu(false)}
+          aria-label="إغلاق القائمة"
+        >
+          <X />
+        </button>
       </div>
-
-      <section className="dashboard-panel">
-        <div className="panel-title">
-          <BarChart3 />
-          <div>
-            <h2>آخر النتائج</h2>
-            <p>تفاصيل الدرجات وملاحظات التصحيح</p>
-          </div>
-        </div>
-        <div className="results-table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>الامتحان</th>
-                <th>الدرجة</th>
-                <th>النسبة</th>
-                <th>الملاحظات</th>
-                <th>التفاصيل</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.attempts.length ? (
-                data.attempts.map((attempt) => (
-                  <tr key={attempt.id}>
-                    <td>{attempt.title}</td>
-                    <td>
-                      {attempt.score} / {attempt.maxScore}
-                    </td>
-                    <td>
-                      {attempt.maxScore ? Math.round((attempt.score * 100) / attempt.maxScore) : 0}%
-                    </td>
-                    <td>{attempt.feedback}</td>
-                    <td>
-                      <Link
-                        href={`/result/${attempt.id}`}
-                        className="btn btn-ghost"
-                        style={{ fontSize: '0.78rem', padding: '0.25rem 0.6rem' }}
-                      >
-                        مشاهدة
-                      </Link>
-                    </td>
-                  </tr>
+      <nav className="student-nav">
+        <button className={view === 'home' ? 'active' : ''} onClick={() => navigate('home')}>
+          <LayoutDashboard />
+          <span>الرئيسية</span>
+        </button>
+        <div className="sidebar-course-group">
+          <button
+            className={view === 'course' ? 'active' : ''}
+            onClick={() => setCoursesOpen((value) => !value)}
+          >
+            <BookOpen />
+            <span>كورساتي</span>
+            <ChevronDown className={coursesOpen ? 'rotate' : ''} />
+          </button>
+          {coursesOpen && (
+            <div className="sidebar-course-list">
+              {approved.length ? (
+                approved.map((course) => (
+                  <button
+                    key={course.id}
+                    className={
+                      view === 'course' && activeCourse?.courseId === course.courseId
+                        ? 'selected'
+                        : ''
+                    }
+                    onClick={() => navigate('course', course.courseId)}
+                  >
+                    <span>{course.title}</span>
+                    <small>{course.grade}</small>
+                  </button>
                 ))
               ) : (
-                <tr>
-                  <td colSpan={5}>لم تسلّم أي امتحان بعد.</td>
-                </tr>
+                <p>لا توجد كورسات مفعّلة</p>
               )}
-            </tbody>
-          </table>
+            </div>
+          )}
         </div>
-      </section>
-
-      <section className="dashboard-panel">
-        <div className="panel-title">
-          <Settings />
-          <div>
-            <h2>بيانات الطالب</h2>
-            <p>كمّل بياناتك علشان نرشح لك المحتوى المناسب</p>
-          </div>
-        </div>
-        <form
-          className="profile-form"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            setSaved(false);
-            const form = new FormData(event.currentTarget);
-            const response = await fetch('/api/profile', {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(Object.fromEntries(form)),
-            });
-            if (response.ok) {
-              setSaved(true);
-              await load();
-            }
-          }}
+        <button className={view === 'exams' ? 'active' : ''} onClick={() => navigate('exams', '')}>
+          <ClipboardCheck />
+          <span>الامتحانات</span>
+          {data.exams.filter((item) => !item.isRead).length > 0 && (
+            <b>{data.exams.filter((item) => !item.isRead).length}</b>
+          )}
+        </button>
+        <button
+          className={view === 'assignments' ? 'active' : ''}
+          onClick={() => navigate('assignments', '')}
         >
-          <label>
-            الاسم
-            <input
-              name="name"
-              defaultValue={data.user.profile?.name || data.user.displayName}
-              required
-            />
-          </label>
-          <label>
-            رقم الموبايل
-            <input name="phone" defaultValue={data.user.profile?.phone || ''} inputMode="tel" />
-          </label>
-          <label>
-            الصف
-            <select name="grade" defaultValue={data.user.profile?.grade || ''}>
-              <option value="">اختر الصف</option>
-              <option>أولى ثانوي</option>
-              <option>تانية ثانوي</option>
-              <option>تالتة ثانوي</option>
-            </select>
-          </label>
-          <button className="btn btn-primary" type="submit">
-            حفظ البيانات
-          </button>
-          {saved && (
-            <span className="inline-success">
-              <CheckCircle2 /> تم الحفظ
-            </span>
+          <FileText />
+          <span>الواجبات</span>
+          {data.assignments.filter((item) => !item.isRead).length > 0 && (
+            <b>{data.assignments.filter((item) => !item.isRead).length}</b>
           )}
-        </form>
-
-        <hr style={{ margin: '1.5rem 0', opacity: 0.2 }} />
-        <div className="panel-title" style={{ marginBottom: '0.75rem' }}>
-          <div>
-            <h3 style={{ margin: 0 }}>تغيير كلمة السر</h3>
-            <p>أدخل كلمتك الحالية ثم اختر كلمة جديدة</p>
-          </div>
-        </div>
-        <form
-          className="profile-form"
-          onSubmit={async (event: FormEvent<HTMLFormElement>) => {
-            event.preventDefault();
-            setPasswordMsg('');
-            setPasswordErr('');
-            const form = new FormData(event.currentTarget);
-            const body = Object.fromEntries(form);
-            const response = await fetch('/api/auth/change-password', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(body),
-            });
-            const result = (await response.json().catch(() => ({}))) as {
-              ok?: boolean;
-              error?: string;
-            };
-            if (response.ok) {
-              setPasswordMsg('تم تغيير كلمة السر بنجاح');
-              (event.target as HTMLFormElement).reset();
-            } else {
-              setPasswordErr(result.error || 'تعذّر تغيير كلمة السر');
-            }
-          }}
+        </button>
+        <button
+          className={view === 'grades' ? 'active' : ''}
+          onClick={() => navigate('grades', '')}
         >
-          <label>
-            كلمة السر الحالية
-            <input
-              name="currentPassword"
-              type="password"
-              required
-              autoComplete="current-password"
-            />
-          </label>
-          <label>
-            كلمة السر الجديدة (8 أحرف على الأقل)
-            <input
-              name="newPassword"
-              type="password"
-              required
-              minLength={8}
-              autoComplete="new-password"
-            />
-          </label>
-          <label>
-            تأكيد كلمة السر الجديدة
-            <input
-              name="newPasswordConfirm"
-              type="password"
-              required
-              minLength={8}
-              autoComplete="new-password"
-            />
-          </label>
-          <button className="btn btn-primary" type="submit">
-            تغيير كلمة السر
-          </button>
-          {passwordMsg && (
-            <span className="inline-success">
-              <CheckCircle2 /> {passwordMsg}
-            </span>
-          )}
-          {passwordErr && (
-            <span style={{ color: 'var(--error, #e74c3c)', fontSize: '0.9rem' }}>
-              {passwordErr}
-            </span>
-          )}
-        </form>
+          <BarChart3 />
+          <span>الدرجات</span>
+        </button>
+        <button
+          className={view === 'leaderboard' ? 'active' : ''}
+          onClick={() => navigate('leaderboard', '')}
+        >
+          <Trophy />
+          <span>أوائل كل صف</span>
+        </button>
+        <div className="sidebar-divider" />
+        <button className={view === 'profile' ? 'active' : ''} onClick={() => navigate('profile')}>
+          <UserRound />
+          <span>بيانات الحساب</span>
+        </button>
+        <button
+          className={view === 'security' ? 'active' : ''}
+          onClick={() => navigate('security')}
+        >
+          <ShieldCheck />
+          <span>الأمان وكلمة السر</span>
+        </button>
+      </nav>
+      <div className="student-sidebar-bottom">
+        <a href="/student/logout">
+          <LogOut />
+          <span>تسجيل الخروج</span>
+        </a>
+        <small>Englizeka Student Portal</small>
+      </div>
+    </aside>
+  );
 
-        <hr
-          style={{ margin: '2rem 0 1rem', opacity: 0.15, borderColor: 'var(--error, #e74c3c)' }}
+  return (
+    <div className="student-portal-layout">
+      {sidebar}
+      {mobileMenu && (
+        <button
+          className="student-sidebar-overlay"
+          onClick={() => setMobileMenu(false)}
+          aria-label="إغلاق القائمة"
         />
-        <div
-          style={{
-            padding: '1rem',
-            border: '1px solid rgba(231,76,60,0.3)',
-            borderRadius: '10px',
-            background: 'rgba(231,76,60,0.05)',
-          }}
-        >
-          <h3 style={{ color: 'var(--error, #e74c3c)', margin: '0 0 0.5rem', fontSize: '1rem' }}>
-            ⚠️ منطقة الخطر
-          </h3>
-          <p style={{ margin: '0 0 1rem', fontSize: '0.875rem', opacity: 0.8 }}>
-            حذف الحساب نهائي ولا يمكن التراجع عنه. سيتم مسح جميع بياناتك الشخصية.
-          </p>
+      )}
+      <main className="student-workspace">
+        <header className="student-topbar">
           <button
-            className="btn"
-            style={{ background: 'var(--error, #e74c3c)', color: '#fff', minHeight: '44px' }}
-            onClick={() => setDeleteModal(true)}
+            className="student-menu-button"
+            onClick={() => setMobileMenu(true)}
+            aria-label="فتح القائمة"
           >
-            حذف حسابي نهائياً
+            <Menu />
           </button>
-        </div>
-      </section>
-
-      {/* ── Account deletion modal ─────────────────────────────────────── */}
-      {deleteModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.7)',
-            display: 'grid',
-            placeItems: 'center',
-            zIndex: 9999,
-            padding: '1rem',
-          }}
-          dir="rtl"
-        >
-          <div className="dashboard-panel" style={{ width: 'min(440px, 100%)', padding: '24px' }}>
-            <h3 style={{ margin: '0 0 1rem', color: 'var(--error, #e74c3c)' }}>
-              ⚠️ تأكيد حذف الحساب
-            </h3>
-            <p style={{ fontSize: '0.875rem', opacity: 0.8, marginBottom: '1rem' }}>
-              هذا الإجراء لا يمكن التراجع عنه. اكتب بريدك الإلكتروني وكلمة مرورك للتأكيد.
-            </p>
-            {deleteErr && (
-              <div className="error-toast" style={{ marginBottom: '1rem' }}>
-                {deleteErr}
+          <div>
+            <span>مساحتي التعليمية</span>
+            <strong>
+              {view === 'home'
+                ? 'الرئيسية'
+                : view === 'course'
+                  ? activeCourse?.title || 'الكورس'
+                  : view === 'exams'
+                    ? 'الامتحانات'
+                    : view === 'assignments'
+                      ? 'الواجبات'
+                      : view === 'grades'
+                        ? 'الدرجات'
+                        : view === 'leaderboard'
+                          ? 'أوائل الطلاب'
+                          : view === 'profile'
+                            ? 'بيانات الحساب'
+                            : 'الأمان وكلمة السر'}
+            </strong>
+          </div>
+          <button
+            className="notification-button"
+            aria-label="الإشعارات"
+            title={unreadCount ? `${unreadCount} إشعارات جديدة` : 'لا توجد إشعارات جديدة'}
+            onClick={() => {
+              navigate('home');
+              void markNotificationsRead();
+            }}
+          >
+            <Bell />
+            {unreadCount > 0 && <i />}
+          </button>
+        </header>
+        {view === 'home' && (
+          <div className="student-view">
+            <section className="student-hero">
+              <div>
+                <span className="student-eyebrow">
+                  <Home /> لوحة الطالب
+                </span>
+                <h1>أهلًا، {displayName.split(' ')[0] || displayName}</h1>
+                <p>كل دروسك وامتحاناتك ودرجاتك في مكان واحد. كمّل من حيث توقفت.</p>
+                {approved[0] && (
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => navigate('course', approved[0].courseId)}
+                  >
+                    استكمل التعلم <ArrowLeft />
+                  </button>
+                )}
+              </div>
+              <div className="hero-progress-card">
+                <span>متوسط درجاتك</span>
+                <strong>{average}%</strong>
+                <div>
+                  <i style={{ width: `${average}%` }} />
+                </div>
+                <small>
+                  {data.attempts.length
+                    ? `${data.attempts.length} اختبارات مكتملة`
+                    : 'ابدأ أول امتحان لعرض تقدمك'}
+                </small>
+              </div>
+            </section>
+            <section className="student-section">
+              <div className="student-section-heading">
+                <div>
+                  <span>تابع مذاكرتك</span>
+                  <h2>الكورسات المسجل بها</h2>
+                </div>
+                <Link href="/courses">
+                  استكشف كورسات أخرى <ArrowLeft />
+                </Link>
+              </div>
+              {approved.length ? (
+                <div className="enrolled-course-grid">
+                  {approved.map((course, index) => {
+                    const courseExams = data.exams.filter(
+                      (exam) => !exam.courseId || exam.courseId === course.courseId
+                    );
+                    return (
+                      <article
+                        className={`enrolled-course-card course-tone-${index % 3}`}
+                        key={course.id}
+                      >
+                        <div className="course-card-top">
+                          <span>
+                            <BookOpen />
+                          </span>
+                          <small>{course.grade}</small>
+                        </div>
+                        <div>
+                          <h3>{course.title}</h3>
+                          <p>{courseExams.length} امتحانات متاحة · محتوى مفعّل</p>
+                        </div>
+                        <div className="course-card-progress">
+                          <div>
+                            <i
+                              style={{
+                                width: data.attempts.length
+                                  ? `${Math.min(82, 28 + data.attempts.length * 9)}%`
+                                  : '12%',
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <div className="course-card-actions">
+                          <button onClick={() => navigate('course', course.courseId)}>
+                            تفاصيل الكورس
+                          </button>
+                          <Link
+                            href={`/learn/${course.courseId}`}
+                            aria-label={`ابدأ ${course.title}`}
+                          >
+                            <Play />
+                          </Link>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="student-empty">
+                  <BookOpen />
+                  <h3>لا توجد كورسات مفعّلة حتى الآن</h3>
+                  <p>عند تفعيل اشتراكك سيظهر الكورس هنا مباشرة.</p>
+                  <Link className="btn btn-primary" href="/courses">
+                    تصفح الكورسات
+                  </Link>
+                </div>
+              )}
+            </section>
+            <section className="student-overview-grid">
+              <article className="student-card upcoming-card">
+                <div className="student-card-title">
+                  <div>
+                    <ClipboardCheck />
+                    <span>
+                      <small>جاهز للمحاولة؟</small>
+                      <strong>الامتحانات القادمة</strong>
+                    </span>
+                  </div>
+                  <button onClick={() => navigate('exams', '')}>عرض الكل</button>
+                </div>
+                {data.exams.length ? (
+                  data.exams.slice(0, 3).map((exam) => <ExamRow key={exam.id} exam={exam} />)
+                ) : (
+                  <div className="compact-empty">لا توجد امتحانات متاحة حاليًا.</div>
+                )}
+              </article>
+              <article className="student-card activity-card">
+                <div className="student-card-title">
+                  <div>
+                    <BarChart3 />
+                    <span>
+                      <small>أداؤك الدراسي</small>
+                      <strong>ملخص التقدم</strong>
+                    </span>
+                  </div>
+                </div>
+                <div className="activity-stats">
+                  <div>
+                    <strong>{approved.length}</strong>
+                    <span>كورسات</span>
+                  </div>
+                  <div>
+                    <strong>{data.attempts.length}</strong>
+                    <span>اختبارات</span>
+                  </div>
+                  <div>
+                    <strong>{average}%</strong>
+                    <span>المتوسط</span>
+                  </div>
+                </div>
+                {pendingCount > 0 ? (
+                  <p className="pending-note">
+                    <Clock3 /> لديك {pendingCount} طلب اشتراك قيد المراجعة
+                  </p>
+                ) : (
+                  <p className="success-note">
+                    <CheckCircle2 /> حسابك محدث وجاهز للتعلم
+                  </p>
+                )}
+              </article>
+            </section>
+            {data.announcements.length > 0 && (
+              <section className="student-card announcement-card">
+                <div className="student-card-title">
+                  <div>
+                    <Bell />
+                    <span>
+                      <small>آخر الأخبار</small>
+                      <strong>إعلانات مهمة</strong>
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  {data.announcements.slice(0, 3).map((item) => (
+                    <article key={item.id}>
+                      <strong>{item.title}</strong>
+                      {!item.isRead && <small className="status-pill status-pending">جديد</small>}
+                      <p>{item.body}</p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+        {view === 'course' && (
+          <div className="student-view">
+            {activeCourse ? (
+              <>
+                <section className="course-detail-hero">
+                  <div>
+                    <span>{activeCourse.grade}</span>
+                    <h1>{activeCourse.title}</h1>
+                    <p>افتح محتوى الكورس، راجع امتحاناته، وتابع درجاتك من نفس المكان.</p>
+                  </div>
+                  <Link className="btn btn-primary" href={`/learn/${activeCourse.courseId}`}>
+                    دخول الكورس <Play />
+                  </Link>
+                </section>
+                <div className="course-tools-grid">
+                  <button onClick={() => navigate('exams', activeCourse.courseId)}>
+                    <ClipboardCheck />
+                    <span>
+                      <strong>امتحانات الكورس</strong>
+                      <small>{activeCourseExams.length} امتحانات متاحة</small>
+                    </span>
+                    <ArrowLeft />
+                  </button>
+                  <button onClick={() => navigate('assignments', activeCourse.courseId)}>
+                    <FileText />
+                    <span>
+                      <strong>الواجبات</strong>
+                      <small>تابع المطلوب ومواعيد التسليم</small>
+                    </span>
+                    <ArrowLeft />
+                  </button>
+                  <button onClick={() => navigate('grades', activeCourse.courseId)}>
+                    <BarChart3 />
+                    <span>
+                      <strong>درجاتي</strong>
+                      <small>نتائج الامتحانات والتقييمات</small>
+                    </span>
+                    <ArrowLeft />
+                  </button>
+                </div>
+                <section className="student-card">
+                  <div className="student-card-title">
+                    <div>
+                      <CalendarDays />
+                      <span>
+                        <small>خطة الكورس</small>
+                        <strong>ابدأ رحلتك التعليمية</strong>
+                      </span>
+                    </div>
+                  </div>
+                  <div className="course-roadmap">
+                    <article className="done">
+                      <span>1</span>
+                      <div>
+                        <strong>ابدأ مشاهدة الدروس</strong>
+                        <p>شاهد المحتوى بالترتيب واحفظ تقدمك.</p>
+                      </div>
+                      <CheckCircle2 />
+                    </article>
+                    <article>
+                      <span>2</span>
+                      <div>
+                        <strong>حل الواجبات</strong>
+                        <p>طبّق على كل وحدة قبل الانتقال لما بعدها.</p>
+                      </div>
+                      <FileText />
+                    </article>
+                    <article>
+                      <span>3</span>
+                      <div>
+                        <strong>اختبر مستواك</strong>
+                        <p>ادخل امتحان الكورس وراجع نتيجتك.</p>
+                      </div>
+                      <GraduationCap />
+                    </article>
+                  </div>
+                </section>
+              </>
+            ) : (
+              <div className="student-empty">
+                <BookOpen />
+                <h3>اختر كورسًا من القائمة</h3>
               </div>
             )}
-            <label style={{ display: 'grid', gap: '6px', marginBottom: '12px', fontSize: '13px' }}>
-              <span>بريدك الإلكتروني</span>
+          </div>
+        )}
+        {view === 'exams' && (
+          <ListPage
+            icon={<ClipboardCheck />}
+            eyebrow="قيّم مستواك"
+            title="الامتحانات"
+            description={
+              activeCourseId
+                ? `امتحانات ${activeCourse?.title || 'الكورس'} مع عدد المحاولات وأفضل نتيجة.`
+                : 'كل امتحانات كورساتك المفعّلة، مع عدد المحاولات وأفضل نتيجة.'
+            }
+          >
+            {visibleExams.length ? (
+              <div className="full-list">
+                {visibleExams.map((exam) => (
+                  <ExamRow key={exam.id} exam={exam} detailed />
+                ))}
+              </div>
+            ) : (
+              <EmptyPanel
+                icon={<ClipboardCheck />}
+                title="لا توجد امتحانات متاحة"
+                text="ستظهر الامتحانات الجديدة هنا بمجرد نشرها."
+              />
+            )}
+          </ListPage>
+        )}
+        {view === 'assignments' && (
+          <ListPage
+            icon={<FileText />}
+            eyebrow="طبّق على الدروس"
+            title="الواجبات"
+            description="مكان واحد لمتابعة واجبات كل كورس ونتائج التصحيح."
+          >
+            {visibleAssignments.length ? (
+              <div className="full-list">
+                {visibleAssignments.map((assignment) => (
+                  <article className="exam-row detailed" key={assignment.id}>
+                    <span className="exam-date">
+                      <FileText />
+                      <small>واجب</small>
+                    </span>
+                    <div className="exam-copy">
+                      <strong>{assignment.title}</strong>
+                      <small>
+                        {assignment.courseTitle} ·{' '}
+                        {assignment.dueAt
+                          ? `التسليم ${new Date(assignment.dueAt).toLocaleString('ar-EG')}`
+                          : 'بدون موعد تسليم'}
+                        {assignment.maxScore > 0 ? ` · ${assignment.maxScore} درجة` : ''}
+                      </small>
+                      {assignment.description && <p>{assignment.description}</p>}
+                    </div>
+                    {!assignment.isRead && <span className="status-pill status-pending">جديد</span>}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <EmptyPanel
+                icon={<FileText />}
+                title="لا توجد واجبات مطلوبة الآن"
+                text="أي واجب جديد يضيفه المدرس سيظهر هنا مع موعد التسليم والدرجة."
+              />
+            )}
+          </ListPage>
+        )}
+        {view === 'grades' && (
+          <ListPage
+            icon={<BarChart3 />}
+            eyebrow="تابع تقدمك"
+            title="سجل الدرجات"
+            description="نتائج الامتحانات والواجبات مرتبة في كشف درجات واضح."
+          >
+            {visibleAttempts.length ? (
+              <div className="gradebook">
+                <div className="gradebook-summary">
+                  <span>المتوسط العام</span>
+                  <strong>{visibleAverage}%</strong>
+                  <small>{visibleAttempts.length} نتائج مسجلة</small>
+                </div>
+                <div className="gradebook-table">
+                  <div className="gradebook-head">
+                    <span>التقييم</span>
+                    <span>الدرجة</span>
+                    <span>النسبة</span>
+                    <span>التفاصيل</span>
+                  </div>
+                  {visibleAttempts.map((attempt) => (
+                    <div className="gradebook-row" key={attempt.id}>
+                      <span>
+                        <strong>{attempt.title}</strong>
+                        <small>{new Date(attempt.submittedAt).toLocaleDateString('ar-EG')}</small>
+                      </span>
+                      <span>
+                        {attempt.score} / {attempt.maxScore}
+                      </span>
+                      <span>
+                        <b>{percent(attempt.score, attempt.maxScore)}%</b>
+                      </span>
+                      <Link href={`/result/${attempt.id}`}>عرض النتيجة</Link>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <EmptyPanel
+                icon={<BarChart3 />}
+                title="لا توجد درجات بعد"
+                text="بعد تسليم أول امتحان أو واجب ستظهر نتيجتك هنا."
+              />
+            )}
+          </ListPage>
+        )}
+        {view === 'leaderboard' && (
+          <ListPage
+            icon={<Trophy />}
+            eyebrow="نافس وتقدّم"
+            title="أوائل الطلاب"
+            description="أفضل 10 طلاب في كل صف، محسوبة من متوسط أفضل نتيجة للطالب في كل امتحان مكتمل."
+          >
+            <div className="leaderboard-tabs" role="tablist" aria-label="اختيار الصف الدراسي">
+              {LEADERBOARD_GRADES.map((gradeName) => {
+                const selectedGrade =
+                  leaderboardGrade || data.user.profile?.grade || LEADERBOARD_GRADES[0];
+                return (
+                  <button
+                    key={gradeName}
+                    type="button"
+                    className={selectedGrade === gradeName ? 'active' : ''}
+                    onClick={() => setLeaderboardGrade(gradeName)}
+                  >
+                    {gradeName}
+                  </button>
+                );
+              })}
+            </div>
+            {(() => {
+              const selectedGrade =
+                leaderboardGrade || data.user.profile?.grade || LEADERBOARD_GRADES[0];
+              const leaders = data.leaderboards?.[selectedGrade] ?? [];
+              if (!leaders.length) {
+                return (
+                  <EmptyPanel
+                    icon={<Trophy />}
+                    title="لا توجد نتائج كافية بعد"
+                    text="تظهر قائمة الأوائل بعد إكمال الطلاب لأول امتحان في هذا الصف."
+                  />
+                );
+              }
+              return (
+                <div className="leaderboard-list">
+                  {leaders.map((student) => (
+                    <article
+                      key={`${selectedGrade}-${student.rank}-${student.name}`}
+                      className={`${student.rank <= 3 ? `top-${student.rank}` : ''} ${student.isCurrentStudent ? 'is-current' : ''}`}
+                    >
+                      <div className="leaderboard-rank">
+                        {student.rank <= 3 ? <Medal /> : <span>{student.rank}</span>}
+                      </div>
+                      <div className="leaderboard-name">
+                        <strong>{student.name}</strong>
+                        <small>
+                          {student.examsCompleted} امتحانات مكتملة
+                          {student.isCurrentStudent ? ' · أنت' : ''}
+                        </small>
+                      </div>
+                      <div className="leaderboard-score">
+                        <strong>{student.averagePercentage}%</strong>
+                        <small>المتوسط</small>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              );
+            })()}
+          </ListPage>
+        )}
+        {view === 'profile' && (
+          <ListPage
+            icon={<UserRound />}
+            eyebrow="حسابك"
+            title="بيانات الطالب"
+            description="حافظ على بياناتك محدثة ليظهر لك المحتوى المناسب."
+          >
+            <form
+              className="student-settings-form"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                setSaved(false);
+                const form = new FormData(event.currentTarget);
+                const response = await fetch('/api/profile', {
+                  method: 'PUT',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify(Object.fromEntries(form)),
+                });
+                if (response.ok) {
+                  setSaved(true);
+                  await load();
+                }
+              }}
+            >
+              <label>
+                <span>الاسم</span>
+                <input
+                  name="name"
+                  defaultValue={data.user.profile?.name || data.user.displayName}
+                  required
+                />
+              </label>
+              <label>
+                <span>البريد الإلكتروني</span>
+                <input value={data.user.email} disabled />
+              </label>
+              <label>
+                <span>رقم الموبايل</span>
+                <input
+                  name="phone"
+                  defaultValue={data.user.profile?.phone || ''}
+                  inputMode="tel"
+                  placeholder="01xxxxxxxxx"
+                />
+              </label>
+              <label>
+                <span>الصف الدراسي</span>
+                <select name="grade" defaultValue={data.user.profile?.grade || ''}>
+                  <option value="">اختر الصف</option>
+                  <option>أولى ثانوي</option>
+                  <option>تانية ثانوي</option>
+                  <option>تالتة ثانوي</option>
+                </select>
+              </label>
+              <div className="settings-submit">
+                <button className="btn btn-primary" type="submit">
+                  حفظ التغييرات
+                </button>
+                {saved && (
+                  <span className="inline-success">
+                    <CheckCircle2 /> تم حفظ البيانات
+                  </span>
+                )}
+              </div>
+            </form>
+          </ListPage>
+        )}
+        {view === 'security' && (
+          <ListPage
+            icon={<ShieldCheck />}
+            eyebrow="الحماية والخصوصية"
+            title="الأمان وكلمة السر"
+            description="حدّث كلمة السر وتحكم في أمان حسابك."
+          >
+            <div className="security-grid">
+              <section className="settings-card">
+                <div className="settings-card-heading">
+                  <KeyRound />
+                  <div>
+                    <h3>تغيير كلمة السر</h3>
+                    <p>استخدم كلمة سر قوية لا تستخدمها في مكان آخر.</p>
+                  </div>
+                </div>
+                <form
+                  className="security-form"
+                  onSubmit={async (event: FormEvent<HTMLFormElement>) => {
+                    event.preventDefault();
+                    setPasswordMsg('');
+                    setPasswordErr('');
+                    const form = new FormData(event.currentTarget);
+                    const response = await fetch('/api/auth/change-password', {
+                      method: 'POST',
+                      headers: { 'content-type': 'application/json' },
+                      body: JSON.stringify(Object.fromEntries(form)),
+                    });
+                    const result = (await response.json().catch(() => ({}))) as { error?: string };
+                    if (response.ok) {
+                      setPasswordMsg('تم تغيير كلمة السر بنجاح');
+                      event.currentTarget.reset();
+                    } else setPasswordErr(result.error || 'تعذّر تغيير كلمة السر');
+                  }}
+                >
+                  <label>
+                    <span>كلمة السر الحالية</span>
+                    <input
+                      name="currentPassword"
+                      type="password"
+                      required
+                      autoComplete="current-password"
+                    />
+                  </label>
+                  <label>
+                    <span>كلمة السر الجديدة (8 أحرف على الأقل)</span>
+                    <input
+                      name="newPassword"
+                      type="password"
+                      required
+                      minLength={8}
+                      autoComplete="new-password"
+                    />
+                  </label>
+                  <label>
+                    <span>تأكيد كلمة السر الجديدة</span>
+                    <input
+                      name="newPasswordConfirm"
+                      type="password"
+                      required
+                      minLength={8}
+                      autoComplete="new-password"
+                    />
+                  </label>
+                  <button className="btn btn-primary" type="submit">
+                    تحديث كلمة السر
+                  </button>
+                  {passwordMsg && (
+                    <span className="inline-success">
+                      <CheckCircle2 /> {passwordMsg}
+                    </span>
+                  )}
+                  {passwordErr && <span className="inline-error">{passwordErr}</span>}
+                </form>
+              </section>
+              <aside className="security-status">
+                <LockKeyhole />
+                <h3>حسابك محمي</h3>
+                <p>بريدك الإلكتروني مؤكد. لا تشارك كلمة السر أو كود التحقق مع أي شخص.</p>
+                <div>
+                  <CheckCircle2 /> البريد الإلكتروني مؤكد
+                </div>
+                <div>
+                  <CheckCircle2 /> جلسة دخول آمنة
+                </div>
+              </aside>
+            </div>
+            <section className="danger-zone">
+              <div>
+                <AlertTriangle />
+                <span>
+                  <strong>حذف الحساب</strong>
+                  <small>هذا الإجراء نهائي ويمسح بياناتك الشخصية.</small>
+                </span>
+              </div>
+              <button onClick={() => setDeleteModal(true)}>حذف حسابي</button>
+            </section>
+          </ListPage>
+        )}
+      </main>
+      {deleteModal && (
+        <div className="student-modal" dir="rtl">
+          <div className="student-modal-card">
+            <button
+              className="modal-close"
+              onClick={() => setDeleteModal(false)}
+              aria-label="إغلاق"
+            >
+              <X />
+            </button>
+            <AlertTriangle className="modal-warning" />
+            <h3>تأكيد حذف الحساب</h3>
+            <p>هذا الإجراء لا يمكن التراجع عنه. اكتب بريدك وكلمة السر للتأكيد.</p>
+            {deleteErr && <div className="inline-error">{deleteErr}</div>}
+            <label>
+              <span>البريد الإلكتروني</span>
               <input
                 type="email"
                 value={deleteEmail}
-                onChange={(e) => setDeleteEmail(e.target.value)}
-                placeholder={data?.user.email}
-                className="auth-input"
-                style={{ width: '100%' }}
+                onChange={(event) => setDeleteEmail(event.target.value)}
+                placeholder={data.user.email}
               />
             </label>
-            <label style={{ display: 'grid', gap: '6px', marginBottom: '20px', fontSize: '13px' }}>
-              <span>كلمة المرور</span>
+            <label>
+              <span>كلمة السر</span>
               <input
                 type="password"
                 value={deletePassword}
-                onChange={(e) => setDeletePassword(e.target.value)}
-                placeholder="كلمة مرورك الحالية"
-                className="auth-input"
-                style={{ width: '100%' }}
+                onChange={(event) => setDeletePassword(event.target.value)}
               />
             </label>
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-              <button
-                className="btn btn-ghost"
-                onClick={() => {
-                  setDeleteModal(false);
-                  setDeleteEmail('');
-                  setDeletePassword('');
-                  setDeleteErr('');
-                }}
-              >
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setDeleteModal(false)}>
                 إلغاء
               </button>
               <button
-                className="btn"
-                style={{ background: 'var(--error, #e74c3c)', color: '#fff' }}
-                disabled={deleteBusy || deleteEmail !== data?.user.email}
+                className="btn danger-button"
+                disabled={deleteBusy || deleteEmail !== data.user.email}
                 onClick={async () => {
                   setDeleteErr('');
                   setDeleteBusy(true);
                   try {
-                    const res = await fetch('/api/users/me', {
+                    const response = await fetch('/api/users/me', {
                       method: 'DELETE',
                       headers: { 'content-type': 'application/json' },
                       body: JSON.stringify({ password: deletePassword }),
                     });
-                    const result = (await res.json().catch(() => ({}))) as {
-                      message?: string;
-                      error?: string;
-                    };
-                    if (!res.ok) {
-                      setDeleteErr(result.error || 'تعذّر حذف الحساب');
-                      return;
-                    }
+                    const result = (await response.json().catch(() => ({}))) as { error?: string };
+                    if (!response.ok) return setDeleteErr(result.error || 'تعذّر حذف الحساب');
                     window.location.assign('/login?deleted=1');
-                  } catch {
-                    setDeleteErr('تعذّر الاتصال بالخادم');
                   } finally {
                     setDeleteBusy(false);
                   }
@@ -570,6 +1062,80 @@ export default function StudentDashboard() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ExamRow({
+  exam,
+  detailed = false,
+}: {
+  exam: DashboardData['exams'][number];
+  detailed?: boolean;
+}) {
+  const passed = Number(exam.bestPercentage) >= Number(exam.passingScore);
+  const attemptsLeft = Math.max(0, Number(exam.maxAttempts || 3) - Number(exam.attemptCount || 0));
+  return (
+    <article className={`exam-row ${detailed ? 'detailed' : ''}`}>
+      <span className="exam-date">
+        <b>{exam.durationMinutes}</b>
+        <small>دقيقة</small>
+      </span>
+      <div className="exam-copy">
+        <strong>{exam.title}</strong>
+        {!exam.isRead && <span className="status-pill status-pending">جديد</span>}
+        <small>
+          {exam.courseTitle || 'امتحان عام'} · {attemptsLeft} محاولات متبقية
+        </small>
+        {detailed && exam.description && <p>{exam.description}</p>}
+      </div>
+      {passed ? (
+        <span className="status-pill status-approved">
+          <CheckCircle2 /> تم الاجتياز
+        </span>
+      ) : attemptsLeft > 0 ? (
+        <Link href={`/exam/${exam.id}`} className="exam-action">
+          {exam.attemptCount ? 'إعادة المحاولة' : 'ابدأ الامتحان'} <ArrowLeft />
+        </Link>
+      ) : (
+        <span className="status-pill status-rejected">انتهت المحاولات</span>
+      )}
+    </article>
+  );
+}
+function ListPage({
+  icon,
+  eyebrow,
+  title,
+  description,
+  children,
+}: {
+  icon: React.ReactNode;
+  eyebrow: string;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="student-view">
+      <header className="student-page-heading">
+        <div className="page-heading-icon">{icon}</div>
+        <div>
+          <span>{eyebrow}</span>
+          <h1>{title}</h1>
+          <p>{description}</p>
+        </div>
+      </header>
+      <section className="student-card page-content-card">{children}</section>
+    </div>
+  );
+}
+function EmptyPanel({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
+  return (
+    <div className="student-empty compact">
+      {icon}
+      <h3>{title}</h3>
+      <p>{text}</p>
     </div>
   );
 }

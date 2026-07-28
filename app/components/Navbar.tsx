@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookOpen, Menu, MoonStar, Sun, X } from 'lucide-react';
+import { BookOpen, Menu, MoonStar, Sun, Trophy, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 const publicLinks = [
@@ -69,13 +69,23 @@ export default function Navbar({ viewer }: { viewer: NavbarViewer }) {
             </Link>
           ))}
           {viewer && (
-            <Link
-              href="/account"
-              className={pathname === '/account' ? 'active' : ''}
-              onClick={closeMenu}
-            >
-              مساحتي التعليمية
-            </Link>
+            <>
+              <Link
+                href="/account"
+                className={pathname === '/account' ? 'active' : ''}
+                onClick={closeMenu}
+              >
+                مساحتي التعليمية
+              </Link>
+              <Link
+                href="/account?view=leaderboard"
+                className="nav-leaderboard"
+                onClick={closeMenu}
+              >
+                <Trophy size={16} />
+                <span>أوائل كل صف</span>
+              </Link>
+            </>
           )}
         </div>
 

@@ -17,13 +17,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (title.length < 3 || grade.length < 2) return jsonError('بيانات الكورس غير مكتملة');
   await ensureDatabase();
   const { id } = await params;
-  await getD1()
+  const result = await getD1()
     .prepare(
       `UPDATE courses SET title = ?, grade = ?, description = ?, price = ?, status = ?, updated_at = ?
      WHERE id = ?`
     )
     .bind(title, grade, description, price, status, Date.now(), id)
     .run();
+  if (result.meta.changes !== 1) return jsonError('الكورس غير موجود', 404);
   return Response.json({ ok: true });
 }
 
@@ -40,9 +41,10 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
       `SELECT
      (SELECT COUNT(*) FROM enrollments WHERE course_id = ?) +
      (SELECT COUNT(*) FROM exams WHERE course_id = ?) +
-     (SELECT COUNT(*) FROM videos WHERE course_id = ?) AS count`
+     (SELECT COUNT(*) FROM videos WHERE course_id = ?) +
+     (SELECT COUNT(*) FROM assignments WHERE course_id = ?) AS count`
     )
-    .bind(id, id, id)
+    .bind(id, id, id, id)
     .first<{ count: number }>();
   if (Number(dependencies?.count))
     return jsonError('لا يمكن حذف كورس مرتبط بطلاب أو امتحانات أو فيديوهات', 409);

@@ -1,9 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { CreditCard, Loader2, ShieldCheck } from 'lucide-react';
+import { CreditCard, Gift, Loader2, ShieldCheck } from 'lucide-react';
 
-export default function PaymentFlow({ courseId }: { courseId: string }) {
+export default function PaymentFlow({
+  courseId,
+  isFree = false,
+}: {
+  courseId: string;
+  isFree?: boolean;
+}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -12,6 +18,17 @@ export default function PaymentFlow({ courseId }: { courseId: string }) {
     setError('');
 
     try {
+      if (isFree) {
+        const response = await fetch('/api/enrollments', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ courseId }),
+        });
+        const result = (await response.json().catch(() => ({}))) as { error?: string };
+        if (!response.ok) throw new Error(result.error || 'تعذر تفعيل الكورس المجاني');
+        window.location.assign(`/learn/${encodeURIComponent(courseId)}`);
+        return;
+      }
       const response = await fetch('/api/payments/fawaterak/checkout', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -33,11 +50,12 @@ export default function PaymentFlow({ courseId }: { courseId: string }) {
 
   return (
     <div className="payment-card">
-      <CreditCard aria-hidden />
-      <h2>الدفع الإلكتروني الآمن</h2>
+      {isFree ? <Gift aria-hidden /> : <CreditCard aria-hidden />}
+      <h2>{isFree ? 'ابدأ الكورس مجاناً' : 'الدفع الإلكتروني الآمن'}</h2>
       <p>
-        هتنتقل لصفحة فواتيرك الآمنة لاختيار وسيلة الدفع المتاحة وإكمال العملية. لن يتم فتح الكورس
-        إلا بعد وصول تأكيد الدفع من فواتيرك.
+        {isFree
+          ? 'اضغط على الزر لتفعيل الكورس المجاني فوراً على حسابك والانتقال إلى المحتوى.'
+          : 'هتنتقل لصفحة فواتيرك الآمنة لاختيار وسيلة الدفع المتاحة وإكمال العملية. لن يتم فتح الكورس إلا بعد وصول تأكيد الدفع من فواتيرك.'}
       </p>
 
       <button
@@ -50,13 +68,18 @@ export default function PaymentFlow({ courseId }: { courseId: string }) {
           <>
             <Loader2 size={18} className="spin" aria-hidden /> جاري فتح بوابة الدفع...
           </>
+        ) : isFree ? (
+          'فعّل الكورس المجاني'
         ) : (
           'ادفع الآن عبر فواتيرك'
         )}
       </button>
 
       <p className="form-hint">
-        <ShieldCheck size={16} aria-hidden /> بيانات البطاقة أو المحفظة لا تمر عبر منصة إنجليزيكا.
+        <ShieldCheck size={16} aria-hidden />{' '}
+        {isFree
+          ? 'لا توجد أي رسوم أو بيانات دفع مطلوبة.'
+          : 'بيانات البطاقة أو المحفظة لا تمر عبر منصة إنجليزيكا.'}
       </p>
 
       {error && (

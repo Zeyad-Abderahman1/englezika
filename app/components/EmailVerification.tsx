@@ -8,13 +8,18 @@ export default function EmailVerification({
   onVerified,
 }: {
   email: string;
-  onVerified: () => void | Promise<void>;
+  onVerified?: () => void | Promise<void>;
 }) {
   const [code, setCode] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [resendIn, setResendIn] = useState(0);
+
+  const finishVerification = async () => {
+    if (onVerified) await onVerified();
+    else window.location.assign('/login?verified=1');
+  };
 
   useEffect(() => {
     if (!resendIn) return;
@@ -28,7 +33,11 @@ export default function EmailVerification({
     setBusy(true);
     setError('');
     setMessage('');
-    const response = await fetch('/api/auth/send-code', { method: 'POST' });
+    const response = await fetch('/api/auth/resend-code', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
     const result = (await response.json().catch(() => ({}))) as {
       error?: string;
       retryAfter?: number;
@@ -42,7 +51,7 @@ export default function EmailVerification({
       return;
     }
     if (result.verified) {
-      await onVerified();
+      await finishVerification();
       return;
     }
     setResendIn(60);
@@ -62,10 +71,10 @@ export default function EmailVerification({
     }
     setBusy(true);
     setError('');
-    const response = await fetch('/api/auth/verify-code', {
+    const response = await fetch('/api/auth/verify-email', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({ email, code }),
     });
     const result = (await response.json().catch(() => ({}))) as { error?: string };
     setBusy(false);
@@ -74,7 +83,7 @@ export default function EmailVerification({
       return;
     }
     setMessage('تم تأكيد بريدك بنجاح.');
-    await onVerified();
+    await finishVerification();
   };
 
   return (

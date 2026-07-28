@@ -1,7 +1,15 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
-import { KeyRound, LoaderCircle, LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
+import {
+  ArrowLeft,
+  BookOpen,
+  KeyRound,
+  LoaderCircle,
+  LockKeyhole,
+  Mail,
+  ShieldCheck,
+} from 'lucide-react';
 
 export default function StaffLoginForm() {
   const [error, setError] = useState('');
@@ -11,8 +19,7 @@ export default function StaffLoginForm() {
     event.preventDefault();
     setBusy(true);
     setError('');
-    const form = event.currentTarget;
-    const body = Object.fromEntries(new FormData(form));
+    const body = Object.fromEntries(new FormData(event.currentTarget));
     try {
       const response = await fetch('/api/staff/login', {
         method: 'POST',
@@ -30,37 +37,84 @@ export default function StaffLoginForm() {
   }
 
   return (
-    <main className="staff-login-page" dir="rtl">
-      <section className="staff-login-card">
-        <div className="staff-login-mark">
-          <ShieldCheck />
+    <main className="teacher-login-page" dir="rtl">
+      <section className="teacher-login-shell">
+        <div className="teacher-login-intro">
+          <div className="teacher-login-brand">
+            <BookOpen />
+            <strong>Englizeka</strong>
+          </div>
+          <div>
+            <span>بوابة المدرس</span>
+            <h1>
+              كل أدوات منصتك
+              <br />
+              في مكان واحد.
+            </h1>
+            <p>أضف الكورسات والمحاضرات، أنشئ الامتحانات، وتابع تقدم طلابك بسهولة.</p>
+          </div>
+          <div className="teacher-login-features">
+            <span>
+              <ShieldCheck /> دخول آمن للمدرس فقط
+            </span>
+            <span>
+              <LockKeyhole /> المحتوى والطلاب محميون
+            </span>
+          </div>
         </div>
-        <span className="section-label">منطقة خاصة</span>
-        <h1>دخول المدرس والمساعدين</h1>
-        <p>هذه الصفحة لحسابات فريق Englizeka التي أنشأها المدرس فقط.</p>
-        <form className="stack-form" onSubmit={submit}>
-          <label>
-            <span>
-              <Mail /> البريد الإلكتروني
-            </span>
-            <input name="email" type="email" autoComplete="username" required />
-          </label>
-          <label>
-            <span>
-              <KeyRound /> كلمة المرور
-            </span>
-            <input name="password" type="password" autoComplete="current-password" required />
-          </label>
-          {error && (
-            <div className="error-toast">
-              <LockKeyhole /> {error}
-            </div>
-          )}
-          <button className="btn btn-primary" disabled={busy}>
-            {busy ? <LoaderCircle className="spin" /> : <ShieldCheck />} دخول لوحة الفريق
-          </button>
-        </form>
-        <small>يتم قفل المحاولات المتكررة وتسجيل الجلسة في ملف ارتباط آمن.</small>
+
+        <div className="teacher-login-form-wrap">
+          <div className="teacher-login-icon">
+            <ShieldCheck />
+          </div>
+          <span className="section-label">مرحبًا بعودتك</span>
+          <h2>تسجيل دخول المدرس</h2>
+          <p>أدخل بيانات حساب المدرس للوصول إلى لوحة التحكم.</p>
+          <form className="teacher-login-form" onSubmit={submit}>
+            <label>
+              <span>
+                <Mail /> البريد الإلكتروني
+              </span>
+              <input
+                name="email"
+                type="email"
+                autoComplete="username"
+                defaultValue="admin@englizeka.com"
+                required
+              />
+            </label>
+            <label>
+              <span>
+                <KeyRound /> كلمة المرور
+              </span>
+              <input
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                placeholder="أدخل كلمة المرور"
+                required
+              />
+            </label>
+            {error && (
+              <div className="teacher-login-error">
+                <LockKeyhole /> {error}
+              </div>
+            )}
+            <button className="btn btn-primary" disabled={busy}>
+              {busy ? (
+                <LoaderCircle className="spin" />
+              ) : (
+                <>
+                  <span>دخول لوحة المدرس</span>
+                  <ArrowLeft />
+                </>
+              )}
+            </button>
+          </form>
+          <small>
+            <LockKeyhole /> هذه المساحة خاصة بالمدرس والحسابات المصرّح لها فقط.
+          </small>
+        </div>
       </section>
     </main>
   );

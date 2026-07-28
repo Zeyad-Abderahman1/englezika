@@ -18,6 +18,8 @@ import {
   Lock,
   Users,
   Briefcase,
+  FileUp,
+  ShieldCheck,
 } from 'lucide-react';
 
 // ─── Static data ───────────────────────────────────────────────────────────────
@@ -405,6 +407,7 @@ function LoginForm() {
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
   const [showForgotModal, setShowForgotModal] = useState(false);
+  const [staySignedIn, setStaySignedIn] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -415,10 +418,18 @@ function LoginForm() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, staySignedIn }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+        email?: string;
+      };
       if (!res.ok) {
+        if (data.code === 'EMAIL_NOT_VERIFIED' && data.email) {
+          router.push(`/verify-email?email=${encodeURIComponent(data.email)}`);
+          return;
+        }
         setError(data.error || 'خطأ في تسجيل الدخول');
         return;
       }
@@ -517,6 +528,18 @@ function LoginForm() {
           />
         </div>
 
+        <label className="auth-stay-signed-in">
+          <input
+            type="checkbox"
+            checked={staySignedIn}
+            onChange={(event) => setStaySignedIn(event.target.checked)}
+          />
+          <span>
+            <strong>البقاء مسجلاً للدخول</strong>
+            <small>عند إلغاء الاختيار، ينتهي تسجيل الدخول عند إغلاق المتصفح.</small>
+          </span>
+        </label>
+
         <button
           type="submit"
           className="btn btn-primary btn-large auth-submit-btn"
@@ -572,6 +595,8 @@ function RegisterForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
+  const [birthCertificate, setBirthCertificate] = useState<File | null>(null);
+  const [agreementAccepted, setAgreementAccepted] = useState(false);
 
   // Inline validation errors (shown after the field is touched)
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -583,8 +608,8 @@ function RegisterForm() {
     lastName: lastName.trim().length < 2 ? 'الاسم الأخير يجب أن يكون حرفين على الأقل' : '',
     email: !EMAIL_RE.test(email) ? 'أدخل بريداً إلكترونياً صحيحاً' : '',
     password:
-      password.length < 8
-        ? 'كلمة السر 8 أحرف على الأقل'
+      password.length < 12
+        ? 'كلمة السر 12 حرفاً على الأقل'
         : !/[A-Z]/.test(password)
           ? 'يجب أن تحتوي على حرف كبير'
           : !/\d/.test(password)
@@ -593,7 +618,10 @@ function RegisterForm() {
     passwordConfirm: password !== passwordConfirm ? 'كلمتا السر غير متطابقتين' : '',
   };
 
-  const isFormValid = Object.values(fieldErrors).every((e) => e === '');
+  const isFormValid =
+    Object.values(fieldErrors).every((e) => e === '') &&
+    Boolean(birthCertificate) &&
+    agreementAccepted;
 
   const sections = grade ? (SECTIONS_BY_GRADE[grade] ?? []) : [];
 
@@ -617,27 +645,31 @@ function RegisterForm() {
     setError('');
     setLoading(true);
     try {
+      const payload = new FormData();
+      Object.entries({
+        email,
+        password,
+        password_confirm: passwordConfirm,
+        first_name: firstName,
+        second_name: secondName,
+        third_name: thirdName,
+        last_name: lastName,
+        phone,
+        father_phone: fatherPhone,
+        mother_phone: motherPhone,
+        school_name: schoolName,
+        parent_job: parentJob,
+        governorate,
+        gender,
+        grade,
+        section,
+      }).forEach(([key, value]) => payload.set(key, value));
+      payload.set('account_use_agreement', agreementAccepted ? 'accepted' : '');
+      if (birthCertificate) payload.set('birth_certificate', birthCertificate);
+
       const res = await fetch('/api/auth/register', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          email,
-          password,
-          password_confirm: passwordConfirm,
-          first_name: firstName,
-          second_name: secondName,
-          third_name: thirdName,
-          last_name: lastName,
-          phone,
-          father_phone: fatherPhone,
-          mother_phone: motherPhone,
-          school_name: schoolName,
-          parent_job: parentJob,
-          governorate,
-          gender,
-          grade,
-          section,
-        }),
+        body: payload,
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean };
       if (!res.ok) {
@@ -895,21 +927,6 @@ function RegisterForm() {
 
       {/* Email & Password */}
       <div className="auth-grid-1">
-        <div className="auth-field-group">
-          <label className="auth-label" htmlFor="reg-email">
-            البريد الإلكتروني <span className="auth-req">*</span>
-          </label>
-          <Field
-            icon={Mail}
-            id="reg-email"
-            name="email"
-            type="email"
-            placeholder="example@mail.com"
-            value={email}
-            onChange={setEmail}
-            required
-          />
-        </div>
         <div className="auth-grid-2">
           <div className="auth-field-group">
             <label className="auth-label" htmlFor="reg-email">
@@ -939,7 +956,7 @@ function RegisterForm() {
             <PasswordInput
               id="reg-password"
               name="password"
-              placeholder="كلمة السر (8 أحرف+)"
+              placeholder="كلمة السر (12 حرفاً+)"
               value={password}
               onChange={(v) => {
                 setPassword(v);
@@ -971,10 +988,42 @@ function RegisterForm() {
         </div>
       </div>
 
-      {/* Avatar hint */}
-      <p className="auth-avatar-hint">
-        صورة شخصية إن وجدت (اختياري — يمكن إضافتها لاحقاً من الملف الشخصي)
-      </p>
+      <div className="auth-certificate-panel">
+        <div className="auth-certificate-heading">
+          <FileUp size={22} />
+          <div>
+            <strong>
+              رفع شهادة الميلاد <span className="auth-req">*</span>
+            </strong>
+            <small>ملف خاص للتحقق من بيانات الطالب — JPG أو PNG أو PDF بحد أقصى 5 ميجابايت.</small>
+          </div>
+        </div>
+        <label className="auth-file-picker" htmlFor="reg-birth-certificate">
+          <input
+            id="reg-birth-certificate"
+            type="file"
+            accept="image/jpeg,image/png,application/pdf"
+            required
+            onChange={(event) => setBirthCertificate(event.target.files?.[0] ?? null)}
+          />
+          <FileUp size={18} />
+          <span>{birthCertificate ? birthCertificate.name : 'اختر ملف شهادة الميلاد'}</span>
+        </label>
+      </div>
+
+      <label className="auth-legal-agreement">
+        <input
+          type="checkbox"
+          checked={agreementAccepted}
+          onChange={(event) => setAgreementAccepted(event.target.checked)}
+          required
+        />
+        <ShieldCheck size={21} />
+        <span>
+          أتعهد بعدم مشاركة حسابي أو تسجيل الشاشة أو إعادة نشر المحتوى، وأقر بأن مخالفة ذلك تعرضني
+          للمساءلة القانونية.
+        </span>
+      </label>
 
       <button
         type="submit"
@@ -986,7 +1035,7 @@ function RegisterForm() {
             <Loader2 size={18} className="spin" /> جاري التسجيل...
           </>
         ) : (
-          'رفع'
+          'إنشاء الحساب'
         )}
       </button>
       <p style={{ textAlign: 'center', fontSize: '0.8rem', opacity: 0.6, marginTop: '0.75rem' }}>

@@ -6,6 +6,13 @@ export const users = sqliteTable('users', {
   phone: text('phone'),
   grade: text('grade'),
   role: text('role').notNull().default('student'),
+  emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(false),
+  verificationCode: text('verification_code'),
+  verificationCodeExpiresAt: integer('verification_code_expires_at'),
+  birthCertificateKey: text('birth_certificate_key'),
+  birthCertificateContentType: text('birth_certificate_content_type'),
+  accountUseAgreementAcceptedAt: integer('account_use_agreement_accepted_at'),
+  accountUseAgreementVersion: text('account_use_agreement_version'),
   failedAttempts: integer('failed_attempts').notNull().default(0),
   lockedUntil: integer('locked_until'),
   createdAt: integer('created_at').notNull(),
@@ -19,6 +26,16 @@ export const emailVerifications = sqliteTable('email_verifications', {
   attempts: integer('attempts').notNull().default(0),
   sentAt: integer('sent_at').notNull(),
   verifiedAt: integer('verified_at'),
+  deliveryId: text('delivery_id'),
+});
+
+export const passwordResetCodes = sqliteTable('password_reset_codes', {
+  email: text('email').primaryKey(),
+  codeHash: text('code_hash').notNull(),
+  expiresAt: integer('expires_at').notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  sentAt: integer('sent_at').notNull(),
+  consumedAt: integer('consumed_at'),
   deliveryId: text('delivery_id'),
 });
 
@@ -168,6 +185,9 @@ export const videos = sqliteTable(
     title: text('title').notNull(),
     r2Key: text('r2_key').notNull(),
     contentType: text('content_type').notNull().default('video/mp4'),
+    sourceType: text('source_type').notNull().default('upload'),
+    sourceUrl: text('source_url'),
+    youtubeId: text('youtube_id'),
     durationSeconds: integer('duration_seconds').notNull().default(0),
     prerequisiteExamId: text('prerequisite_exam_id'),
     minimumScore: integer('minimum_score').notNull().default(0),
@@ -175,6 +195,20 @@ export const videos = sqliteTable(
     createdAt: integer('created_at').notNull(),
   },
   (table) => [index('videos_course_idx').on(table.courseId)]
+);
+
+export const videoProgress = sqliteTable(
+  'video_progress',
+  {
+    id: text('id').primaryKey(),
+    userEmail: text('user_email').notNull(),
+    videoId: text('video_id').notNull(),
+    completedAt: integer('completed_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('video_progress_user_video_idx').on(table.userEmail, table.videoId),
+    index('video_progress_video_idx').on(table.videoId),
+  ]
 );
 
 export const contacts = sqliteTable('contacts', {
@@ -193,6 +227,41 @@ export const announcements = sqliteTable('announcements', {
   status: text('status').notNull().default('published'),
   createdAt: integer('created_at').notNull(),
 });
+
+export const assignments = sqliteTable(
+  'assignments',
+  {
+    id: text('id').primaryKey(),
+    courseId: text('course_id').notNull(),
+    title: text('title').notNull(),
+    description: text('description').notNull().default(''),
+    dueAt: integer('due_at'),
+    maxScore: integer('max_score').notNull().default(0),
+    status: text('status').notNull().default('draft'),
+    createdBy: text('created_by').notNull(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [index('assignments_course_idx').on(table.courseId)]
+);
+
+export const notificationReads = sqliteTable(
+  'notification_reads',
+  {
+    userEmail: text('user_email').notNull(),
+    notificationType: text('notification_type').notNull(),
+    notificationId: text('notification_id').notNull(),
+    readAt: integer('read_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('notification_reads_user_item_idx').on(
+      table.userEmail,
+      table.notificationType,
+      table.notificationId
+    ),
+    index('notification_reads_user_idx').on(table.userEmail),
+  ]
+);
 
 export const staffUsers = sqliteTable('staff_users', {
   email: text('email').primaryKey(),

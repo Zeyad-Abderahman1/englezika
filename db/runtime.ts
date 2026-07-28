@@ -1,18 +1,26 @@
 import { getD1 } from '../app/lib/platform';
 import { getPlatformEnv } from '../app/lib/platform';
 import { STAFF_PRESETS } from '../app/lib/staff-permissions';
+import { getBootstrapStaffConfig } from '../app/lib/bootstrap-config';
 
 let initialization: Promise<void> | null = null;
 
 const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS users (
     email TEXT PRIMARY KEY, name TEXT, phone TEXT, grade TEXT,
-    role TEXT NOT NULL DEFAULT 'student', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    role TEXT NOT NULL DEFAULT 'student', email_verified INTEGER NOT NULL DEFAULT 0,
+    verification_code TEXT, verification_code_expires_at INTEGER,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS email_verifications (
     email TEXT PRIMARY KEY, code_hash TEXT NOT NULL, expires_at INTEGER NOT NULL,
     attempts INTEGER NOT NULL DEFAULT 0, sent_at INTEGER NOT NULL,
     verified_at INTEGER, delivery_id TEXT
+  )`,
+  `CREATE TABLE IF NOT EXISTS password_reset_codes (
+    email TEXT PRIMARY KEY, code_hash TEXT NOT NULL, expires_at INTEGER NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0, sent_at INTEGER NOT NULL,
+    consumed_at INTEGER, delivery_id TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS courses (
     id TEXT PRIMARY KEY, title TEXT NOT NULL, grade TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
@@ -73,10 +81,17 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS videos (
     id TEXT PRIMARY KEY, course_id TEXT NOT NULL, title TEXT NOT NULL, r2_key TEXT NOT NULL,
     content_type TEXT NOT NULL DEFAULT 'video/mp4', duration_seconds INTEGER NOT NULL DEFAULT 0,
+    source_type TEXT NOT NULL DEFAULT 'upload', source_url TEXT, youtube_id TEXT,
     prerequisite_exam_id TEXT, minimum_score INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'published', created_at INTEGER NOT NULL
   )`,
   'CREATE INDEX IF NOT EXISTS videos_course_idx ON videos (course_id)',
+  `CREATE TABLE IF NOT EXISTS video_progress (
+    id TEXT PRIMARY KEY, user_email TEXT NOT NULL, video_id TEXT NOT NULL,
+    completed_at INTEGER NOT NULL
+  )`,
+  'CREATE UNIQUE INDEX IF NOT EXISTS video_progress_user_video_idx ON video_progress (user_email, video_id)',
+  'CREATE INDEX IF NOT EXISTS video_progress_video_idx ON video_progress (video_id)',
   `CREATE TABLE IF NOT EXISTS contacts (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT NOT NULL, message TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'new', created_at INTEGER NOT NULL
@@ -85,6 +100,19 @@ const schemaStatements = [
     id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'published', created_at INTEGER NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS assignments (
+    id TEXT PRIMARY KEY, course_id TEXT NOT NULL, title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '', due_at INTEGER, max_score INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'draft', created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS assignments_course_idx ON assignments (course_id)',
+  `CREATE TABLE IF NOT EXISTS notification_reads (
+    user_email TEXT NOT NULL, notification_type TEXT NOT NULL,
+    notification_id TEXT NOT NULL, read_at INTEGER NOT NULL
+  )`,
+  'CREATE UNIQUE INDEX IF NOT EXISTS notification_reads_user_item_idx ON notification_reads (user_email, notification_type, notification_id)',
+  'CREATE INDEX IF NOT EXISTS notification_reads_user_idx ON notification_reads (user_email)',
   `CREATE TABLE IF NOT EXISTS native_sessions (
     session_hash TEXT PRIMARY KEY,
     email TEXT NOT NULL,
@@ -125,6 +153,8 @@ const seedCourses = [
 export function ensureDatabase(): Promise<void> {
   if (initialization) return initialization;
   initialization = (async () => {
+    const env = getPlatformEnv();
+    const initialStaff = getBootstrapStaffConfig(env);
     const db = getD1();
     // Enforce foreign key constraints (DB-04)
     await db
@@ -150,8 +180,14 @@ export function ensureDatabase(): Promise<void> {
     ];
     await db.batch(extraIndexes.map((sql) => db.prepare(sql)));
     await ensureColumn(db, 'exams', 'max_attempts', 'INTEGER NOT NULL DEFAULT 3');
+    await ensureColumn(db, 'users', 'email_verified', 'INTEGER NOT NULL DEFAULT 0');
+    await ensureColumn(db, 'users', 'verification_code', 'TEXT');
+    await ensureColumn(db, 'users', 'verification_code_expires_at', 'INTEGER');
     await ensureColumn(db, 'videos', 'prerequisite_exam_id', 'TEXT');
     await ensureColumn(db, 'videos', 'minimum_score', 'INTEGER NOT NULL DEFAULT 0');
+    await ensureColumn(db, 'videos', 'source_type', "TEXT NOT NULL DEFAULT 'upload'");
+    await ensureColumn(db, 'videos', 'source_url', 'TEXT');
+    await ensureColumn(db, 'videos', 'youtube_id', 'TEXT');
     // Extended student profile fields
     await ensureColumn(db, 'users', 'first_name', "TEXT NOT NULL DEFAULT ''");
     await ensureColumn(db, 'users', 'second_name', "TEXT NOT NULL DEFAULT ''");
@@ -164,6 +200,10 @@ export function ensureDatabase(): Promise<void> {
     await ensureColumn(db, 'users', 'governorate', "TEXT NOT NULL DEFAULT ''");
     await ensureColumn(db, 'users', 'gender', "TEXT NOT NULL DEFAULT ''");
     await ensureColumn(db, 'users', 'section', "TEXT NOT NULL DEFAULT ''");
+    await ensureColumn(db, 'users', 'birth_certificate_key', 'TEXT');
+    await ensureColumn(db, 'users', 'birth_certificate_content_type', 'TEXT');
+    await ensureColumn(db, 'users', 'account_use_agreement_accepted_at', 'INTEGER');
+    await ensureColumn(db, 'users', 'account_use_agreement_version', 'TEXT');
     // Native auth fields
     await ensureColumn(db, 'users', 'password_hash', "TEXT NOT NULL DEFAULT ''");
     await ensureColumn(db, 'users', 'password_salt', "TEXT NOT NULL DEFAULT ''");
@@ -171,6 +211,46 @@ export function ensureDatabase(): Promise<void> {
     await ensureColumn(db, 'users', 'failed_attempts', 'INTEGER NOT NULL DEFAULT 0');
     await ensureColumn(db, 'users', 'locked_until', 'INTEGER');
     const now = Date.now();
+    await db.batch([
+      db
+        .prepare(
+          `DELETE FROM video_progress
+           WHERE video_id IN (SELECT id FROM videos WHERE course_id = ?)`
+        )
+        .bind('free-demo-english'),
+      db
+        .prepare(
+          `DELETE FROM answers
+           WHERE attempt_id IN (
+             SELECT id FROM attempts
+             WHERE exam_id IN (SELECT id FROM exams WHERE course_id = ?)
+           )`
+        )
+        .bind('free-demo-english'),
+      db
+        .prepare(
+          `DELETE FROM attempts
+           WHERE exam_id IN (SELECT id FROM exams WHERE course_id = ?)`
+        )
+        .bind('free-demo-english'),
+      db
+        .prepare(
+          `DELETE FROM exam_sessions
+           WHERE exam_id IN (SELECT id FROM exams WHERE course_id = ?)`
+        )
+        .bind('free-demo-english'),
+      db
+        .prepare(
+          `DELETE FROM questions
+           WHERE exam_id IN (SELECT id FROM exams WHERE course_id = ?)`
+        )
+        .bind('free-demo-english'),
+      db.prepare('DELETE FROM exams WHERE course_id = ?').bind('free-demo-english'),
+      db.prepare('DELETE FROM payment_intents WHERE course_id = ?').bind('free-demo-english'),
+      db.prepare('DELETE FROM enrollments WHERE course_id = ?').bind('free-demo-english'),
+      db.prepare('DELETE FROM videos WHERE course_id = ?').bind('free-demo-english'),
+      db.prepare('DELETE FROM courses WHERE id = ?').bind('free-demo-english'),
+    ]);
     await db.batch(
       seedCourses.map((course) =>
         db
@@ -182,36 +262,21 @@ export function ensureDatabase(): Promise<void> {
           .bind(...course, now, now)
       )
     );
-    const env = getPlatformEnv();
-    const initialEmail = env.INITIAL_STAFF_EMAIL?.trim().toLowerCase() || 'admin@englizeka.com';
-    const initialHash =
-      env.INITIAL_STAFF_PASSWORD_HASH ||
-      '8c9856920b5793ba16ffb487d06dd6e45a9c032b4e2dbbafed56cabf65536de4';
-    const initialSalt = env.INITIAL_STAFF_PASSWORD_SALT || 'e3c8a797c8950b1e5287fceeb1271069';
-    const initialIter = Number(env.INITIAL_STAFF_PASSWORD_ITERATIONS || '100000');
-
     await db
       .prepare(
         `INSERT INTO staff_users
        (email, name, role, permissions, password_hash, password_salt, password_iterations,
         active, failed_attempts, locked_until, created_by, created_at, updated_at)
        VALUES (?, ?, 'teacher', ?, ?, ?, ?, 1, 0, NULL, 'platform-bootstrap', ?, ?)
-       ON CONFLICT(email) DO UPDATE SET
-         password_hash = excluded.password_hash,
-         password_salt = excluded.password_salt,
-         password_iterations = excluded.password_iterations,
-         failed_attempts = 0,
-         locked_until = NULL,
-         updated_at = excluded.updated_at
-       WHERE staff_users.created_by = 'platform-bootstrap'`
+       ON CONFLICT(email) DO NOTHING`
       )
       .bind(
-        initialEmail,
-        env.INITIAL_STAFF_NAME?.trim() || 'مستر أحمد حسن',
+        initialStaff.email,
+        initialStaff.name,
         JSON.stringify(STAFF_PRESETS.full_access),
-        initialHash,
-        initialSalt,
-        initialIter,
+        initialStaff.passwordHash,
+        initialStaff.passwordSalt,
+        initialStaff.passwordIterations,
         now,
         now
       )

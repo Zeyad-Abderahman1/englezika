@@ -28,6 +28,14 @@ async function render(path = '/', requestHeaders = {}) {
         delete: async () => null,
       },
       VERIFICATION_SECRET: 'mock-test-verification-secret-32-chars-long',
+      GMAIL_USER: 'mailer@example.test',
+      GMAIL_APP_PASSWORD: 'test-only-app-password',
+      EMAIL_TEST_MODE: 'false',
+      INITIAL_STAFF_EMAIL: 'bootstrap@example.test',
+      INITIAL_STAFF_NAME: 'Test Bootstrap Staff',
+      INITIAL_STAFF_PASSWORD_HASH: 'a'.repeat(64),
+      INITIAL_STAFF_PASSWORD_SALT: 'b'.repeat(32),
+      INITIAL_STAFF_PASSWORD_ITERATIONS: '100000',
     },
     { waitUntil() {}, passThroughOnException() {} }
   );
@@ -72,4 +80,8 @@ test('protected pages and APIs reject anonymous access', async () => {
   assert.equal(adminApi.status, 401);
   const accountApi = await render('/api/dashboard');
   assert.equal(accountApi.status, 401);
+  const videoResolve = await render('/api/videos/example-video/resolve');
+  assert.equal(videoResolve.status, 401);
+  const videoEmbed = await render('/api/videos/example-video/embed?token=invalid');
+  assert.equal(videoEmbed.status, 401);
 });

@@ -18,6 +18,8 @@ export async function GET(request: Request) {
 
   const [
     courses,
+    assignments,
+    announcements,
     exams,
     enrollments,
     attempts,
@@ -32,6 +34,21 @@ export async function GET(request: Request) {
       .prepare(
         `SELECT id, title, grade, description, price, status, created_at AS createdAt
        FROM courses ORDER BY created_at DESC`
+      )
+      .all(),
+    db
+      .prepare(
+        `SELECT a.id, a.course_id AS courseId, a.title, a.description,
+       a.due_at AS dueAt, a.max_score AS maxScore, a.status,
+       a.created_by AS createdBy, a.created_at AS createdAt, c.title AS courseTitle
+       FROM assignments a JOIN courses c ON c.id = a.course_id
+       ORDER BY a.created_at DESC`
+      )
+      .all(),
+    db
+      .prepare(
+        `SELECT id, title, body, created_at AS createdAt
+         FROM announcements ORDER BY created_at DESC LIMIT 50`
       )
       .all(),
     db
@@ -69,7 +86,8 @@ export async function GET(request: Request) {
       .prepare(
         `SELECT v.id, v.course_id AS courseId, v.title, v.status,
        v.duration_seconds AS durationSeconds, v.prerequisite_exam_id AS prerequisiteExamId,
-       v.minimum_score AS minimumScore, v.created_at AS createdAt,
+       v.minimum_score AS minimumScore, v.source_type AS sourceType,
+       v.source_url AS sourceUrl, v.youtube_id AS youtubeId, v.created_at AS createdAt,
        c.title AS courseTitle, x.title AS prerequisiteExamTitle
        FROM videos v JOIN courses c ON c.id = v.course_id
        LEFT JOIN exams x ON x.id = v.prerequisite_exam_id
@@ -137,6 +155,8 @@ export async function GET(request: Request) {
         ? courses.results
         : [],
     exams: can('manage_exams') || can('manage_videos') ? exams.results : [],
+    assignments: can('manage_assignments') ? assignments.results : [],
+    announcements: can('manage_announcements') ? announcements.results : [],
     enrollments: can('manage_enrollments') ? enrollments.results : [],
     attempts: can('grade_exams') ? attempts.results : [],
     videos: can('manage_videos') ? videos.results : [],
