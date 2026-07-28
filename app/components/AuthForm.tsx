@@ -405,6 +405,7 @@ function LoginForm() {
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
   const [showForgotModal, setShowForgotModal] = useState(false);
+  const [staySignedIn, setStaySignedIn] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -415,7 +416,7 @@ function LoginForm() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, staySignedIn }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
@@ -524,6 +525,18 @@ function LoginForm() {
             onChange={setPassword}
           />
         </div>
+
+        <label className="auth-stay-signed-in">
+          <input
+            type="checkbox"
+            checked={staySignedIn}
+            onChange={(event) => setStaySignedIn(event.target.checked)}
+          />
+          <span>
+            <strong>البقاء مسجلاً للدخول</strong>
+            <small>عند إلغاء الاختيار، ينتهي تسجيل الدخول عند إغلاق المتصفح.</small>
+          </span>
+        </label>
 
         <button
           type="submit"

@@ -122,8 +122,11 @@ export async function requireStudentUser(returnTo = '/account'): Promise<{ email
   }
 }
 
-export function studentSessionCookie(token: string, secure: boolean): string {
-  return `${STUDENT_SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(STUDENT_SESSION_MAX_AGE_MS / 1000)}${secure ? '; Secure' : ''}`;
+export function studentSessionCookie(token: string, secure: boolean, staySignedIn = false): string {
+  const persistence = staySignedIn
+    ? `; Max-Age=${Math.floor(STUDENT_SESSION_MAX_AGE_MS / 1000)}`
+    : '';
+  return `${STUDENT_SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax${persistence}${secure ? '; Secure' : ''}`;
 }
 
 export function clearStudentSessionCookie(secure: boolean): string {

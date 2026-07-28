@@ -17,6 +17,7 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const email = safeText(body.email, 200).toLowerCase();
   const password = typeof body.password === 'string' ? body.password : '';
+  const staySignedIn = body.staySignedIn === true;
 
   if (!email || !password) return jsonError('البريد الإلكتروني وكلمة السر مطلوبان');
 
@@ -40,7 +41,7 @@ export async function POST(request: Request) {
     status: 200,
     headers: {
       'content-type': 'application/json',
-      'set-cookie': studentSessionCookie(session.token, secure),
+      'set-cookie': studentSessionCookie(session.token, secure, staySignedIn),
       'cache-control': 'no-store',
     },
   });

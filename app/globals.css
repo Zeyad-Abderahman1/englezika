@@ -1574,6 +1574,32 @@ select:focus {
   margin-top: 6px;
   font-size: 15px;
 }
+.auth-stay-signed-in {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  cursor: pointer;
+}
+.auth-stay-signed-in input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  accent-color: var(--red-bright);
+}
+.auth-stay-signed-in span,
+.auth-stay-signed-in strong,
+.auth-stay-signed-in small {
+  display: block;
+}
+.auth-stay-signed-in strong {
+  font-size: 12px;
+}
+.auth-stay-signed-in small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
 .auth-grid-1 {
   display: grid;
   gap: 14px;
