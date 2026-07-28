@@ -148,6 +148,15 @@ html.is-scrolled .nav-shell {
   font-weight: 700;
   color: #4b4d54;
 }
+.nav-menu a.nav-leaderboard {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--red);
+}
+.nav-menu a.nav-leaderboard svg {
+  flex: 0 0 auto;
+}
 .nav-menu a::after {
   content: '';
   position: absolute;

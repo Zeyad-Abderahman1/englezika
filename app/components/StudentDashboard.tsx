@@ -114,6 +114,13 @@ export default function StudentDashboard() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('view') === 'leaderboard') {
+      // Open the requested dashboard section when linked from the main navbar.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setView('leaderboard');
+    }
+  }, []);
 
   const approved = useMemo(
     () => data?.enrollments.filter((item) => item.status === 'approved') ?? [],
