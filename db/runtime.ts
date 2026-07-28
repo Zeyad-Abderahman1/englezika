@@ -117,6 +117,14 @@ const schemaStatements = [
 ];
 
 const seedCourses = [
+  [
+    'free-demo-english',
+    'الكورس التجريبي المجاني',
+    'أولى ثانوي',
+    'كورس مجاني لتجربة التسجيل وتشغيل الفيديو المحمي وفتح المحاضرات داخل منصة إنجليزيكا.',
+    0,
+    'published',
+  ],
   ['sep-3', 'شهر سبتمبر', 'تالتة ثانوي', 'شرح وتدريب شامل على منهج سبتمبر.', 150, 'published'],
   ['oct-3', 'شهر أكتوبر', 'تالتة ثانوي', 'شرح وتدريب شامل على منهج أكتوبر.', 150, 'published'],
   ['sep-2', 'شهر سبتمبر', 'تانية ثانوي', 'شرح منظم لطلاب الصف الثاني الثانوي.', 120, 'published'],
@@ -197,6 +205,28 @@ export function ensureDatabase(): Promise<void> {
           .bind(...course, now, now)
       )
     );
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO videos
+         (id, course_id, title, r2_key, content_type, source_type, source_url,
+          youtube_id, duration_seconds, prerequisite_exam_id, minimum_score, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`
+      )
+      .bind(
+        'free-demo-youtube-1',
+        'free-demo-english',
+        'فيديو تجريبي لتشغيل المشغل الآمن',
+        '',
+        'video/youtube',
+        'youtube',
+        'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+        'M7lc1UVf-VE',
+        0,
+        0,
+        'published',
+        now + 1
+      )
+      .run();
     const env = getPlatformEnv();
     const initialEmail = env.INITIAL_STAFF_EMAIL?.trim().toLowerCase() || 'admin@englizeka.com';
     const initialHash =
