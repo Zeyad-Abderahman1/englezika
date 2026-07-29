@@ -24,11 +24,13 @@ import {
   LogOut,
   Mail,
   Menu,
+  MoonStar,
   PencilLine,
   PlaySquare,
   RefreshCw,
   Save,
   ShieldCheck,
+  Sun,
   Trash2,
   Upload,
   UserCog,
@@ -163,6 +165,7 @@ type AdminData = {
     publishedExams: number;
     attempts: number;
     averageScore: number;
+    newMessages: number;
   };
   courses: Course[];
   exams: Exam[];
@@ -271,6 +274,25 @@ export default function AdminDashboard() {
   });
   const xhrRef = useRef<XMLHttpRequest | null>(null);
 
+  const [light, setLight] = useState(false);
+
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem('englizeka-theme');
+    const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+    const shouldUseLight = savedTheme ? savedTheme === 'light' : prefersLight;
+    setLight(shouldUseLight);
+    document.documentElement.dataset.theme = shouldUseLight ? 'light' : 'dark';
+    document.documentElement.style.colorScheme = shouldUseLight ? 'light' : 'dark';
+  }, []);
+
+  const toggleTheme = () => {
+    const nextTheme = !light;
+    setLight(nextTheme);
+    document.documentElement.dataset.theme = nextTheme ? 'light' : 'dark';
+    document.documentElement.style.colorScheme = nextTheme ? 'light' : 'dark';
+    window.localStorage.setItem('englizeka-theme', nextTheme ? 'light' : 'dark');
+  };
+
   const load = useCallback(async () => {
     setError('');
     try {
@@ -355,6 +377,9 @@ export default function AdminDashboard() {
               {id === 'students' && data.counts.pendingEnrollments > 0 && (
                 <b>{data.counts.pendingEnrollments}</b>
               )}
+              {id === 'messages' && data.counts.newMessages > 0 && (
+                <b>{data.counts.newMessages}</b>
+              )}
             </button>
           ))}
         </nav>
@@ -388,9 +413,25 @@ export default function AdminDashboard() {
               <h1>{availableTabs.find((item) => item.id === tab)?.label || 'نظرة عامة'}</h1>
             </div>
           </div>
-          <button className="btn btn-ghost" onClick={() => void load()}>
-            <RefreshCw /> تحديث
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <button
+              className={`theme-toggle ${light ? 'is-light' : 'is-dark'}`}
+              onClick={toggleTheme}
+              aria-pressed={light}
+              aria-label={light ? 'تفعيل الوضع الداكن' : 'تفعيل الوضع الفاتح'}
+            >
+              <span className="theme-thumb" aria-hidden="true" />
+              <span className="theme-icon theme-moon" aria-hidden="true">
+                <MoonStar size={16} />
+              </span>
+              <span className="theme-icon theme-sun" aria-hidden="true">
+                <Sun size={17} />
+              </span>
+            </button>
+            <button className="btn btn-ghost" onClick={() => void load()}>
+              <RefreshCw /> تحديث
+            </button>
+          </div>
         </header>
 
         {notice && (
@@ -1934,7 +1975,14 @@ function StudentsPanel() {
           onChange={(e) => setSearch(e.target.value)}
           style={{ flex: 1, minWidth: '200px' }}
         />
-        <select value={grade} onChange={(e) => setGrade(e.target.value)}>
+        <select
+          value={grade}
+          onChange={(e) => {
+            const val = e.target.value;
+            setGrade(val);
+            void loadStudents(1, search, val);
+          }}
+        >
           <option value="">كل الصفوف</option>
           <option>أولى ثانوي</option>
           <option>تانية ثانوي</option>

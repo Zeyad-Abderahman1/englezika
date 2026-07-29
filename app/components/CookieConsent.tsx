@@ -74,7 +74,7 @@ export default function CookieConsent() {
         right: 0,
         zIndex: 10000,
         background: 'var(--surface, #1a1a2e)',
-        borderTop: '1px solid var(--border, rgba(255,255,255,0.1))',
+        borderTop: '1px solid var(--line, rgba(255,255,255,0.1))',
         padding: '1rem 1.5rem',
         display: 'flex',
         alignItems: 'center',

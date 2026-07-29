@@ -11,8 +11,12 @@
   --muted: #a4a5ad;
   --line: rgba(255, 255, 255, 0.1);
   --paper: #f6f4ef;
-  --nav: rgba(255, 255, 255, 0.96);
-  --nav-text: #15161a;
+  --nav: rgba(17, 18, 22, 0.82);
+  --nav-text: #f7f7f8;
+  --nav-border: rgba(255, 255, 255, 0.1);
+  --nav-menu-color: rgba(255, 255, 255, 0.7);
+  --nav-menu-hover-color: #ffffff;
+  --nav-brand-small: rgba(255, 255, 255, 0.45);
   --shadow: 0 18px 50px rgba(0, 0, 0, 0.24);
   --section-space: clamp(72px, 7vw, 96px);
   --content-gap: clamp(24px, 3vw, 42px);
@@ -26,6 +30,12 @@ html[data-theme='light'] {
   --muted: #555861;
   --line: rgba(24, 25, 31, 0.12);
   --shadow: 0 18px 45px rgba(42, 31, 35, 0.1);
+  --nav: rgba(255, 255, 255, 0.88);
+  --nav-text: #15161a;
+  --nav-border: rgba(24, 25, 31, 0.12);
+  --nav-menu-color: #4b4d54;
+  --nav-menu-hover-color: #111216;
+  --nav-brand-small: #5f6168;
 }
 * {
   box-sizing: border-box;
@@ -82,7 +92,7 @@ button {
   gap: 24px;
   background: var(--nav);
   color: var(--nav-text);
-  border: 1px solid rgba(255, 255, 255, 0.65);
+  border: 1px solid var(--nav-border);
   border-radius: 20px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(18px);
@@ -130,7 +140,7 @@ html.is-scrolled .nav-shell {
 .brand small {
   display: block;
   margin-top: 4px;
-  color: #5f6168;
+  color: var(--nav-brand-small);
   font-size: 11px;
   line-height: 1;
   text-align: left;
@@ -146,7 +156,7 @@ html.is-scrolled .nav-shell {
   padding: 10px 0;
   font-size: 14px;
   font-weight: 700;
-  color: #4b4d54;
+  color: var(--nav-menu-color);
 }
 .nav-menu a.nav-leaderboard {
   display: inline-flex;
@@ -170,7 +180,7 @@ html.is-scrolled .nav-shell {
 }
 .nav-menu a:hover,
 .nav-menu a.active {
-  color: #111216;
+  color: var(--nav-menu-hover-color);
 }
 .nav-menu a:hover::after,
 .nav-menu a.active::after {
@@ -246,6 +256,10 @@ html[data-theme='light'] .btn-outline {
   color: #777;
   background: #282a30;
   cursor: not-allowed;
+}
+html[data-theme='light'] .btn-disabled {
+  color: #a1a3a9;
+  background: #eae9e5;
 }
 .btn-large {
   min-height: 54px;
@@ -685,11 +699,11 @@ html[data-theme='light'] .hero-scroll-cue {
   padding: var(--section-space) 0;
 }
 .courses-section {
-  background: var(--paper);
-  color: #111216;
+  background: var(--surface-2);
+  color: var(--text);
 }
 html[data-theme='light'] .courses-section {
-  background: #fff;
+  background: var(--paper);
 }
 .section-heading {
   margin-bottom: 34px;
@@ -783,6 +797,29 @@ html[data-theme='light'] .courses-section {
 }
 .course-card.featured {
   background: linear-gradient(155deg, #251014, #111216 56%);
+}
+html[data-theme='light'] .course-card {
+  background: linear-gradient(160deg, #ffffff, #fcfbfa);
+  border-color: var(--line);
+  color: var(--text);
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.05);
+}
+html[data-theme='light'] .course-card.featured {
+  background: linear-gradient(155deg, #fff2f4, #ffffff 56%);
+  border-color: rgba(239, 35, 60, 0.2);
+}
+html[data-theme='light'] .course-kicker,
+html[data-theme='light'] .price span {
+  color: var(--muted);
+}
+html[data-theme='light'] .course-meta {
+  color: var(--muted);
+}
+html[data-theme='light'] .course-bottom {
+  border-top-color: var(--line);
+}
+html[data-theme='light'] .price strong {
+  color: var(--text);
 }
 .course-card-head {
   min-height: 45px;
@@ -6478,3 +6515,46 @@ html[data-theme='light'] .course-card-actions button {
     flex-direction: column;
   }
 }
+
+/* ── Admin Dashboard Light Mode Overrides ─────────────────────────────────────── */
+html[data-theme='light'] .admin-page {
+  background: var(--ink) !important;
+}
+html[data-theme='light'] .admin-sidebar {
+  background: var(--surface) !important;
+  border-right: 1px solid var(--line) !important;
+  color: var(--text) !important;
+}
+html[data-theme='light'] .admin-sidebar nav button {
+  color: var(--muted) !important;
+}
+html[data-theme='light'] .admin-sidebar nav button:hover,
+html[data-theme='light'] .admin-sidebar nav button.active {
+  color: var(--red-bright) !important;
+  background: rgba(207, 11, 39, 0.06) !important;
+}
+html[data-theme='light'] .admin-sidebar nav button.active {
+  box-shadow: inset -3px 0 var(--red-bright) !important;
+}
+html[data-theme='light'] .admin-sidebar-footer {
+  border-top: 1px solid var(--line) !important;
+  color: var(--muted) !important;
+}
+html[data-theme='light'] .admin-sidebar-footer button {
+  color: var(--red-bright) !important;
+}
+html[data-theme='light'] .admin-brand {
+  border-bottom: 1px solid var(--line) !important;
+}
+html[data-theme='light'] .admin-brand small {
+  color: var(--muted) !important;
+}
+html[data-theme='light'] .admin-topbar {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-bottom: 1px solid var(--line) !important;
+  backdrop-filter: blur(16px) !important;
+}
+html[data-theme='light'] .admin-hamburger {
+  color: var(--text) !important;
+}
+

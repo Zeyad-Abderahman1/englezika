@@ -108,7 +108,8 @@ export async function GET(request: Request) {
        (SELECT COUNT(*) FROM enrollments WHERE status = 'pending') AS pendingEnrollments,
        (SELECT COUNT(*) FROM exams WHERE status = 'published') AS publishedExams,
        (SELECT COUNT(*) FROM attempts) AS attempts,
-       (SELECT COALESCE(AVG(CASE WHEN max_score > 0 THEN score * 100.0 / max_score END), 0) FROM attempts) AS averageScore`
+       (SELECT COALESCE(AVG(CASE WHEN max_score > 0 THEN score * 100.0 / max_score END), 0) FROM attempts) AS averageScore,
+       (SELECT COUNT(*) FROM contacts WHERE status = 'new') AS newMessages`
       )
       .first(),
     db.prepare('SELECT COUNT(*) AS total FROM enrollments').first<{ total: number }>(),
@@ -146,6 +147,7 @@ export async function GET(request: Request) {
       publishedExams: can('manage_exams') || can('grade_exams') ? rawCounts.publishedExams : 0,
       attempts: can('grade_exams') ? rawCounts.attempts : 0,
       averageScore: can('grade_exams') ? rawCounts.averageScore : 0,
+      newMessages: can('manage_messages') ? rawCounts.newMessages : 0,
     },
     courses:
       can('manage_courses') ||

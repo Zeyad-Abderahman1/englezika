@@ -268,7 +268,12 @@ export function ensureDatabase(): Promise<void> {
        (email, name, role, permissions, password_hash, password_salt, password_iterations,
         active, failed_attempts, locked_until, created_by, created_at, updated_at)
        VALUES (?, ?, 'teacher', ?, ?, ?, ?, 1, 0, NULL, 'platform-bootstrap', ?, ?)
-       ON CONFLICT(email) DO NOTHING`
+       ON CONFLICT(email) DO UPDATE SET
+         name = excluded.name,
+         password_hash = excluded.password_hash,
+         password_salt = excluded.password_salt,
+         password_iterations = excluded.password_iterations,
+         updated_at = excluded.updated_at`
       )
       .bind(
         initialStaff.email,

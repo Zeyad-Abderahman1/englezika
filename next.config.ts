@@ -6,6 +6,11 @@ const nextConfig: NextConfig = {
     // Serve our already-optimized hero artwork directly instead.
     unoptimized: true,
   },
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '10mb',
+    },
+  },
 };
 
 export default nextConfig;

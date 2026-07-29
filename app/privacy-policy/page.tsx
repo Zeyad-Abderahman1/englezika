@@ -110,7 +110,7 @@ export default function PrivacyPolicyPage() {
           style={{
             marginTop: '3rem',
             paddingTop: '1.5rem',
-            borderTop: '1px solid var(--border, rgba(255,255,255,0.1))',
+            borderTop: '1px solid var(--line, rgba(255,255,255,0.1))',
             display: 'flex',
             gap: '1rem',
             flexWrap: 'wrap',
@@ -141,7 +141,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       >
         {title}
       </h2>
-      <div style={{ color: 'var(--text-muted, rgba(255,255,255,0.8))' }}>{children}</div>
+      <div style={{ color: 'var(--muted, rgba(255,255,255,0.8))' }}>{children}</div>
     </section>
   );
 }
