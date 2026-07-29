@@ -280,6 +280,7 @@ export default function AdminDashboard() {
     const savedTheme = window.localStorage.getItem('englizeka-theme');
     const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
     const shouldUseLight = savedTheme ? savedTheme === 'light' : prefersLight;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLight(shouldUseLight);
     document.documentElement.dataset.theme = shouldUseLight ? 'light' : 'dark';
     document.documentElement.style.colorScheme = shouldUseLight ? 'light' : 'dark';
