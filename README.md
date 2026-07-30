@@ -1,16 +1,15 @@
 # Englizeka
 
-منصة تعليمية تعمل بـ Next.js وPostgreSQL، وتضم الكورسات، حسابات الطلاب، الاشتراكات،
-الامتحانات، النتائج، الإعلانات، ولوحة إدارة منفصلة للمدرس وفريقه.
+Englizeka is an educational platform built with Next.js and PostgreSQL. It includes courses, student accounts, enrollments, exams, results, announcements, and a separate administration dashboard for teachers and staff.
 
-## التشغيل المحلي
+## Local development
 
-المتطلبات:
+Requirements:
 
-- Node.js 22 أو أحدث
-- Docker Desktop لتشغيل PostgreSQL محليًا
+- Node.js 22 or later
+- Docker Desktop for running PostgreSQL locally
 
-انسخ `.env.example` إلى `.env.local`، ثم نفّذ:
+Copy `.env.example` to `.env.local`, then run:
 
 ```bash
 npm install
@@ -19,18 +18,18 @@ npm run db:migrate
 npm run dev
 ```
 
-الموقع يعمل على `http://127.0.0.1:3000`.
+The application will be available at `http://127.0.0.1:3000`.
 
-## التخزين والفيديو
+## Storage and video delivery
 
-- PostgreSQL يحفظ الحسابات والكورسات والاشتراكات والامتحانات والنتائج.
-- شهادات الميلاد تُحفظ في مجلد خاص خارج `public` يحدده `PRIVATE_STORAGE_DIR`.
-- الصور العامة المضغوطة تُقدّم مباشرة من مجلد `public`.
-- المحاضرات تستخدم روابط YouTube غير المدرجة فقط؛ رفع ملفات فيديو إلى خادم التطبيق متوقف.
+- PostgreSQL stores users, courses, enrollments, exams, results, and other platform data.
+- Birth certificates are stored in a private directory outside `public`, configured with `PRIVATE_STORAGE_DIR`.
+- Compressed public images are served directly from the `public` directory.
+- Lectures use unlisted YouTube URLs only. Uploading video files to the application server is disabled.
 
-لا يعتمد المشروع على Cloudflare أو أي خدمة تخزين تابعة له.
+This project does not depend on Cloudflare or any Cloudflare storage service.
 
-## الاختبارات
+## Testing
 
 ```bash
 npm run typecheck
@@ -38,18 +37,18 @@ npm run lint
 npm test
 ```
 
-الاختبار الشامل يحتاج PostgreSQL يعمل ومتغير `DATABASE_URL` مضبوطًا:
+The end-to-end test suite requires a running PostgreSQL instance and a configured `DATABASE_URL`:
 
 ```bash
 npm run test:e2e
 ```
 
-## الأمان
+## Security
 
-- جلسات الطلاب وفريق الإدارة منفصلة.
-- كل مسارات الإدارة تتحقق من الصلاحيات على الخادم.
-- الاستعلامات تستخدم معاملات مربوطة، والملفات الخاصة لا تُحفظ داخل `public`.
-- الوصول للمحاضرات يتطلب اشتراكًا ساريًا، ويمكن ربطها باجتياز اختبار سابق.
+- Student and staff sessions are kept separate.
+- All administration endpoints enforce server-side authorization.
+- Database queries are parameterized, and private files are never stored in `public`.
+- Lecture access requires an active enrollment and can be gated by completion of a previous exam.
 
 ## Contributors
 
