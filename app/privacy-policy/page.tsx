@@ -73,7 +73,7 @@ export default function PrivacyPolicyPage() {
           <p>نستخدم مزودين موثوقين لتشغيل المنصة:</p>
           <ul>
             <li>
-              <strong>Cloudflare</strong> — استضافة وتأمين الشبكة وتخزين الفيديو
+              <strong>خادم المنصة الخاص</strong> — تشغيل الموقع وقاعدة البيانات وحفظ المستندات
             </li>
             <li>
               <strong>Resend / ServerSMTP</strong> — إرسال رسائل البريد الإلكتروني التحقيقية
@@ -145,3 +145,4 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     </section>
   );
 }
+export const dynamic = 'force-static';

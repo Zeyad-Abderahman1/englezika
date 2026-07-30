@@ -24,17 +24,6 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     access.video.durationSeconds
   );
 
-  if (access.video.sourceType !== 'youtube') {
-    return Response.json(
-      {
-        kind: 'upload',
-        sourceUrl: `/api/videos/${encodeURIComponent(id)}`,
-        completionToken,
-      },
-      { headers: { 'cache-control': 'private, no-store', vary: 'Cookie' } }
-    );
-  }
-
   const token = await createVideoEmbedToken(user.email, id);
   return Response.json(
     {

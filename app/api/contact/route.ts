@@ -1,5 +1,4 @@
-import { ensureDatabase } from '../../../db/runtime';
-import { getD1 } from '../../lib/platform';
+import { getDatabase } from '../../lib/platform';
 import { jsonError, requireSameOrigin, safeText } from '../../lib/security';
 
 export async function POST(request: Request) {
@@ -12,8 +11,7 @@ export async function POST(request: Request) {
   if (name.length < 2 || phone.length < 8 || message.length < 5) {
     return jsonError('من فضلك أكمل البيانات بشكل صحيح');
   }
-  await ensureDatabase();
-  await getD1()
+  await getDatabase()
     .prepare(
       "INSERT INTO contacts (id, name, phone, message, status, created_at) VALUES (?, ?, ?, ?, 'new', ?)"
     )

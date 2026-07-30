@@ -1,8 +1,10 @@
 import Link from 'next/link';
 import { BookOpenCheck, Clock3, Headphones, ShieldCheck, Star, ArrowLeft } from 'lucide-react';
 import Hero from './components/Hero';
-import CourseCard from './components/CourseCard';
-import { courses, testimonials } from './data/content';
+import FeaturedCourses from './components/FeaturedCourses';
+import { testimonials } from './data/content';
+
+export const dynamic = 'force-static';
 
 const features = [
   {
@@ -35,11 +37,7 @@ export default function Home() {
               كل الكورسات <ArrowLeft />
             </Link>
           </div>
-          <div className="course-grid">
-            {courses.slice(0, 3).map((course) => (
-              <CourseCard key={course.id} course={course} />
-            ))}
-          </div>
+          <FeaturedCourses />
         </div>
       </section>
       <section className="section why-section">

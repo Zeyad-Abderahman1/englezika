@@ -1,14 +1,18 @@
-import { ensureDatabase } from '../../../db/runtime';
 import { apiUser, isResponse } from '../../lib/api-auth';
 import { isEmailVerified } from '../../lib/email-verification';
-import { getD1 } from '../../lib/platform';
+import { getDatabase } from '../../lib/platform';
+import { getCachedLeaderboard } from '../../lib/leaderboard-cache';
+import { safeInteger } from '../../lib/security';
 
-export async function GET() {
+export async function GET(request: Request) {
   const user = await apiUser();
   if (isResponse(user)) return user;
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
   const email = user.email.toLowerCase();
+  const url = new URL(request.url);
+  const page = safeInteger(url.searchParams.get('page') ?? '1', 1, 1, 10_000);
+  const pageSize = safeInteger(url.searchParams.get('pageSize') ?? '50', 50, 1, 100);
+  const offset = (page - 1) * pageSize;
   const verificationRequired = !(await isEmailVerified(email));
   if (verificationRequired) {
     return Response.json({
@@ -21,8 +25,8 @@ export async function GET() {
       announcements: [],
     });
   }
-  const [profile, enrollments, exams, assignments, attempts, announcements, leaderboardRows] =
-    await Promise.all([
+  const [dashboardResults, leaderboardRows] = await Promise.all([
+    db.readBatch([
       db
         .prepare(
           `SELECT email, name, first_name AS firstName, second_name AS secondName,
@@ -32,19 +36,17 @@ export async function GET() {
        governorate, gender, grade, section
        FROM users WHERE email = ?`
         )
-        .bind(email)
-        .first(),
+        .bind(email),
       db
         .prepare(
           `SELECT e.id, e.status, e.created_at AS createdAt, c.id AS courseId, c.title, c.grade
        FROM enrollments e JOIN courses c ON c.id = e.course_id
-       WHERE e.user_email = ? ORDER BY e.created_at DESC`
+       WHERE e.user_email = ? ORDER BY e.created_at DESC LIMIT ? OFFSET ?`
         )
-        .bind(email)
-        .all(),
+        .bind(email, pageSize, offset),
       db
         .prepare(
-          `SELECT DISTINCT x.id, x.course_id AS courseId, x.title, x.description, x.duration_minutes AS durationMinutes,
+          `SELECT DISTINCT x.id, x.course_id AS courseId, x.title, x.description, x.created_at AS createdAt, x.duration_minutes AS durationMinutes,
        x.passing_score AS passingScore, x.max_attempts AS maxAttempts, c.title AS courseTitle,
        CASE WHEN nr.notification_id IS NULL THEN 0 ELSE 1 END AS isRead,
        (SELECT COUNT(*) FROM attempts ax WHERE ax.exam_id = x.id AND ax.user_email = ?) AS attemptCount,
@@ -57,13 +59,12 @@ export async function GET() {
          AND nr.notification_id = x.id
        WHERE x.status = 'published' AND (x.course_id IS NULL OR e.id IS NOT NULL)
        AND (x.opens_at IS NULL OR x.opens_at <= ?) AND (x.closes_at IS NULL OR x.closes_at >= ?)
-       ORDER BY x.created_at DESC`
+       ORDER BY x.created_at DESC LIMIT ? OFFSET ?`
         )
-        .bind(email, email, email, email, Date.now(), Date.now())
-        .all(),
+        .bind(email, email, email, email, Date.now(), Date.now(), pageSize, offset),
       db
         .prepare(
-          `SELECT DISTINCT a.id, a.course_id AS courseId, a.title, a.description,
+          `SELECT DISTINCT a.id, a.course_id AS courseId, a.title, a.description, a.created_at AS createdAt,
        a.due_at AS dueAt, a.max_score AS maxScore, c.title AS courseTitle,
        CASE WHEN nr.notification_id IS NULL THEN 0 ELSE 1 END AS isRead
        FROM assignments a JOIN courses c ON c.id = a.course_id
@@ -71,19 +72,17 @@ export async function GET() {
        LEFT JOIN notification_reads nr ON nr.user_email = ? AND nr.notification_type = 'assignment'
          AND nr.notification_id = a.id
        WHERE e.user_email = ? AND e.status = 'approved' AND a.status = 'published'
-       ORDER BY a.created_at DESC`
+       ORDER BY a.created_at DESC LIMIT ? OFFSET ?`
         )
-        .bind(email, email)
-        .all(),
+        .bind(email, email, pageSize, offset),
       db
         .prepare(
           `SELECT a.id, a.exam_id AS examId, a.score, a.max_score AS maxScore, a.feedback,
        a.grading_method AS gradingMethod, a.submitted_at AS submittedAt, x.title
        FROM attempts a JOIN exams x ON x.id = a.exam_id
-       WHERE a.user_email = ? ORDER BY a.submitted_at DESC LIMIT 30`
+       WHERE a.user_email = ? ORDER BY a.submitted_at DESC LIMIT ? OFFSET ?`
         )
-        .bind(email)
-        .all(),
+        .bind(email, pageSize, offset),
       db
         .prepare(
           `SELECT a.id, a.title, a.body, a.created_at AS createdAt,
@@ -91,40 +90,44 @@ export async function GET() {
            FROM announcements a LEFT JOIN notification_reads nr
              ON nr.user_email = ? AND nr.notification_type = 'announcement'
              AND nr.notification_id = a.id
-           WHERE a.status = 'published' ORDER BY a.created_at DESC LIMIT 10`
+           WHERE a.status = 'published' ORDER BY a.created_at DESC LIMIT ? OFFSET ?`
         )
-        .bind(email)
-        .all(),
+        .bind(email, pageSize, offset),
+      db.prepare('SELECT COUNT(*) AS total FROM enrollments WHERE user_email = ?').bind(email),
       db
         .prepare(
-          `WITH best_attempts AS (
-           SELECT user_email, exam_id,
-             MAX(score * 100.0 / max_score) AS percentage,
-             MAX(submitted_at) AS lastAttemptAt
-           FROM attempts
-           WHERE status = 'submitted' AND max_score > 0
-           GROUP BY user_email, exam_id
-         )
-         SELECT u.email, COALESCE(NULLIF(u.name, ''), u.email) AS name, u.grade,
-           ROUND(AVG(b.percentage), 1) AS averagePercentage,
-           COUNT(b.exam_id) AS examsCompleted,
-           MAX(b.lastAttemptAt) AS lastAttemptAt
-         FROM best_attempts b JOIN users u ON u.email = b.user_email
-         WHERE u.role = 'student' AND u.email_verified = 1
-           AND u.grade IN ('أولى ثانوي', 'تانية ثانوي', 'تالتة ثانوي')
-         GROUP BY u.email, u.name, u.grade
-         ORDER BY u.grade, averagePercentage DESC, examsCompleted DESC, lastAttemptAt ASC`
+          `SELECT COUNT(DISTINCT x.id) AS total
+           FROM exams x LEFT JOIN enrollments e
+             ON e.course_id = x.course_id AND e.user_email = ? AND e.status = 'approved'
+           WHERE x.status = 'published' AND (x.course_id IS NULL OR e.id IS NOT NULL)
+             AND (x.opens_at IS NULL OR x.opens_at <= ?) AND (x.closes_at IS NULL OR x.closes_at >= ?)`
         )
-        .all<{
-          email: string;
-          name: string;
-          grade: string;
-          averagePercentage: number;
-          examsCompleted: number;
-          lastAttemptAt: number;
-        }>(),
-    ]);
-  const leaderboards = leaderboardRows.results.reduce<
+        .bind(email, Date.now(), Date.now()),
+      db
+        .prepare(
+          `SELECT COUNT(DISTINCT a.id) AS total FROM assignments a JOIN enrollments e ON e.course_id = a.course_id
+           WHERE e.user_email = ? AND e.status = 'approved' AND a.status = 'published'`
+        )
+        .bind(email),
+      db.prepare('SELECT COUNT(*) AS total FROM attempts WHERE user_email = ?').bind(email),
+      db.prepare("SELECT COUNT(*) AS total FROM announcements WHERE status = 'published'"),
+    ]),
+    getCachedLeaderboard(),
+  ]);
+  const [
+    profile,
+    enrollments,
+    exams,
+    assignments,
+    attempts,
+    announcements,
+    enrollmentCount,
+    examCount,
+    assignmentCount,
+    attemptCount,
+    announcementCount,
+  ] = dashboardResults;
+  const leaderboards = leaderboardRows.reduce<
     Record<
       string,
       Array<{
@@ -139,7 +142,7 @@ export async function GET() {
     const board = groups[row.grade] ?? [];
     if (board.length < 10) {
       board.push({
-        rank: board.length + 1,
+        rank: Number(row.rank),
         name: row.name,
         averagePercentage: Number(row.averagePercentage),
         examsCompleted: Number(row.examsCompleted),
@@ -150,7 +153,7 @@ export async function GET() {
     return groups;
   }, {});
   return Response.json({
-    user: { email: user.email, displayName: user.displayName, profile },
+    user: { email: user.email, displayName: user.displayName, profile: profile.results[0] ?? null },
     verificationRequired: false,
     enrollments: enrollments.results,
     exams: exams.results,
@@ -158,5 +161,14 @@ export async function GET() {
     attempts: attempts.results,
     announcements: announcements.results,
     leaderboards,
+    pagination: {
+      page,
+      pageSize,
+      enrollments: Number(enrollmentCount.results[0]?.total ?? 0),
+      exams: Number(examCount.results[0]?.total ?? 0),
+      assignments: Number(assignmentCount.results[0]?.total ?? 0),
+      attempts: Number(attemptCount.results[0]?.total ?? 0),
+      announcements: Number(announcementCount.results[0]?.total ?? 0),
+    },
   });
 }

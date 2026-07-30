@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import CoursesExplorer from '../components/CoursesExplorer';
 
 export const metadata: Metadata = { title: 'الكورسات' };
+export const dynamic = 'force-static';
 
 export default function CoursesPage() {
   return (

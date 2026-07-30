@@ -4,6 +4,7 @@ import { Award, BookOpenCheck, Users } from 'lucide-react';
 import { teacher } from '../data/content';
 
 export const metadata: Metadata = { title: 'عن مستر أحمد حسن' };
+export const dynamic = 'force-static';
 
 export default function AboutPage() {
   return (
@@ -12,7 +13,7 @@ export default function AboutPage() {
         <div className="container about-grid">
           <div className="about-portrait">
             <Image
-              src="/teacher-hero-v2.jpg"
+              src="/teacher-hero-v2.webp"
               alt="مستر أحمد حسن"
               fill
               priority

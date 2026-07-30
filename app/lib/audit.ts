@@ -1,5 +1,4 @@
-import { getD1 } from './platform';
-import { ensureDatabase } from '../../db/runtime';
+import { getDatabase } from './platform';
 import { captureMessage } from './observability';
 
 export type AuditLogEntry = {
@@ -43,8 +42,7 @@ export async function recordAuditLog(entry: AuditLogEntry): Promise<void> {
   );
 
   try {
-    await ensureDatabase();
-    await getD1()
+    await getDatabase()
       .prepare(
         `INSERT INTO audit_logs (id, user_email, action, resource, resource_id, details, ip, user_agent, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`

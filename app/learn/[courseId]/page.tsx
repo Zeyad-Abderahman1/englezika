@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ensureDatabase } from '../../../db/runtime';
-import { getD1 } from '../../lib/platform';
+import { getDatabase } from '../../lib/platform';
 import { isEmailVerified } from '../../lib/email-verification';
 import SecureVideoPlayer from '../../components/SecureVideoPlayer';
 import { requireStudentUser } from '../../lib/student-session';
@@ -12,8 +11,7 @@ export const dynamic = 'force-dynamic';
 export default async function LearnPage({ params }: { params: Promise<{ courseId: string }> }) {
   const { courseId } = await params;
   const user = await requireStudentUser(`/learn/${courseId}`);
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
   if (!(await isEmailVerified(user.email))) {
     return (
       <main className="portal-page">

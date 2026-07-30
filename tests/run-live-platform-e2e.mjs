@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { pbkdf2Sync, randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { Client } from 'pg';
 
 if (process.env.TEST_BASE_URL) {
   await import('./live-platform-e2e.mjs');
@@ -23,7 +24,6 @@ const serverEnvironment = {
   ...process.env,
   NODE_ENV: 'development',
   E2E_TEST_MODE: 'true',
-  CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false',
   EMAIL_TEST_MODE: 'true',
   VERIFICATION_SECRET: randomBytes(32).toString('hex'),
   VIDEO_RESOLVE_SECRET: randomBytes(32).toString('hex'),
@@ -33,13 +33,47 @@ const serverEnvironment = {
   INITIAL_STAFF_PASSWORD_SALT: salt,
   INITIAL_STAFF_PASSWORD_ITERATIONS: '100000',
 };
+if (!serverEnvironment.DATABASE_URL) {
+  throw new Error('DATABASE_URL is required for the PostgreSQL E2E test');
+}
 const npmCli = process.env.npm_execpath;
 if (!npmCli) throw new Error('npm_execpath is unavailable; run this test through npm run test:e2e');
+const projectDir = fileURLToPath(new URL('..', import.meta.url));
+
+await new Promise((resolve, reject) => {
+  execFile(process.execPath, [npmCli, 'run', 'db:migrate:local'], {
+    cwd: projectDir,
+    env: serverEnvironment,
+    windowsHide: true,
+  }, (error, stdout, stderr) => {
+    if (error) reject(new Error(`Failed to prepare the E2E database.\n${stdout}\n${stderr}`));
+    else resolve();
+  });
+});
+
+const database = new Client({ connectionString: serverEnvironment.DATABASE_URL });
+await database.connect();
+const now = Date.now();
+await database.query(
+  `INSERT INTO staff_users
+   (email, name, role, permissions, password_hash, password_salt, password_iterations,
+    active, failed_attempts, locked_until, created_by, created_at, updated_at)
+   VALUES ($1, 'E2E Bootstrap Teacher', 'teacher', '[]', $2, $3, 100000, 1, 0,
+    NULL, 'e2e-test', $4, $4)
+   ON CONFLICT (email) DO UPDATE SET
+    password_hash = EXCLUDED.password_hash,
+    password_salt = EXCLUDED.password_salt,
+    password_iterations = EXCLUDED.password_iterations,
+    active = 1,
+    updated_at = EXCLUDED.updated_at`,
+  [teacherEmail, passwordHash, salt, now]
+);
+await database.end();
 const server = spawn(
   process.execPath,
-  [npmCli, 'run', 'dev', '--', '--port', String(port), '--strictPort'],
+  [npmCli, 'run', 'dev', '--', '--port', String(port)],
   {
-    cwd: fileURLToPath(new URL('..', import.meta.url)),
+    cwd: projectDir,
     env: serverEnvironment,
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',

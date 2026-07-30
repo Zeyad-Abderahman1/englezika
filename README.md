@@ -1,46 +1,55 @@
 # Englizeka
 
-The full learning platform for Mr Ahmed Hassan: public course catalog, secure student area, private video delivery, subscriptions, timed exams, automatic grading, and an email-protected administration dashboard.
+منصة تعليمية تعمل بـ Next.js وPostgreSQL، وتضم الكورسات، حسابات الطلاب، الاشتراكات،
+الامتحانات، النتائج، الإعلانات، ولوحة إدارة منفصلة للمدرس وفريقه.
 
-## Main product areas
+## التشغيل المحلي
 
-- `/courses` — live course catalog managed from the database
-- `/dashboard` — each student's courses, exams, results, announcements, and profile
-- `/admin` — courses, exams, questions, video uploads, enrollments, results, messages, and announcements
-- `/learn/:courseId` — entitlement-checked private video playback with a viewer watermark
-- `/exam/:id` — timed, single-attempt exams with saved results and per-question feedback
+المتطلبات:
 
-Students use native email-and-password accounts with email verification. Staff authentication is separate, and server routes enforce the active session on every protected read and write.
+- Node.js 22 أو أحدث
+- Docker Desktop لتشغيل PostgreSQL محليًا
 
-## Configuration
-
-Copy `.env.example` to `.env.local` for local configuration:
-
-- `ADMIN_EMAILS` — comma-separated emails allowed to open `/admin`
-  Objective questions are graded instantly, while written questions use the built-in answer-key and rubric grader.
-
-## Development
+انسخ `.env.example` إلى `.env.local`، ثم نفّذ:
 
 ```bash
 npm install
+npm run db:up
+npm run db:migrate
 npm run dev
-npm run lint
-npm run build
-node --test tests/rendered-html.test.mjs
 ```
 
-Cloudflare D1 stores accounts, courses, enrollments, exams, attempts, scores, contacts, and announcements. R2 stores private video objects. The first request initializes the schema defensively, and `drizzle/0000_englizeka_platform.sql` is the deployment migration.
+الموقع يعمل على `http://127.0.0.1:3000`.
 
-## Security notes
+## التخزين والفيديو
 
-- Admin authorization is a server-side exact email allowlist.
-- Course videos have no public object URL and stream only after a live enrollment check.
-- Mutating endpoints check same-origin requests and validate/limit submitted fields.
-- SQL access uses prepared statements.
-- Exams keep server-side start and expiry times, prevent duplicate submissions, and never send answer keys to the browser.
-- AI grading treats student text as untrusted data and falls back safely if the API is unavailable.
+- PostgreSQL يحفظ الحسابات والكورسات والاشتراكات والامتحانات والنتائج.
+- شهادات الميلاد تُحفظ في مجلد خاص خارج `public` يحدده `PRIVATE_STORAGE_DIR`.
+- الصور العامة المضغوطة تُقدّم مباشرة من مجلد `public`.
+- المحاضرات تستخدم روابط YouTube غير المدرجة فقط؛ رفع ملفات فيديو إلى خادم التطبيق متوقف.
 
-Browser-level download controls and visible watermarks discourage casual copying, but no web player can provide absolute DRM against screen recording. For high-value licensed content, pair this platform with a commercial DRM/transcoding provider.
+لا يعتمد المشروع على Cloudflare أو أي خدمة تخزين تابعة له.
+
+## الاختبارات
+
+```bash
+npm run typecheck
+npm run lint
+npm test
+```
+
+الاختبار الشامل يحتاج PostgreSQL يعمل ومتغير `DATABASE_URL` مضبوطًا:
+
+```bash
+npm run test:e2e
+```
+
+## الأمان
+
+- جلسات الطلاب وفريق الإدارة منفصلة.
+- كل مسارات الإدارة تتحقق من الصلاحيات على الخادم.
+- الاستعلامات تستخدم معاملات مربوطة، والملفات الخاصة لا تُحفظ داخل `public`.
+- الوصول للمحاضرات يتطلب اشتراكًا ساريًا، ويمكن ربطها باجتياز اختبار سابق.
 
 ## Contributors
 

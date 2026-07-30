@@ -27,7 +27,17 @@ export function requireSameOrigin(request: Request): Response | null {
   if (!origin) return null;
   const requestUrl = new URL(request.url);
   try {
-    if (new URL(origin).host === requestUrl.host) return null;
+    const originUrl = new URL(origin);
+    if (originUrl.host === requestUrl.host) return null;
+    const localHostnames = new Set(['127.0.0.1', 'localhost', '[::1]']);
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      originUrl.port === requestUrl.port &&
+      localHostnames.has(originUrl.hostname) &&
+      localHostnames.has(requestUrl.hostname)
+    ) {
+      return null;
+    }
   } catch {
     // Fall through to the rejection below.
   }

@@ -1,6 +1,5 @@
-import { ensureDatabase } from '../../../../db/runtime';
 import { apiStaff, isStaffResponse } from '../../../lib/staff-auth';
-import { getD1 } from '../../../lib/platform';
+import { getDatabase } from '../../../lib/platform';
 import { jsonError, requireSameOrigin, safeInteger, safeText } from '../../../lib/security';
 
 function optionalTimestamp(value: unknown): number | null | undefined {
@@ -27,8 +26,7 @@ export async function POST(request: Request) {
   if (body.dueAt !== undefined && dueAt === undefined)
     return jsonError('موعد تسليم الواجب غير صالح');
 
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
   const course = await db.prepare('SELECT id FROM courses WHERE id = ?').bind(courseId).first();
   if (!course) return jsonError('الكورس المحدد غير موجود', 404);
 

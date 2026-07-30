@@ -2,14 +2,14 @@
  * cleanExamSessions.ts
  *
  * Scheduled cleanup job: deletes abandoned or incomplete exam sessions
- * older than 24 hours. Safe to call manually or via a Cloudflare Cron Trigger.
+ * older than 24 hours. Safe to call manually or from the server scheduler.
  *
  * Usage:
  *   import { cleanExamSessions } from './cleanExamSessions';
  *   await cleanExamSessions();
  */
 
-import { getD1 } from '../lib/platform';
+import { getDatabase } from '../lib/platform';
 
 /**
  * Deletes exam_sessions rows that are:
@@ -19,7 +19,7 @@ import { getD1 } from '../lib/platform';
  * @returns The number of rows deleted.
  */
 export async function cleanExamSessions(): Promise<number> {
-  const db = getD1();
+  const db = getDatabase();
   const cutoff = Date.now() - 24 * 60 * 60 * 1000; // 24 hours ago in ms
 
   const result = await db

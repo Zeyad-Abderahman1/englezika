@@ -167,15 +167,14 @@ const assignmentId = assignment.result.id;
 const video = await call('/api/admin/videos', {
   method: 'POST',
   cookie: teacherLogin.cookie,
-  headers: {
-    'content-type': 'video/mp4',
-    'x-course-id': courseId,
-    'x-video-title': encodeURIComponent(`Protected lesson ${suffix}`),
-    'x-video-duration': '1',
+  json: {
+    courseId,
+    title: `Protected lesson ${suffix}`,
+    durationSeconds: 3,
+    youtubeUrl: 'https://youtu.be/dQw4w9WgXcQ',
   },
-  body: new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112]),
 });
-expectStatus(video, 200, 'teacher uploads gated lesson');
+expectStatus(video, 200, 'teacher adds a gated YouTube lesson');
 const videoId = video.result.id;
 const lessonGate = await call(`/api/admin/videos/${videoId}`, {
   method: 'PATCH',
@@ -227,7 +226,7 @@ assert.ok(studentRegistration.cookie);
 assert.match(studentRegistration.result.testCode, /^\d{6}$/);
 const studentCookie = studentRegistration.cookie;
 const signedStudentHome = await call('/', { cookie: studentCookie });
-assert.match(signedStudentHome.result, /مساحتي التعليمية/);
+expectStatus(signedStudentHome, 200, 'signed student can open the static home page');
 const dashboard = await call('/api/dashboard', { cookie: studentCookie });
 expectStatus(dashboard, 200, 'student account bootstrap');
 assert.equal(dashboard.result.verificationRequired, true);
@@ -300,16 +299,17 @@ expectStatus(submitted, 200, 'student submits quiz');
 assert.equal(submitted.result.passed, true);
 
 const unlockedVideo = await call(`/api/videos/${videoId}`, { cookie: studentCookie });
-expectStatus(unlockedVideo, 200, 'lesson unlocked after quiz');
+expectStatus(unlockedVideo, 409, 'raw video download remains unavailable after quiz');
 const resolvedVideo = await call(`/api/videos/${videoId}/resolve`, { cookie: studentCookie });
 expectStatus(resolvedVideo, 200, 'student resolves completion proof');
+assert.equal(resolvedVideo.result.kind, 'youtube');
 const earlyCompletion = await call(`/api/videos/${videoId}/complete`, {
   method: 'POST',
   cookie: studentCookie,
   json: { completionToken: resolvedVideo.result.completionToken },
 });
 expectStatus(earlyCompletion, 403, 'lesson cannot complete before required watch time');
-await new Promise((resolve) => setTimeout(resolve, 1100));
+await new Promise((resolve) => setTimeout(resolve, 3100));
 const completedVideo = await call(`/api/videos/${videoId}/complete`, {
   method: 'POST',
   cookie: studentCookie,

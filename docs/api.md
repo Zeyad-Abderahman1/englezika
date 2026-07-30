@@ -328,14 +328,14 @@ Delete an announcement by UUID.
 
 ### POST `/api/admin/videos`
 
-Upload a video to R2. Body is the raw video bytes; metadata passed via headers.
+Add an unlisted YouTube lesson.
 
 **Auth required:** Staff — `manage_videos`
 
-**Headers:**
+**JSON body:** `courseId`, `title`, `youtubeUrl`, `durationSeconds`,
+`prerequisiteExamId`, and `minimumScore`.
 
-- `Content-Type`: `video/mp4` or `video/webm`
-- `x-course-id`, `x-video-title` (URL-encoded), `x-video-duration`, `x-prerequisite-exam-id`, `x-minimum-score`
+Raw video file uploads are intentionally rejected.
 
 ### PATCH `/api/admin/videos/:id`
 
@@ -343,7 +343,7 @@ Edit video metadata.
 
 ### DELETE `/api/admin/videos/:id`
 
-Delete video + R2 object.
+Delete the lesson record. The original video remains managed by YouTube.
 
 ---
 

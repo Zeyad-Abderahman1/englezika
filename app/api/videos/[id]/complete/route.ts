@@ -1,5 +1,5 @@
 import { apiVerifiedUser, isResponse } from '../../../../lib/api-auth';
-import { getD1 } from '../../../../lib/platform';
+import { getDatabase } from '../../../../lib/platform';
 import { jsonError, requireSameOrigin, safeText } from '../../../../lib/security';
 import { authorizeVideoAccess, verifyVideoCompletionToken } from '../../../../lib/video-access';
 
@@ -17,7 +17,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
   const access = await authorizeVideoAccess(email, id);
   if (!access.ok) return jsonError(access.error, access.status);
-  const db = getD1();
+  const db = getDatabase();
 
   await db
     .prepare(

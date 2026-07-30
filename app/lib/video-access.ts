@@ -1,5 +1,4 @@
-import { ensureDatabase } from '../../db/runtime';
-import { getD1, getPlatformEnv } from './platform';
+import { getDatabase, getPlatformEnv } from './platform';
 import {
   createSignedVideoToken,
   verifySignedVideoToken,
@@ -16,8 +15,6 @@ export type AuthorizedVideo = {
   sourceType: string;
   youtubeId: string | null;
   durationSeconds: number;
-  r2Key: string;
-  contentType: string;
   title: string;
   prerequisiteExamId: string | null;
   minimumScore: number;
@@ -70,14 +67,12 @@ export async function authorizeVideoAccess(
   email: string,
   videoId: string
 ): Promise<VideoAccessResult> {
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
   const normalized = normalizedEmail(email);
   const video = await db
     .prepare(
       `SELECT v.id, v.course_id AS courseId, v.source_type AS sourceType,
-       v.youtube_id AS youtubeId, v.duration_seconds AS durationSeconds,
-       v.r2_key AS r2Key, v.content_type AS contentType, v.title,
+       v.youtube_id AS youtubeId, v.duration_seconds AS durationSeconds, v.title,
        v.prerequisite_exam_id AS prerequisiteExamId, v.minimum_score AS minimumScore
        FROM videos v JOIN enrollments e ON e.course_id = v.course_id
        WHERE v.id = ? AND v.status = 'published'

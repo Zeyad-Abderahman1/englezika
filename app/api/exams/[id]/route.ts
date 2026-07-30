@@ -1,7 +1,7 @@
-import { ensureDatabase } from '../../../../db/runtime';
 import { apiVerifiedUser, isResponse } from '../../../lib/api-auth';
 import { gradeWrittenAnswers, type WrittenGradingInput } from '../../../lib/grading';
-import { getD1 } from '../../../lib/platform';
+import { getDatabase } from '../../../lib/platform';
+import { invalidateLeaderboardCache } from '../../../lib/leaderboard-cache';
 import { jsonError, requireSameOrigin, safeText } from '../../../lib/security';
 import {
   claimExamSession,
@@ -21,7 +21,7 @@ type QuestionRow = {
 };
 
 async function loadExam(id: string, email: string) {
-  const db = getD1();
+  const db = getDatabase();
   const exam = await db
     .prepare(
       `SELECT x.id, x.course_id AS courseId, x.title, x.description, x.instructions,
@@ -40,7 +40,6 @@ async function loadExam(id: string, email: string) {
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await apiVerifiedUser();
   if (isResponse(user)) return user;
-  await ensureDatabase();
   const { id } = await params;
   const exam = await loadExam(id, user.email.toLowerCase());
   if (!exam) return jsonError('الامتحان غير متاح لحسابك', 404);
@@ -50,7 +49,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     return jsonError('انتهى وقت إتاحة الامتحان', 403);
   const email = user.email.toLowerCase();
   const sessionResult = await startOrResumeExamSession(
-    getD1(),
+    getDatabase(),
     id,
     email,
     Number(exam.durationMinutes || 30),
@@ -63,7 +62,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if (sessionResult.kind === 'busy') {
     return jsonError('جاري تسليم هذا الامتحان', 409);
   }
-  const result = await getD1()
+  const result = await getDatabase()
     .prepare(
       `SELECT id, sort_order AS sortOrder, type, prompt, options, points
      FROM questions WHERE exam_id = ? ORDER BY sort_order`
@@ -85,7 +84,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (originError) return originError;
   const user = await apiVerifiedUser();
   if (isResponse(user)) return user;
-  await ensureDatabase();
   const { id } = await params;
   const email = user.email.toLowerCase();
   const exam = await loadExam(id, email);
@@ -93,7 +91,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const now = Date.now();
   if (exam.opensAt && Number(exam.opensAt) > now) return jsonError('الامتحان لم يبدأ بعد', 403);
   if (exam.closesAt && Number(exam.closesAt) < now) return jsonError('انتهى وقت الامتحان', 403);
-  const attemptCount = await getD1()
+  const attemptCount = await getDatabase()
     .prepare('SELECT COUNT(*) AS count FROM attempts WHERE exam_id = ? AND user_email = ?')
     .bind(id, email)
     .first<{ count: number }>();
@@ -106,7 +104,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   };
   const sessionId = safeText(payload.sessionId, 100);
   if (!sessionId) return jsonError('جلسة الامتحان مطلوبة', 400);
-  const session = await getD1()
+  const session = await getDatabase()
     .prepare(
       `SELECT id, started_at AS startedAt, expires_at AS expiresAt, status
        FROM exam_sessions WHERE id = ? AND exam_id = ? AND user_email = ?`
@@ -117,7 +115,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return jsonError('جلسة الامتحان غير صالحة، افتح الامتحان من حسابك', 409);
   if (now > Number(session.expiresAt)) return jsonError('انتهى وقت الامتحان', 408);
   const answers = payload.answers && typeof payload.answers === 'object' ? payload.answers : {};
-  const questionResult = await getD1()
+  const questionResult = await getDatabase()
     .prepare(
       `SELECT id, sort_order AS sortOrder, type, prompt, options, correct_answer AS correctAnswer,
      rubric, points FROM questions WHERE exam_id = ? ORDER BY sort_order`
@@ -172,7 +170,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const maxScore = questionResult.results.reduce((total, question) => total + question.points, 0);
   const percentage = maxScore ? Math.round((score / maxScore) * 100) : 0;
   const submittedAt = Date.now();
-  const claimedSession = await claimExamSession(getD1(), sessionId, id, email, submittedAt);
+  const claimedSession = await claimExamSession(getDatabase(), sessionId, id, email, submittedAt);
   if (!claimedSession) {
     return jsonError('جلسة الامتحان انتهت أو تم تسليمها', 409);
   }
@@ -182,7 +180,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     percentage >= Number(exam.passingScore || 50)
       ? 'أداء ممتاز، استمر على نفس المستوى.'
       : 'راجع ملاحظات كل سؤال ثم حاول تثبيت النقاط التي فقدتها.';
-  const db = getD1();
+  const db = getDatabase();
   try {
     await db.batch([
       db
@@ -226,6 +224,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     await releaseExamSessionClaim(db, claimedSession.id).catch(() => {});
     throw error;
   }
+  invalidateLeaderboardCache();
   return Response.json({
     attemptId,
     score,

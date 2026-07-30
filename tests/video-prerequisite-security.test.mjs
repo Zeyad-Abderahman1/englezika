@@ -23,11 +23,9 @@ class VideoAccessDatabase {
           return {
             id: this.bindings[0],
             courseId: 'course-1',
-            sourceType: 'upload',
-            youtubeId: null,
+            sourceType: 'youtube',
+            youtubeId: 'dQw4w9WgXcQ',
             durationSeconds: 120,
-            r2Key: 'courses/course-1/lesson-1.mp4',
-            contentType: 'video/mp4',
             title: 'Protected lesson',
             prerequisiteExamId: 'exam-1',
             minimumScore: 70,

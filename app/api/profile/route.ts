@@ -1,6 +1,5 @@
-import { ensureDatabase } from '../../../db/runtime';
 import { apiVerifiedUser, isResponse } from '../../lib/api-auth';
-import { getD1 } from '../../lib/platform';
+import { getDatabase } from '../../lib/platform';
 import { requireSameOrigin, safeText } from '../../lib/security';
 
 export async function PUT(request: Request) {
@@ -22,8 +21,7 @@ export async function PUT(request: Request) {
   const motherPhone = safeText(body.mother_phone, 30);
 
   const now = Date.now();
-  await ensureDatabase();
-  await getD1()
+  await getDatabase()
     .prepare(
       `UPDATE users SET
        name = ?, phone = ?, grade = ?, section = ?, school_name = ?,

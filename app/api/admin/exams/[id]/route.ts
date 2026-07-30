@@ -1,14 +1,13 @@
-import { ensureDatabase } from '../../../../../db/runtime';
 import { apiStaff, isStaffResponse } from '../../../../lib/staff-auth';
-import { getD1 } from '../../../../lib/platform';
+import { getDatabase } from '../../../../lib/platform';
 import { jsonError, requireSameOrigin, safeInteger, safeText } from '../../../../lib/security';
+import { invalidatePublicCourseCache } from '../../../../lib/public-course-cache';
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const admin = await apiStaff(request, 'manage_exams');
   if (isStaffResponse(admin)) return admin;
-  await ensureDatabase();
   const { id } = await params;
-  const db = getD1();
+  const db = getDatabase();
   const exam = await db
     .prepare(
       `SELECT id, course_id AS courseId, title, description, instructions,
@@ -41,9 +40,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const admin = await apiStaff(request, 'manage_exams');
   if (isStaffResponse(admin)) return admin;
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-  await ensureDatabase();
   const { id } = await params;
-  const db = getD1();
+  const db = getDatabase();
   const existing = await db
     .prepare(
       `SELECT course_id AS courseId, title, description, instructions, duration_minutes AS durationMinutes,
@@ -54,6 +52,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .first<Record<string, unknown>>();
   if (!existing) return jsonError('الامتحان غير موجود', 404);
   const status = body.status === 'published' ? 'published' : 'draft';
+  const nullableTimestamp = (value: unknown, fallback: unknown) => {
+    if (value === null) return null;
+    const candidate = value === undefined ? fallback : value;
+    if (candidate === null || candidate === undefined || candidate === '') return null;
+    const number = Number(candidate);
+    return Number.isFinite(number) ? number : null;
+  };
   const updateStmt = db
     .prepare(
       `UPDATE exams SET title = ?, description = ?, instructions = ?, course_id = ?,
@@ -69,16 +74,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       safeInteger(body.passingScore ?? existing.passingScore, 50, 0, 100),
       safeInteger(body.maxAttempts ?? existing.maxAttempts, 3, 1, 10),
       status,
-      body.opensAt === null
-        ? null
-        : body.opensAt
-          ? Number(body.opensAt)
-          : (existing.opensAt ?? null),
-      body.closesAt === null
-        ? null
-        : body.closesAt
-          ? Number(body.closesAt)
-          : (existing.closesAt ?? null),
+      nullableTimestamp(body.opensAt, existing.opensAt),
+      nullableTimestamp(body.closesAt, existing.closesAt),
       Date.now(),
       id
     );
@@ -152,6 +149,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     )
     .bind(id)
     .run();
+  invalidatePublicCourseCache();
   return Response.json({ ok: true });
 }
 
@@ -160,9 +158,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (originError) return originError;
   const admin = await apiStaff(request, 'manage_exams');
   if (isStaffResponse(admin)) return admin;
-  await ensureDatabase();
   const { id } = await params;
-  const db = getD1();
+  const db = getDatabase();
   const attempt = await db
     .prepare('SELECT id FROM attempts WHERE exam_id = ? LIMIT 1')
     .bind(id)
@@ -188,5 +185,6 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     ),
     db.prepare('DELETE FROM exams WHERE id = ?').bind(id),
   ]);
+  invalidatePublicCourseCache();
   return Response.json({ ok: true });
 }

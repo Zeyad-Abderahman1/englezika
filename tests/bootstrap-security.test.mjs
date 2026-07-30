@@ -32,11 +32,12 @@ test('bootstrap staff credentials are explicit and strictly validated', () => {
   });
 });
 
-test('database bootstrap is insert-only and contains no credential fallback', async () => {
-  const runtime = await readFile(new URL('../db/runtime.ts', import.meta.url), 'utf8');
-  assert.match(runtime, /ON CONFLICT\(email\) DO NOTHING/);
-  assert.doesNotMatch(runtime, /admin@englizeka\.com/);
-  assert.doesNotMatch(runtime, /5edd6ddce8c584b61abae1f004bd5ca1e/);
-  assert.doesNotMatch(runtime, /e3c8a797c8950b1e5287fceeb1271069/);
-  assert.doesNotMatch(runtime, /ON CONFLICT\(email\) DO UPDATE SET\s+password_hash/);
+test('schema changes are migration-only and do not run from application requests', async () => {
+  const migration = await readFile(
+    new URL('../database/migrations/001_initial.sql', import.meta.url),
+    'utf8'
+  );
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS native_sessions/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS audit_logs/);
+
 });

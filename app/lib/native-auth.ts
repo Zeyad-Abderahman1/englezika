@@ -1,5 +1,4 @@
-import { ensureDatabase } from '../../db/runtime';
-import { getD1 } from './platform';
+import { getDatabase } from './platform';
 import { hashPassword } from './staff-auth';
 
 export { hashPassword };
@@ -45,8 +44,7 @@ function constantTimeEqual(left: string, right: string): boolean {
 
 /** Look up a student by email. Returns null if not found. */
 export async function findStudentByEmail(email: string): Promise<StudentRow | null> {
-  await ensureDatabase();
-  return getD1()
+  return getDatabase()
     .prepare(
       `SELECT email, name,
      first_name AS firstName, second_name AS secondName, third_name AS thirdName, last_name AS lastName,
@@ -92,7 +90,7 @@ export async function verifyStudentPassword(
   if (!constantTimeEqual(candidate.hash, row.passwordHash)) {
     const failures = Number(row.failedAttempts || 0) + 1;
     const lockedUntil = failures >= 5 ? now + 15 * 60_000 : null;
-    await getD1()
+    await getDatabase()
       .prepare(
         'UPDATE users SET failed_attempts = ?, locked_until = ?, updated_at = ? WHERE email = ?'
       )
@@ -102,7 +100,7 @@ export async function verifyStudentPassword(
   }
 
   // Reset lockout counters on success
-  await getD1()
+  await getDatabase()
     .prepare(
       'UPDATE users SET failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE email = ?'
     )
@@ -134,7 +132,6 @@ export async function registerStudent(data: {
   accountUseAgreementAcceptedAt: number;
   accountUseAgreementVersion: string;
 }): Promise<'ok' | 'email_taken'> {
-  await ensureDatabase();
   const email = data.email.trim().toLowerCase();
   const existing = await findStudentByEmail(email);
   if (existing?.passwordHash) return 'email_taken';
@@ -149,7 +146,7 @@ export async function registerStudent(data: {
     .join(' ');
   const now = Date.now();
 
-  await getD1()
+  await getDatabase()
     .prepare(
       `INSERT INTO users
      (email, name, first_name, second_name, third_name, last_name,
@@ -210,7 +207,6 @@ export async function registerStudent(data: {
 
 /** Update an existing student's password and revoke every active session. */
 export async function updateStudentPassword(email: string, newPassword: string): Promise<boolean> {
-  await ensureDatabase();
   const normalized = email.trim().toLowerCase();
   const { hash, salt, iterations } = await hashPassword(
     newPassword,
@@ -219,7 +215,7 @@ export async function updateStudentPassword(email: string, newPassword: string):
   );
   const now = Date.now();
 
-  const db = getD1();
+  const db = getDatabase();
   const [passwordUpdate] = await db.batch([
     db
       .prepare(

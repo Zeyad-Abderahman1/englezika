@@ -1,6 +1,5 @@
-import { ensureDatabase } from '../../../db/runtime';
 import { apiVerifiedUser, isResponse } from '../../lib/api-auth';
-import { getD1 } from '../../lib/platform';
+import { getDatabase } from '../../lib/platform';
 import { jsonError, requireSameOrigin, safeText } from '../../lib/security';
 
 export async function POST(request: Request) {
@@ -13,8 +12,7 @@ export async function POST(request: Request) {
   const paymentMethod = safeText(body.paymentMethod, 60);
   const paymentReference = safeText(body.paymentReference, 120);
   if (!courseId) return jsonError('اختر الكورس');
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
   const course = await db
     .prepare("SELECT id, price FROM courses WHERE id = ? AND status = 'published'")
     .bind(courseId)

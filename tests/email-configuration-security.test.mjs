@@ -33,16 +33,14 @@ test('production requires one complete transactional email provider', () => {
   );
 });
 
-test('local Vite bindings contain no email or verification credential fallbacks', async () => {
-  const viteConfig = await readFile(new URL('../vite.config.ts', import.meta.url), 'utf8');
+test('local server configuration contains no email or verification credential fallbacks', async () => {
+  const platform = await readFile(new URL('../app/lib/platform.ts', import.meta.url), 'utf8');
   const transactionalEmail = await readFile(
     new URL('../app/lib/email.ts', import.meta.url),
     'utf8'
   );
-  assert.doesNotMatch(viteConfig, /SERVERSMTP_CONSUMER_KEY:\s*process\.env/);
-  assert.doesNotMatch(viteConfig, /SERVERSMTP_CONSUMER_SECRET:\s*process\.env/);
-  assert.doesNotMatch(viteConfig, /englizeka-local-development-secret/);
-  assert.match(viteConfig, /loadEnv\(mode, process\.cwd\(\), ''\)/);
+  assert.doesNotMatch(platform, /englizeka-local-development-secret/);
+  assert.doesNotMatch(platform, /VERIFICATION_SECRET:\s*['"][^'"]+['"]/);
   assert.doesNotMatch(transactionalEmail, /unconfigured fallback/);
   assert.doesNotMatch(
     transactionalEmail,

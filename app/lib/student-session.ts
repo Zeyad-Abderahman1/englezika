@@ -1,7 +1,6 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { getPlatformEnv, getD1 } from './platform';
-import { ensureDatabase } from '../../db/runtime';
+import { getPlatformEnv, getDatabase } from './platform';
 
 export const STUDENT_SESSION_COOKIE = 'englizeka_student';
 export const STUDENT_SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -48,8 +47,7 @@ export async function createStudentSession(
   const expiresAt = now + STUDENT_SESSION_MAX_AGE_MS;
   const targetEmail = normalizedEmail(email);
 
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
   await db.batch([
     db.prepare('DELETE FROM native_sessions WHERE expires_at <= ?').bind(now),
     db
@@ -73,8 +71,7 @@ export async function createStudentSessionValue(email: string): Promise<string> 
 export async function deleteStudentSession(token: string): Promise<void> {
   if (!token) return;
   const tokenHash = await sha256(token);
-  await ensureDatabase();
-  await getD1().prepare('DELETE FROM native_sessions WHERE session_hash = ?').bind(tokenHash).run();
+  await getDatabase().prepare('DELETE FROM native_sessions WHERE session_hash = ?').bind(tokenHash).run();
 }
 
 export async function hasStudentSession(email: string): Promise<boolean> {
@@ -82,8 +79,7 @@ export async function hasStudentSession(email: string): Promise<boolean> {
   const token = jar.get(STUDENT_SESSION_COOKIE)?.value;
   if (!token || token.length < 16) return false;
   const tokenHash = await sha256(token);
-  await ensureDatabase();
-  const row = await getD1()
+  const row = await getDatabase()
     .prepare('SELECT email FROM native_sessions WHERE session_hash = ? AND expires_at > ?')
     .bind(tokenHash, Date.now())
     .first<{ email: string }>();
@@ -102,8 +98,7 @@ export async function requireStudentUser(returnTo = '/account'): Promise<{ email
   }
   try {
     const tokenHash = await sha256(token);
-    await ensureDatabase();
-    const row = await getD1()
+    const row = await getDatabase()
       .prepare('SELECT email FROM native_sessions WHERE session_hash = ? AND expires_at > ?')
       .bind(tokenHash, Date.now())
       .first<{ email: string }>();

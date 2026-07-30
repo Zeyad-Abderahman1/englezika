@@ -1,6 +1,8 @@
+import type { Database, PrivateStorage } from './platform';
+
 export async function deleteStudentAccountData(
-  db: D1Database,
-  bucket: R2Bucket,
+  db: Database,
+  bucket: PrivateStorage,
   email: string,
   now = Date.now()
 ): Promise<boolean> {

@@ -1,3 +1,5 @@
+import type { Database } from './platform';
+
 export type ExamSession = {
   id: string;
   startedAt: number;
@@ -8,7 +10,7 @@ export type ExamSession = {
 export type ExamSessionStart =
   { kind: 'ready'; session: ExamSession } | { kind: 'attempt_limit' } | { kind: 'busy' };
 
-async function loadSession(db: D1Database, examId: string, email: string) {
+async function loadSession(db: Database, examId: string, email: string) {
   return db
     .prepare(
       `SELECT id, started_at AS startedAt, expires_at AS expiresAt, status
@@ -18,7 +20,7 @@ async function loadSession(db: D1Database, examId: string, email: string) {
     .first<ExamSession>();
 }
 
-async function attemptCount(db: D1Database, examId: string, email: string): Promise<number> {
+async function attemptCount(db: Database, examId: string, email: string): Promise<number> {
   const row = await db
     .prepare('SELECT COUNT(*) AS count FROM attempts WHERE exam_id = ? AND user_email = ?')
     .bind(examId, email)
@@ -27,7 +29,7 @@ async function attemptCount(db: D1Database, examId: string, email: string): Prom
 }
 
 export async function startOrResumeExamSession(
-  db: D1Database,
+  db: Database,
   examId: string,
   email: string,
   durationMinutes: number,
@@ -94,7 +96,7 @@ export async function startOrResumeExamSession(
 }
 
 export async function claimExamSession(
-  db: D1Database,
+  db: Database,
   sessionId: string,
   examId: string,
   email: string,
@@ -111,7 +113,7 @@ export async function claimExamSession(
     .first<ExamSession>();
 }
 
-export async function releaseExamSessionClaim(db: D1Database, sessionId: string): Promise<void> {
+export async function releaseExamSessionClaim(db: Database, sessionId: string): Promise<void> {
   await db
     .prepare(
       `UPDATE exam_sessions SET status = 'active'

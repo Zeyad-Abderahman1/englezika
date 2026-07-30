@@ -3,8 +3,7 @@ import { isEmailVerified } from './email-verification';
 import { jsonError } from './security';
 import { cookies } from 'next/headers';
 import { STUDENT_SESSION_COOKIE, hasStudentSession } from './student-session';
-import { ensureDatabase } from '../../db/runtime';
-import { getD1 } from './platform';
+import { getDatabase } from './platform';
 
 export type SessionUser = {
   email: string;
@@ -38,8 +37,7 @@ async function getStudentEmailFromCookie(): Promise<string | null> {
   if (!cookieValue || cookieValue.length < 16) return null;
 
   const tokenHash = await sha256(cookieValue);
-  await ensureDatabase();
-  const row = await getD1()
+  const row = await getDatabase()
     .prepare('SELECT email FROM native_sessions WHERE session_hash = ? AND expires_at > ?')
     .bind(tokenHash, Date.now())
     .first<{ email: string }>();

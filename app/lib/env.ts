@@ -11,14 +11,12 @@ export function validatePlatformEnv(): EnvValidationResult {
   const env = getPlatformEnv();
   const errors: string[] = [];
 
-  // Validate database binding
-  if (!env.DB) {
-    errors.push("Cloudflare D1 database binding 'DB' is missing");
+  if (!process.env.DATABASE_URL?.trim()) {
+    errors.push("Required PostgreSQL connection string 'DATABASE_URL' is missing");
   }
 
-  // Validate R2 storage binding
-  if (!env.VIDEOS) {
-    errors.push("Cloudflare R2 storage binding 'VIDEOS' is missing");
+  if (!process.env.PRIVATE_STORAGE_DIR?.trim()) {
+    errors.push("Required private file directory 'PRIVATE_STORAGE_DIR' is missing");
   }
 
   // Validate session secret (SEC-03 & INFRA-04)

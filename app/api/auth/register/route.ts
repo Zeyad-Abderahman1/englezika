@@ -12,7 +12,7 @@ import {
 import { isStrongPassword, jsonError, requireSameOrigin, safeText } from '../../../lib/security';
 import { createStudentSession, studentSessionCookie } from '../../../lib/student-session';
 import { checkRateLimit, getClientIp, rateLimitResponse } from '../../../lib/rate-limit';
-import { getVideoBucket } from '../../../lib/platform';
+import { getPrivateStorage } from '../../../lib/platform';
 
 const EGYPTIAN_GOVERNORATES = [
   'القاهرة',
@@ -154,7 +154,7 @@ export async function POST(request: Request) {
 
   const ownerHash = await certificateOwnerHash(email);
   const certificateKey = `birth-certificates/${ownerHash}/${crypto.randomUUID()}.${extension}`;
-  const bucket = getVideoBucket();
+  const bucket = getPrivateStorage();
   await bucket.put(certificateKey, certificateBytes, {
     httpMetadata: { contentType: certificateType },
     customMetadata: {

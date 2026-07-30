@@ -1,5 +1,4 @@
-import { ensureDatabase } from '../../db/runtime';
-import { getD1, getPlatformEnv } from './platform';
+import { getDatabase, getPlatformEnv } from './platform';
 import nodemailer from 'nodemailer';
 import { emailTestModeEnabled } from './email-config';
 
@@ -50,8 +49,7 @@ export function isEmailTestMode(): boolean {
 }
 
 export async function isEmailVerified(email: string): Promise<boolean> {
-  await ensureDatabase();
-  const row = await getD1()
+  const row = await getDatabase()
     .prepare(
       `SELECT u.email_verified AS emailVerified, v.verified_at AS verifiedAt
        FROM users u LEFT JOIN email_verifications v ON v.email = u.email
@@ -63,8 +61,7 @@ export async function isEmailVerified(email: string): Promise<boolean> {
 }
 
 export async function loadEmailVerification(email: string): Promise<VerificationRow | null> {
-  await ensureDatabase();
-  return getD1()
+  return getDatabase()
     .prepare(
       `SELECT email, code_hash AS codeHash, expires_at AS expiresAt, attempts,
      sent_at AS sentAt, verified_at AS verifiedAt
@@ -79,8 +76,7 @@ export async function saveVerificationCode(
   codeHash: string,
   sentAt: number
 ): Promise<void> {
-  await ensureDatabase();
-  await getD1()
+  await getDatabase()
     .prepare(
       `INSERT INTO email_verifications
      (email, code_hash, expires_at, attempts, sent_at, verified_at, delivery_id)
@@ -91,7 +87,7 @@ export async function saveVerificationCode(
     )
     .bind(normalizedEmail(email), codeHash, sentAt + VERIFICATION_CODE_TTL_MS, sentAt)
     .run();
-  await getD1()
+  await getDatabase()
     .prepare(
       `UPDATE users SET email_verified = 0, verification_code = ?,
        verification_code_expires_at = ?, updated_at = ? WHERE email = ?`
@@ -101,14 +97,14 @@ export async function saveVerificationCode(
 }
 
 export async function releaseFailedDelivery(email: string, codeHash: string): Promise<void> {
-  await getD1()
+  await getDatabase()
     .prepare(
       `UPDATE email_verifications SET expires_at = 0, sent_at = 0
      WHERE email = ? AND code_hash = ? AND verified_at IS NULL`
     )
     .bind(normalizedEmail(email), codeHash)
     .run();
-  await getD1()
+  await getDatabase()
     .prepare(
       `UPDATE users SET verification_code = NULL, verification_code_expires_at = NULL
        WHERE email = ? AND verification_code = ?`
@@ -122,7 +118,7 @@ export async function recordDeliveryId(
   codeHash: string,
   deliveryId: string
 ): Promise<void> {
-  await getD1()
+  await getDatabase()
     .prepare('UPDATE email_verifications SET delivery_id = ? WHERE email = ? AND code_hash = ?')
     .bind(deliveryId, normalizedEmail(email), codeHash)
     .run();
@@ -141,7 +137,7 @@ export async function verifyStoredCode(
   const candidateHash = await hashVerificationCode(normalized, code);
   if (candidateHash !== row.codeHash) {
     const attempts = row.attempts + 1;
-    await getD1()
+    await getDatabase()
       .prepare(
         `UPDATE email_verifications SET attempts = ?,
        expires_at = CASE WHEN ? >= ? THEN 0 ELSE expires_at END
@@ -152,14 +148,14 @@ export async function verifyStoredCode(
     return attempts >= VERIFICATION_MAX_ATTEMPTS ? 'locked' : 'invalid';
   }
 
-  await getD1()
+  await getDatabase()
     .prepare(
       `UPDATE email_verifications SET verified_at = ?, code_hash = '', expires_at = 0
      WHERE email = ? AND code_hash = ?`
     )
     .bind(Date.now(), normalized, row.codeHash)
     .run();
-  await getD1()
+  await getDatabase()
     .prepare(
       `UPDATE users SET email_verified = 1, verification_code = NULL,
        verification_code_expires_at = NULL, updated_at = ? WHERE email = ?`

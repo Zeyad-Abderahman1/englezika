@@ -1,10 +1,25 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
+  poweredByHeader: false,
+  compress: true,
   images: {
-    // Vinext's local image optimizer can fail when the asset binding is not ready.
-    // Serve our already-optimized hero artwork directly instead.
+    // These assets are pre-compressed WebP files and are served directly.
     unoptimized: true,
+  },
+  async headers() {
+    return [
+      {
+        source: '/:asset(teacher-hero-v2.webp|og.webp)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+    ];
   },
   experimental: {
     serverActions: {

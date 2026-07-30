@@ -1,6 +1,5 @@
-import { ensureDatabase } from '../../db/runtime';
 import { createVerificationCode, sendVerificationEmail } from './email-verification';
-import { getD1, getPlatformEnv } from './platform';
+import { getDatabase, getPlatformEnv } from './platform';
 
 export const PASSWORD_RESET_CODE_TTL_MS = 10 * 60_000;
 export const PASSWORD_RESET_MAX_ATTEMPTS = 5;
@@ -36,8 +35,7 @@ export async function savePasswordResetCode(
   codeHash: string,
   sentAt: number
 ): Promise<void> {
-  await ensureDatabase();
-  await getD1()
+  await getDatabase()
     .prepare(
       `INSERT INTO password_reset_codes
        (email, code_hash, expires_at, attempts, sent_at, consumed_at, delivery_id)
@@ -55,7 +53,7 @@ export async function savePasswordResetCode(
 }
 
 export async function invalidatePasswordResetCode(email: string, codeHash: string): Promise<void> {
-  await getD1()
+  await getDatabase()
     .prepare(
       `UPDATE password_reset_codes SET expires_at = 0
        WHERE email = ? AND code_hash = ? AND consumed_at IS NULL`
@@ -69,7 +67,7 @@ export async function recordPasswordResetDelivery(
   codeHash: string,
   deliveryId: string
 ): Promise<void> {
-  await getD1()
+  await getDatabase()
     .prepare(
       `UPDATE password_reset_codes SET delivery_id = ?
        WHERE email = ? AND code_hash = ? AND consumed_at IS NULL`
@@ -91,8 +89,7 @@ export async function consumePasswordResetCode(
   code: string,
   now = Date.now()
 ): Promise<PasswordResetCodeResult> {
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
   const normalized = normalizedEmail(email);
   const candidateHash = await hashPasswordResetCode(normalized, code);
 

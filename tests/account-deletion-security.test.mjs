@@ -77,15 +77,18 @@ test('account removal deletes the birth certificate before anonymizing the stude
   assert.deepEqual(db.notificationReads, []);
 });
 
-test('R2 deletion failure leaves the account and sessions intact for a safe retry', async () => {
+test('private file deletion failure leaves the account and sessions intact for a safe retry', async () => {
   const db = new AccountDatabase();
   const bucket = {
     delete: async () => {
-      throw new Error('R2 unavailable');
+      throw new Error('Private storage unavailable');
     },
   };
 
-  await assert.rejects(() => deleteStudentAccountData(db, bucket, db.user.email), /R2 unavailable/);
+  await assert.rejects(
+    () => deleteStudentAccountData(db, bucket, db.user.email),
+    /Private storage unavailable/
+  );
   assert.equal(db.user.role, 'student');
   assert.equal(db.user.birthCertificateKey, 'birth-certificates/student/certificate.png');
   assert.deepEqual(db.sessions, ['session-1', 'session-2']);

@@ -1,6 +1,5 @@
 import { cookies } from 'next/headers';
-import { ensureDatabase } from '../../db/runtime';
-import { getD1 } from './platform';
+import { getDatabase } from './platform';
 import { jsonError } from './security';
 import {
   STAFF_PERMISSIONS,
@@ -15,7 +14,6 @@ export type { StaffPermission, StaffPreset };
 
 export const STAFF_COOKIE = 'englizeka_staff';
 export const STAFF_SESSION_MS = 12 * 60 * 60 * 1000;
-// Cloudflare Workers currently caps Web Crypto PBKDF2 at 100,000 iterations.
 export const PASSWORD_ITERATIONS = 100_000;
 
 export type StaffSession = {
@@ -111,9 +109,8 @@ export async function verifyStaffCredentials(
   emailInput: string,
   password: string
 ): Promise<StaffSession | null> {
-  await ensureDatabase();
   const email = emailInput.trim().toLowerCase();
-  const db = getD1();
+  const db = getDatabase();
   const row = await db
     .prepare(
       `SELECT email, name, role, permissions, password_hash AS passwordHash,
@@ -165,7 +162,7 @@ export async function createStaffSession(
   const tokenHash = await sha256(token);
   const now = Date.now();
   const expiresAt = now + STAFF_SESSION_MS;
-  const db = getD1();
+  const db = getDatabase();
   await db.batch([
     db.prepare('DELETE FROM staff_sessions WHERE expires_at <= ?').bind(now),
     db
@@ -191,10 +188,9 @@ export async function getCurrentStaff(request?: Request): Promise<StaffSession |
     ? tokenFromCookieHeader(request.headers.get('cookie'))
     : ((await cookies()).get(STAFF_COOKIE)?.value ?? null);
   if (!token) return null;
-  await ensureDatabase();
   const tokenHash = await sha256(token);
   const now = Date.now();
-  const row = await getD1()
+  const row = await getDatabase()
     .prepare(
       `SELECT s.expires_at AS expiresAt, u.email, u.name, u.role, u.permissions
      FROM staff_sessions s JOIN staff_users u ON u.email = s.staff_email
@@ -203,7 +199,7 @@ export async function getCurrentStaff(request?: Request): Promise<StaffSession |
     .bind(tokenHash, now)
     .first<{ expiresAt: number; email: string; name: string; role: string; permissions: string }>();
   if (!row) return null;
-  await getD1()
+  await getDatabase()
     .prepare('UPDATE staff_sessions SET last_seen = ? WHERE token_hash = ?')
     .bind(now, tokenHash)
     .run();
@@ -219,8 +215,7 @@ export async function getCurrentStaff(request?: Request): Promise<StaffSession |
 export async function deleteCurrentStaffSession(request: Request): Promise<void> {
   const token = tokenFromCookieHeader(request.headers.get('cookie'));
   if (!token) return;
-  await ensureDatabase();
-  await getD1()
+  await getDatabase()
     .prepare('DELETE FROM staff_sessions WHERE token_hash = ?')
     .bind(await sha256(token))
     .run();

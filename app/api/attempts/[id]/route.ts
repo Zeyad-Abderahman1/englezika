@@ -1,14 +1,12 @@
-import { ensureDatabase } from '../../../../db/runtime';
 import { apiVerifiedUser, isResponse } from '../../../lib/api-auth';
-import { getD1 } from '../../../lib/platform';
+import { getDatabase } from '../../../lib/platform';
 import { jsonError } from '../../../lib/security';
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await apiVerifiedUser();
   if (isResponse(user)) return user;
-  await ensureDatabase();
   const { id } = await params;
-  const db = getD1();
+  const db = getDatabase();
   const email = user.email.toLowerCase();
 
   // Fetch the attempt — only the owner can read it

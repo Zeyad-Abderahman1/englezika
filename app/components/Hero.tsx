@@ -74,7 +74,7 @@ export default function Hero() {
             </span>
             <div className="teacher-circle">
               <Image
-                src="/teacher-hero-v2.jpg"
+                src="/teacher-hero-v2.webp"
                 alt="مستر أحمد حسن"
                 fill
                 priority

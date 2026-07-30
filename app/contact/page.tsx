@@ -3,6 +3,7 @@ import { Mail, MessageCircle, Phone } from 'lucide-react';
 import ContactForm from '../components/ContactForm';
 
 export const metadata: Metadata = { title: 'تواصل معنا' };
+export const dynamic = 'force-static';
 
 export default function ContactPage() {
   return (

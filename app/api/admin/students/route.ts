@@ -1,13 +1,11 @@
-import { ensureDatabase } from '../../../../db/runtime';
 import { apiStaff, isStaffResponse } from '../../../lib/staff-auth';
-import { getD1 } from '../../../lib/platform';
+import { getDatabase } from '../../../lib/platform';
 import { safeInteger } from '../../../lib/security';
 
 export async function GET(request: Request) {
   const actor = await apiStaff(request, 'view_students');
   if (isStaffResponse(actor)) return actor;
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
   const url = new URL(request.url);
   const page = safeInteger(url.searchParams.get('page') ?? '1', 1, 1, 10_000);
   const limit = safeInteger(url.searchParams.get('limit') ?? '50', 50, 1, 200);

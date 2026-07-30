@@ -1,19 +1,15 @@
-import { ensureDatabase } from '../../../../db/runtime';
 import { apiStaff, isStaffResponse } from '../../../lib/staff-auth';
-import { getD1 } from '../../../lib/platform';
+import { getDatabase } from '../../../lib/platform';
+import { safeInteger } from '../../../lib/security';
 
 export async function GET(request: Request) {
   const admin = await apiStaff(request);
   if (isStaffResponse(admin)) return admin;
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
 
   const url = new URL(request.url);
-  const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
-  const pageSize = Math.min(
-    100,
-    Math.max(1, parseInt(url.searchParams.get('pageSize') || '50', 10))
-  );
+  const page = safeInteger(url.searchParams.get('page') ?? '1', 1, 1, 10_000);
+  const pageSize = safeInteger(url.searchParams.get('pageSize') ?? '50', 50, 1, 100);
   const offset = (page - 1) * pageSize;
 
   const [
@@ -29,12 +25,18 @@ export async function GET(request: Request) {
     totalEnrollments,
     totalAttempts,
     totalContacts,
+    totalCourses,
+    totalAssignments,
+    totalAnnouncements,
+    totalExams,
+    totalVideos,
   ] = await Promise.all([
     db
       .prepare(
         `SELECT id, title, grade, description, price, status, created_at AS createdAt
-       FROM courses ORDER BY created_at DESC`
+       FROM courses ORDER BY created_at DESC LIMIT ? OFFSET ?`
       )
+      .bind(pageSize, offset)
       .all(),
     db
       .prepare(
@@ -42,14 +44,16 @@ export async function GET(request: Request) {
        a.due_at AS dueAt, a.max_score AS maxScore, a.status,
        a.created_by AS createdBy, a.created_at AS createdAt, c.title AS courseTitle
        FROM assignments a JOIN courses c ON c.id = a.course_id
-       ORDER BY a.created_at DESC`
+       ORDER BY a.created_at DESC LIMIT ? OFFSET ?`
       )
+      .bind(pageSize, offset)
       .all(),
     db
       .prepare(
         `SELECT id, title, body, created_at AS createdAt
-         FROM announcements ORDER BY created_at DESC LIMIT 50`
+         FROM announcements ORDER BY created_at DESC LIMIT ? OFFSET ?`
       )
+      .bind(pageSize, offset)
       .all(),
     db
       .prepare(
@@ -59,8 +63,9 @@ export async function GET(request: Request) {
        c.title AS courseTitle, COUNT(q.id) AS questionCount, COALESCE(SUM(q.points), 0) AS maxScore
        FROM exams x LEFT JOIN courses c ON c.id = x.course_id
        LEFT JOIN questions q ON q.exam_id = x.id
-       GROUP BY x.id ORDER BY x.created_at DESC`
+       GROUP BY x.id, c.title ORDER BY x.created_at DESC LIMIT ? OFFSET ?`
       )
+      .bind(pageSize, offset)
       .all(),
     db
       .prepare(
@@ -91,8 +96,9 @@ export async function GET(request: Request) {
        c.title AS courseTitle, x.title AS prerequisiteExamTitle
        FROM videos v JOIN courses c ON c.id = v.course_id
        LEFT JOIN exams x ON x.id = v.prerequisite_exam_id
-       ORDER BY v.created_at DESC`
+       ORDER BY v.created_at DESC LIMIT ? OFFSET ?`
       )
+      .bind(pageSize, offset)
       .all(),
     db
       .prepare(
@@ -115,6 +121,11 @@ export async function GET(request: Request) {
     db.prepare('SELECT COUNT(*) AS total FROM enrollments').first<{ total: number }>(),
     db.prepare('SELECT COUNT(*) AS total FROM attempts').first<{ total: number }>(),
     db.prepare('SELECT COUNT(*) AS total FROM contacts').first<{ total: number }>(),
+    db.prepare('SELECT COUNT(*) AS total FROM courses').first<{ total: number }>(),
+    db.prepare('SELECT COUNT(*) AS total FROM assignments').first<{ total: number }>(),
+    db.prepare('SELECT COUNT(*) AS total FROM announcements').first<{ total: number }>(),
+    db.prepare('SELECT COUNT(*) AS total FROM exams').first<{ total: number }>(),
+    db.prepare('SELECT COUNT(*) AS total FROM videos').first<{ total: number }>(),
   ]);
 
   const can = (permission: string) =>
@@ -164,8 +175,13 @@ export async function GET(request: Request) {
     videos: can('manage_videos') ? videos.results : [],
     contacts: can('manage_messages') ? contacts.results : [],
     pagination: {
+      courses: makePagination(totalCourses?.total || 0),
+      assignments: makePagination(totalAssignments?.total || 0),
+      announcements: makePagination(totalAnnouncements?.total || 0),
+      exams: makePagination(totalExams?.total || 0),
       enrollments: makePagination(totalEnrollments?.total || 0),
       attempts: makePagination(totalAttempts?.total || 0),
+      videos: makePagination(totalVideos?.total || 0),
       contacts: makePagination(totalContacts?.total || 0),
     },
   });

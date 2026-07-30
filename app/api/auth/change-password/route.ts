@@ -1,8 +1,7 @@
-import { ensureDatabase } from '../../../../db/runtime';
 import { apiUser, isResponse } from '../../../lib/api-auth';
 import { verifyStudentPassword, STUDENT_PASSWORD_ITERATIONS } from '../../../lib/native-auth';
 import { hashPassword } from '../../../lib/staff-auth';
-import { getD1 } from '../../../lib/platform';
+import { getDatabase } from '../../../lib/platform';
 import { isStrongPassword, jsonError, requireSameOrigin } from '../../../lib/security';
 import { STUDENT_SESSION_COOKIE } from '../../../lib/student-session';
 import { cookies } from 'next/headers';
@@ -37,8 +36,7 @@ export async function POST(request: Request) {
     STUDENT_PASSWORD_ITERATIONS
   );
   const now = Date.now();
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
 
   // Get current session hash to preserve it (so the user stays logged in)
   const jar = await cookies();

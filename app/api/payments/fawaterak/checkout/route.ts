@@ -1,8 +1,7 @@
-import { ensureDatabase } from '@/db/runtime';
 import { apiVerifiedUser, isResponse } from '@/app/lib/api-auth';
 import { createFawaterakTransaction } from '@/app/lib/fawaterak';
 import { resolvePublicAppOrigin } from '@/app/lib/fawaterak-validation';
-import { getD1, getPlatformEnv } from '@/app/lib/platform';
+import { getDatabase, getPlatformEnv } from '@/app/lib/platform';
 import { checkRateLimit, rateLimitResponse } from '@/app/lib/rate-limit';
 import { jsonError, requireSameOrigin, safeText } from '@/app/lib/security';
 
@@ -28,8 +27,7 @@ export async function POST(request: Request) {
   const courseId = safeText(body.courseId, 80);
   if (!courseId) return jsonError('اختر الكورس أولاً');
 
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
   const course = await db
     .prepare("SELECT id, title, price FROM courses WHERE id = ? AND status = 'published'")
     .bind(courseId)

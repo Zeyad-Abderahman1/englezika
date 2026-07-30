@@ -1,16 +1,15 @@
-import { ensureDatabase } from '../../../../../db/runtime';
 import { apiStaff, isStaffResponse } from '../../../../lib/staff-auth';
-import { getD1, getVideoBucket } from '../../../../lib/platform';
+import { getDatabase } from '../../../../lib/platform';
 import { jsonError, requireSameOrigin, safeInteger, safeText } from '../../../../lib/security';
+import { invalidatePublicCourseCache } from '../../../../lib/public-course-cache';
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
   const admin = await apiStaff(request, 'manage_videos');
   if (isStaffResponse(admin)) return admin;
-  await ensureDatabase();
   const { id } = await params;
-  const db = getD1();
+  const db = getDatabase();
   const existing = await db
     .prepare(
       `SELECT id, course_id AS courseId, prerequisite_exam_id AS prerequisiteExamId,
@@ -50,6 +49,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     )
     .bind(title, prerequisiteExamId, minimumScore, status, id)
     .run();
+  invalidatePublicCourseCache();
   return Response.json({ ok: true });
 }
 
@@ -58,17 +58,11 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (originError) return originError;
   const admin = await apiStaff(request, 'manage_videos');
   if (isStaffResponse(admin)) return admin;
-  await ensureDatabase();
   const { id } = await params;
-  const db = getD1();
-  const video = await db
-    .prepare('SELECT r2_key AS r2Key, source_type AS sourceType FROM videos WHERE id = ?')
-    .bind(id)
-    .first<{ r2Key: string; sourceType: string }>();
+  const db = getDatabase();
+  const video = await db.prepare('SELECT id FROM videos WHERE id = ?').bind(id).first();
   if (!video) return jsonError('الفيديو غير موجود', 404);
-  if (video.sourceType === 'upload' && video.r2Key) {
-    await getVideoBucket().delete(video.r2Key);
-  }
   await db.prepare('DELETE FROM videos WHERE id = ?').bind(id).run();
+  invalidatePublicCourseCache();
   return Response.json({ ok: true });
 }

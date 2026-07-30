@@ -1,8 +1,7 @@
-import { ensureDatabase } from '@/db/runtime';
 import { recordAuditLog } from '@/app/lib/audit';
 import { amountToMinorUnits } from '@/app/lib/fawaterak-crypto';
 import { verifyFawaterakWebhook } from '@/app/lib/fawaterak';
-import { getD1 } from '@/app/lib/platform';
+import { getDatabase } from '@/app/lib/platform';
 import { safeText } from '@/app/lib/security';
 
 type PaymentIntentRow = {
@@ -45,8 +44,7 @@ export async function POST(request: Request) {
   }
   if (!verified) return Response.json({ error: 'invalid_signature' }, { status: 401 });
 
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
   const paymentIntent = await db
     .prepare(
       `SELECT id, enrollment_id AS enrollmentId, user_email AS userEmail,

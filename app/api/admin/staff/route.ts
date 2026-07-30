@@ -1,4 +1,3 @@
-import { ensureDatabase } from '../../../../db/runtime';
 import {
   apiStaff,
   hashPassword,
@@ -6,14 +5,13 @@ import {
   normalizeStaffPreset,
   STAFF_PRESETS,
 } from '../../../lib/staff-auth';
-import { getD1 } from '../../../lib/platform';
+import { getDatabase } from '../../../lib/platform';
 import { isStrongPassword, jsonError, requireSameOrigin, safeText } from '../../../lib/security';
 
 export async function GET(request: Request) {
   const actor = await apiStaff(request, 'manage_staff');
   if (isStaffResponse(actor)) return actor;
-  await ensureDatabase();
-  const result = await getD1()
+  const result = await getDatabase()
     .prepare(
       `SELECT email, name, role, permissions, active, locked_until AS lockedUntil,
      created_at AS createdAt, updated_at AS updatedAt
@@ -43,11 +41,10 @@ export async function POST(request: Request) {
   if (!isStrongPassword(password)) {
     return jsonError('كلمة المرور يجب أن تحتوي على 12 حرفاً على الأقل وحرف كبير وصغير ورقم ورمز');
   }
-  await ensureDatabase();
   const credentials = await hashPassword(password);
   const now = Date.now();
   try {
-    await getD1()
+    await getDatabase()
       .prepare(
         `INSERT INTO staff_users
        (email, name, role, permissions, password_hash, password_salt, password_iterations,

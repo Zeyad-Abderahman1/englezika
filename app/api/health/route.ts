@@ -1,4 +1,4 @@
-import { getD1, getVideoBucket } from '../../lib/platform';
+import { getDatabase, getPrivateStorage } from '../../lib/platform';
 
 const START_TIME = Date.now();
 
@@ -8,7 +8,7 @@ export async function GET() {
   let healthy = true;
 
   try {
-    const db = getD1();
+    const db = getDatabase();
     await db.prepare('SELECT 1').first();
     dbStatus = 'healthy';
   } catch {
@@ -17,7 +17,7 @@ export async function GET() {
   }
 
   try {
-    const videos = getVideoBucket();
+    const videos = getPrivateStorage();
     if (videos) storageStatus = 'healthy';
   } catch {
     storageStatus = 'unhealthy';

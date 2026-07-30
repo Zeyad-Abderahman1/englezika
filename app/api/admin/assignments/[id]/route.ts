@@ -1,6 +1,5 @@
-import { ensureDatabase } from '../../../../../db/runtime';
 import { apiStaff, isStaffResponse } from '../../../../lib/staff-auth';
-import { getD1 } from '../../../../lib/platform';
+import { getDatabase } from '../../../../lib/platform';
 import { jsonError, requireSameOrigin, safeInteger, safeText } from '../../../../lib/security';
 
 function optionalTimestamp(value: unknown): number | null | undefined {
@@ -18,8 +17,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const { id } = await params;
 
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
   const existing = await db
     .prepare(
       `SELECT course_id AS courseId, title, description, due_at AS dueAt,
@@ -67,8 +65,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const staff = await apiStaff(request, 'manage_assignments');
   if (isStaffResponse(staff)) return staff;
   const { id } = await params;
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
   const existing = await db.prepare('SELECT id FROM assignments WHERE id = ?').bind(id).first();
   if (!existing) return jsonError('الواجب غير موجود', 404);
   await db.batch([

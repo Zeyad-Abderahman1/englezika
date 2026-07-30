@@ -12,7 +12,6 @@
  *  - Returns 204 No Content on success.
  */
 
-import { ensureDatabase } from '../../../../../db/runtime';
 import {
   apiStaff,
   hashPassword,
@@ -20,7 +19,7 @@ import {
   normalizeStaffPreset,
   STAFF_PRESETS,
 } from '../../../../lib/staff-auth';
-import { getD1 } from '../../../../lib/platform';
+import { getDatabase } from '../../../../lib/platform';
 import { isStrongPassword, jsonError, requireSameOrigin, safeText } from '../../../../lib/security';
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ email: string }> }) {
@@ -38,8 +37,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ em
   const role = body.role === 'teacher' ? 'teacher' : 'assistant';
   const active = body.active ? 1 : 0;
 
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
 
   const now = Date.now();
 
@@ -96,8 +94,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ e
     return jsonError('لا يمكنك حذف حسابك الخاص', 403);
   }
 
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
 
   const existing = await db
     .prepare('SELECT email FROM staff_users WHERE email = ?')

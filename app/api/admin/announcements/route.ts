@@ -1,6 +1,5 @@
-import { ensureDatabase } from '../../../../db/runtime';
 import { apiStaff, isStaffResponse } from '../../../lib/staff-auth';
-import { getD1 } from '../../../lib/platform';
+import { getDatabase } from '../../../lib/platform';
 import { jsonError, requireSameOrigin, safeText } from '../../../lib/security';
 
 export async function POST(request: Request) {
@@ -12,9 +11,8 @@ export async function POST(request: Request) {
   const title = safeText(body.title, 150);
   const content = safeText(body.body, 2000);
   if (title.length < 3 || content.length < 3) return jsonError('عنوان الإعلان ومحتواه مطلوبان');
-  await ensureDatabase();
   const id = crypto.randomUUID();
-  await getD1()
+  await getDatabase()
     .prepare(
       "INSERT INTO announcements (id, title, body, status, created_at) VALUES (?, ?, ?, 'published', ?)"
     )

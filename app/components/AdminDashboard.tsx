@@ -10,7 +10,7 @@
  * shared prompt modal.
  */
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
 import {
   BarChart3,
   BookOpen,
@@ -156,6 +156,14 @@ type StaffAccount = {
   active: number;
   lockedUntil?: number;
 };
+type Pagination = {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrevious: boolean;
+};
 type AdminData = {
   admin: { email: string; name: string; role: string; permissions: Permission[] };
   counts: {
@@ -175,6 +183,16 @@ type AdminData = {
   videos: Video[];
   contacts: Contact[];
   announcements: Announcement[];
+  pagination: {
+    courses: Pagination;
+    assignments: Pagination;
+    announcements: Pagination;
+    exams: Pagination;
+    enrollments: Pagination;
+    attempts: Pagination;
+    videos: Pagination;
+    contacts: Pagination;
+  };
 };
 type Tab =
   | 'overview'
@@ -259,11 +277,11 @@ export default function AdminDashboard() {
   const [data, setData] = useState<AdminData | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
   const [selectedCourseId, setSelectedCourseId] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [questions, setQuestions] = useState<QuestionDraft[]>([emptyQuestion()]);
-  const [uploadProgressPct, setUploadProgressPct] = useState<number | null>(null);
   const [uploadDone, setUploadDone] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [promptModal, setPromptModal] = useState<PromptState>({
@@ -272,7 +290,6 @@ export default function AdminDashboard() {
     fields: [],
     onSubmit: () => {},
   });
-  const xhrRef = useRef<XMLHttpRequest | null>(null);
 
   const [light, setLight] = useState(false);
 
@@ -294,11 +311,14 @@ export default function AdminDashboard() {
     window.localStorage.setItem('englizeka-theme', nextTheme ? 'light' : 'dark');
   };
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (pageNumber = 1) => {
     setError('');
     try {
+      setCurrentPage(pageNumber);
       setData(
-        (await apiRequest('/api/admin/bootstrap', { cache: 'no-store' })) as unknown as AdminData
+        (await apiRequest(`/api/admin/bootstrap?page=${pageNumber}&pageSize=50`, {
+          cache: 'no-store',
+        })) as unknown as AdminData
       );
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'تعذر تحميل لوحة الإدارة');
@@ -318,7 +338,7 @@ export default function AdminDashboard() {
     try {
       await action();
       setNotice(success);
-      await load();
+      await load(currentPage);
     } catch (mutationError) {
       setError(mutationError instanceof Error ? mutationError.message : 'تعذر تنفيذ العملية');
     } finally {
@@ -348,6 +368,16 @@ export default function AdminDashboard() {
 
   const can = (permission: Permission) => data.admin.permissions.includes(permission);
   const availableTabs = tabs.filter((item) => !item.permission || can(item.permission));
+  const paginationKey: Partial<Record<Tab, keyof AdminData['pagination']>> = {
+    courses: 'courses',
+    exams: 'exams',
+    assignments: 'assignments',
+    videos: 'videos',
+    enrollments: 'enrollments',
+    results: 'attempts',
+    messages: 'contacts',
+  };
+  const activePagination = paginationKey[tab] ? data.pagination[paginationKey[tab]] : null;
 
   return (
     <div className="admin-layout">
@@ -429,7 +459,7 @@ export default function AdminDashboard() {
                 <Sun size={17} />
               </span>
             </button>
-            <button className="btn btn-ghost" onClick={() => void load()}>
+            <button className="btn btn-ghost" onClick={() => void load(currentPage)}>
               <RefreshCw /> تحديث
             </button>
           </div>
@@ -443,6 +473,27 @@ export default function AdminDashboard() {
         {error && (
           <div className="error-toast">
             <X /> {error}
+          </div>
+        )}
+        {activePagination && activePagination.totalPages > 1 && (
+          <div className="admin-pagination" aria-label="التنقل بين الصفحات">
+            <button
+              className="btn btn-ghost"
+              disabled={!activePagination.hasPrevious || busy}
+              onClick={() => void load(activePagination.page - 1)}
+            >
+              السابق
+            </button>
+            <span>
+              صفحة {activePagination.page} من {activePagination.totalPages}
+            </span>
+            <button
+              className="btn btn-ghost"
+              disabled={!activePagination.hasNext || busy}
+              onClick={() => void load(activePagination.page + 1)}
+            >
+              التالي
+            </button>
           </div>
         )}
 
@@ -790,8 +841,8 @@ export default function AdminDashboard() {
               <div className="panel-title">
                 <Upload />
                 <div>
-                  <h2>رفع فيديو آمن</h2>
-                  <p>الفيديو يُحفظ في مساحة خاصة ولا يظهر إلا للمشتركين</p>
+                  <h2>إضافة محاضرة من YouTube</h2>
+                  <p>أضف رابط فيديو غير مدرج على YouTube ليظهر للطلاب المشتركين فقط داخل المنصة</p>
                 </div>
               </div>
               <VideoUploader
@@ -801,13 +852,10 @@ export default function AdminDashboard() {
                 exams={data.exams}
                 videos={data.videos}
                 busy={busy}
-                progressPct={uploadProgressPct}
                 uploadDone={uploadDone}
-                xhrRef={xhrRef}
-                onProgressPct={setUploadProgressPct}
                 onUploadDone={setUploadDone}
                 onDone={async () => {
-                  setNotice('تم رفع المحاضرة وتأمينها');
+                  setNotice('تم حفظ رابط المحاضرة بنجاح');
                   await load();
                 }}
                 onError={setError}
@@ -1378,7 +1426,7 @@ function ExamBuilder({
   );
 }
 
-// ─── VideoUploader (with XHR progress) ───────────────────────────────────────
+// ─── YouTube lesson uploader ─────────────────────────────────────────────────
 
 function VideoUploader({
   courses,
@@ -1386,10 +1434,7 @@ function VideoUploader({
   exams,
   videos,
   busy,
-  progressPct,
   uploadDone,
-  xhrRef,
-  onProgressPct,
   onUploadDone,
   onDone,
   onError,
@@ -1399,16 +1444,12 @@ function VideoUploader({
   exams: Exam[];
   videos: Video[];
   busy: boolean;
-  progressPct: number | null;
   uploadDone: string;
-  xhrRef: React.MutableRefObject<XMLHttpRequest | null>;
-  onProgressPct: (v: number | null) => void;
   onUploadDone: (v: string) => void;
   onDone: () => Promise<void>;
   onError: (v: string) => void;
 }) {
   const [courseId, setCourseId] = useState(defaultCourseId || '');
-  const [sourceMode, setSourceMode] = useState<'youtube' | 'upload'>('youtube');
   const [linkBusy, setLinkBusy] = useState(false);
   const courseHasLessons = videos.some((video) => video.courseId === courseId);
 
@@ -1416,112 +1457,35 @@ function VideoUploader({
     event.preventDefault();
     const form = event.currentTarget;
     const fd = new FormData(form);
-    if (sourceMode === 'youtube') {
-      onError('');
-      onUploadDone('');
-      setLinkBusy(true);
-      try {
-        await apiRequest('/api/admin/videos', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            courseId: fd.get('courseId'),
-            title: fd.get('title'),
-            durationSeconds: fd.get('durationSeconds'),
-            youtubeUrl: fd.get('youtubeUrl'),
-            prerequisiteExamId: fd.get('prerequisiteExamId'),
-            minimumScore: fd.get('minimumScore'),
-          }),
-        });
-        onUploadDone(String(fd.get('title') || 'فيديو YouTube'));
-        form.reset();
-        setCourseId(defaultCourseId || '');
-        await onDone();
-      } catch (uploadError) {
-        onError(uploadError instanceof Error ? uploadError.message : 'تعذر حفظ رابط YouTube');
-      } finally {
-        setLinkBusy(false);
-      }
-      return;
-    }
-
-    const file = fd.get('video');
-    if (!(file instanceof File)) return;
-
     onError('');
     onUploadDone('');
-    onProgressPct(0);
-
-    const xhr = new XMLHttpRequest();
-    xhrRef.current = xhr;
-
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) {
-        onProgressPct(Math.round((e.loaded / e.total) * 100));
-      }
-    };
-
-    xhr.onload = async () => {
-      xhrRef.current = null;
-      onProgressPct(null);
-      if (xhr.status >= 200 && xhr.status < 300) {
-        const fileName = (file as File).name;
-        onUploadDone(fileName);
-        form.reset();
-        setCourseId(defaultCourseId || '');
-        await onDone();
-      } else {
-        let errMsg = 'تعذر رفع الفيديو';
-        try {
-          errMsg = (JSON.parse(xhr.responseText) as { error?: string }).error || errMsg;
-        } catch {
-          /* ignore */
-        }
-        onError(errMsg);
-      }
-    };
-
-    xhr.onerror = () => {
-      xhrRef.current = null;
-      onProgressPct(null);
-      onError('تعذر الاتصال بالخادم أثناء رفع الفيديو');
-    };
-
-    xhr.open('POST', '/api/admin/videos');
-    xhr.setRequestHeader('content-type', file.type);
-    xhr.setRequestHeader('x-course-id', String(fd.get('courseId') || ''));
-    xhr.setRequestHeader('x-video-title', encodeURIComponent(String(fd.get('title') || '')));
-    xhr.setRequestHeader('x-video-duration', String(fd.get('durationSeconds') || '0'));
-    xhr.setRequestHeader('x-prerequisite-exam-id', String(fd.get('prerequisiteExamId') || ''));
-    xhr.setRequestHeader('x-minimum-score', String(fd.get('minimumScore') || '0'));
-    xhr.send(file);
-  };
-
-  const cancelUpload = () => {
-    xhrRef.current?.abort();
-    xhrRef.current = null;
-    onProgressPct(null);
-    onError('تم إلغاء الرفع');
+    setLinkBusy(true);
+    try {
+      await apiRequest('/api/admin/videos', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          courseId: fd.get('courseId'),
+          title: fd.get('title'),
+          durationSeconds: fd.get('durationSeconds'),
+          youtubeUrl: fd.get('youtubeUrl'),
+          prerequisiteExamId: fd.get('prerequisiteExamId'),
+          minimumScore: fd.get('minimumScore'),
+        }),
+      });
+      onUploadDone(String(fd.get('title') || 'فيديو YouTube'));
+      form.reset();
+      setCourseId(defaultCourseId || '');
+      await onDone();
+    } catch (saveError) {
+      onError(saveError instanceof Error ? saveError.message : 'تعذر حفظ رابط YouTube');
+    } finally {
+      setLinkBusy(false);
+    }
   };
 
   return (
     <form className="stack-form" onSubmit={submit}>
-      <div className="video-source-switch" role="group" aria-label="مصدر الفيديو">
-        <button
-          type="button"
-          className={sourceMode === 'youtube' ? 'active' : ''}
-          onClick={() => setSourceMode('youtube')}
-        >
-          رابط YouTube
-        </button>
-        <button
-          type="button"
-          className={sourceMode === 'upload' ? 'active' : ''}
-          onClick={() => setSourceMode('upload')}
-        >
-          رفع ملف
-        </button>
-      </div>
       <label>
         الكورس
         <select
@@ -1568,57 +1532,31 @@ function VideoUploader({
         الحد الأدنى لاجتياز الاختبار (%)
         <input name="minimumScore" type="number" min="0" max="100" defaultValue="0" />
       </label>
-      {sourceMode === 'youtube' ? (
-        <label>
-          رابط الفيديو على YouTube
-          <input
-            name="youtubeUrl"
-            type="url"
-            dir="ltr"
-            placeholder="https://youtu.be/..."
-            required
-          />
-          <small className="youtube-unlisted-note">
-            ارفع الفيديو على YouTube كـ «غير مدرج / Unlisted» ثم الصق الرابط هنا. الفيديو الخاص
-            Private لن يعمل للطلاب إلا عند دعوتهم بحساباتهم على Google.
-          </small>
-        </label>
-      ) : (
-        <label className="file-drop">
-          <Upload />
-          <strong>اختر ملف MP4 أو WebM</strong>
-          <small>يُحفظ في مساحة خاصة ويُبث للمشتركين فقط</small>
-          <input name="video" type="file" accept="video/mp4,video/webm" required />
-        </label>
-      )}
-
-      {/* ── Progress bar ─────────────────────────────────────────────────────── */}
-      {progressPct !== null && (
-        <div className="upload-progress-wrap">
-          <div className="upload-progress-bar" style={{ width: `${progressPct}%` }} />
-          <span className="upload-progress-label">{progressPct}% مرفوع</span>
-          <button type="button" className="btn btn-ghost upload-cancel-btn" onClick={cancelUpload}>
-            <X size={14} /> إلغاء
-          </button>
-        </div>
-      )}
+      <label>
+        رابط الفيديو على YouTube
+        <input
+          name="youtubeUrl"
+          type="url"
+          dir="ltr"
+          placeholder="https://youtu.be/..."
+          required
+        />
+        <small className="youtube-unlisted-note">
+          ارفع الفيديو على YouTube كـ «غير مدرج / Unlisted» ثم الصق الرابط هنا. الفيديو الخاص
+          Private لن يعمل للطلاب إلا عند دعوتهم بحساباتهم على Google.
+        </small>
+      </label>
 
       {/* ── Success indicator ─────────────────────────────────────────────────── */}
       {uploadDone && (
         <div className="success-toast" style={{ marginTop: '0.5rem' }}>
-          <Check size={14} /> تم رفع: {uploadDone}
+          <Check size={14} /> تمت الإضافة: {uploadDone}
         </div>
       )}
 
-      <button className="btn btn-primary" disabled={busy || linkBusy || progressPct !== null}>
+      <button className="btn btn-primary" disabled={busy || linkBusy}>
         <Upload />{' '}
-        {progressPct !== null
-          ? `جاري الرفع... ${progressPct}%`
-          : linkBusy
-            ? 'جاري حفظ الرابط...'
-            : sourceMode === 'youtube'
-              ? 'حفظ رابط YouTube'
-              : 'رفع وتأمين الفيديو'}
+        {linkBusy ? 'جاري حفظ الرابط...' : 'حفظ رابط YouTube'}
       </button>
     </form>
   );

@@ -1,6 +1,15 @@
+import {
+  Database,
+  getDatabase as getPostgresDatabase,
+  type Database as DatabaseType,
+} from './database';
+import {
+  PrivateStorage,
+  getPrivateStorage as getDiskStorage,
+  type PrivateStoredObject,
+} from './private-storage';
+
 export type PlatformEnv = {
-  DB?: D1Database;
-  VIDEOS?: R2Bucket;
   GMAIL_USER?: string;
   GMAIL_APP_PASSWORD?: string;
   SERVERSMTP_CONSUMER_KEY?: string;
@@ -24,58 +33,60 @@ export type PlatformEnv = {
   APP_URL?: string;
 };
 
-let cachedPlatformEnv: PlatformEnv | null = null;
+type TestPlatform = PlatformEnv & {
+  DB?: DatabaseType;
+  STORAGE?: PrivateStorage;
+};
+
+function injectedTestPlatform(): TestPlatform | undefined {
+  return (globalThis as typeof globalThis & { __ENGLIZEKA_ENV__?: TestPlatform })
+    .__ENGLIZEKA_ENV__;
+}
 
 export function getPlatformEnv(): PlatformEnv {
-  const globalObject = globalThis as typeof globalThis & { __ENGLIZEKA_ENV__?: PlatformEnv };
-  if (globalObject.__ENGLIZEKA_ENV__?.DB) {
-    cachedPlatformEnv = globalObject.__ENGLIZEKA_ENV__;
-  }
-  const currentEnv = globalObject.__ENGLIZEKA_ENV__ || cachedPlatformEnv || {};
+  const injected = injectedTestPlatform();
   return {
-    ...currentEnv,
-    VERIFICATION_SECRET: currentEnv.VERIFICATION_SECRET || process.env.VERIFICATION_SECRET,
-    VIDEO_RESOLVE_SECRET: currentEnv.VIDEO_RESOLVE_SECRET || process.env.VIDEO_RESOLVE_SECRET,
-    GMAIL_USER: currentEnv.GMAIL_USER || process.env.GMAIL_USER,
-    GMAIL_APP_PASSWORD: currentEnv.GMAIL_APP_PASSWORD || process.env.GMAIL_APP_PASSWORD,
+    VERIFICATION_SECRET: injected?.VERIFICATION_SECRET ?? process.env.VERIFICATION_SECRET,
+    VIDEO_RESOLVE_SECRET: injected?.VIDEO_RESOLVE_SECRET ?? process.env.VIDEO_RESOLVE_SECRET,
+    GMAIL_USER: injected?.GMAIL_USER ?? process.env.GMAIL_USER,
+    GMAIL_APP_PASSWORD: injected?.GMAIL_APP_PASSWORD ?? process.env.GMAIL_APP_PASSWORD,
     SERVERSMTP_CONSUMER_KEY:
-      currentEnv.SERVERSMTP_CONSUMER_KEY || process.env.SERVERSMTP_CONSUMER_KEY,
+      injected?.SERVERSMTP_CONSUMER_KEY ?? process.env.SERVERSMTP_CONSUMER_KEY,
     SERVERSMTP_CONSUMER_SECRET:
-      currentEnv.SERVERSMTP_CONSUMER_SECRET || process.env.SERVERSMTP_CONSUMER_SECRET,
+      injected?.SERVERSMTP_CONSUMER_SECRET ?? process.env.SERVERSMTP_CONSUMER_SECRET,
     TURBO_SMTP_CONSUMER_KEY:
-      currentEnv.TURBO_SMTP_CONSUMER_KEY || process.env.TURBO_SMTP_CONSUMER_KEY,
+      injected?.TURBO_SMTP_CONSUMER_KEY ?? process.env.TURBO_SMTP_CONSUMER_KEY,
     TURBO_SMTP_CONSUMER_SECRET:
-      currentEnv.TURBO_SMTP_CONSUMER_SECRET || process.env.TURBO_SMTP_CONSUMER_SECRET,
-    RESEND_API_KEY: currentEnv.RESEND_API_KEY || process.env.RESEND_API_KEY,
-    EMAIL_FROM: currentEnv.EMAIL_FROM || process.env.EMAIL_FROM,
-    EMAIL_TEST_MODE: currentEnv.EMAIL_TEST_MODE || process.env.EMAIL_TEST_MODE,
-    INITIAL_STAFF_EMAIL: currentEnv.INITIAL_STAFF_EMAIL || process.env.INITIAL_STAFF_EMAIL,
-    INITIAL_STAFF_NAME: currentEnv.INITIAL_STAFF_NAME || process.env.INITIAL_STAFF_NAME,
+      injected?.TURBO_SMTP_CONSUMER_SECRET ?? process.env.TURBO_SMTP_CONSUMER_SECRET,
+    RESEND_API_KEY: injected?.RESEND_API_KEY ?? process.env.RESEND_API_KEY,
+    EMAIL_FROM: injected?.EMAIL_FROM ?? process.env.EMAIL_FROM,
+    EMAIL_TEST_MODE: injected?.EMAIL_TEST_MODE ?? process.env.EMAIL_TEST_MODE,
+    INITIAL_STAFF_EMAIL: injected?.INITIAL_STAFF_EMAIL ?? process.env.INITIAL_STAFF_EMAIL,
+    INITIAL_STAFF_NAME: injected?.INITIAL_STAFF_NAME ?? process.env.INITIAL_STAFF_NAME,
     INITIAL_STAFF_PASSWORD_HASH:
-      currentEnv.INITIAL_STAFF_PASSWORD_HASH || process.env.INITIAL_STAFF_PASSWORD_HASH,
+      injected?.INITIAL_STAFF_PASSWORD_HASH ?? process.env.INITIAL_STAFF_PASSWORD_HASH,
     INITIAL_STAFF_PASSWORD_SALT:
-      currentEnv.INITIAL_STAFF_PASSWORD_SALT || process.env.INITIAL_STAFF_PASSWORD_SALT,
+      injected?.INITIAL_STAFF_PASSWORD_SALT ?? process.env.INITIAL_STAFF_PASSWORD_SALT,
     INITIAL_STAFF_PASSWORD_ITERATIONS:
-      currentEnv.INITIAL_STAFF_PASSWORD_ITERATIONS || process.env.INITIAL_STAFF_PASSWORD_ITERATIONS,
+      injected?.INITIAL_STAFF_PASSWORD_ITERATIONS ??
+      process.env.INITIAL_STAFF_PASSWORD_ITERATIONS,
     FAWATERAK_BASE_URL:
-      currentEnv.FAWATERAK_BASE_URL || process.env.FAWATERAK_BASE_URL || 'https://app.fawaterk.com',
-    FAWATERAK_CLIENT_ID: currentEnv.FAWATERAK_CLIENT_ID || process.env.FAWATERAK_CLIENT_ID,
+      injected?.FAWATERAK_BASE_URL ?? process.env.FAWATERAK_BASE_URL ?? 'https://app.fawaterk.com',
+    FAWATERAK_CLIENT_ID: injected?.FAWATERAK_CLIENT_ID ?? process.env.FAWATERAK_CLIENT_ID,
     FAWATERAK_CLIENT_SECRET:
-      currentEnv.FAWATERAK_CLIENT_SECRET || process.env.FAWATERAK_CLIENT_SECRET,
+      injected?.FAWATERAK_CLIENT_SECRET ?? process.env.FAWATERAK_CLIENT_SECRET,
     FAWATERAK_VENDOR_API_KEY:
-      currentEnv.FAWATERAK_VENDOR_API_KEY || process.env.FAWATERAK_VENDOR_API_KEY,
-    APP_URL: currentEnv.APP_URL || process.env.APP_URL,
+      injected?.FAWATERAK_VENDOR_API_KEY ?? process.env.FAWATERAK_VENDOR_API_KEY,
+    APP_URL: injected?.APP_URL ?? process.env.APP_URL,
   };
 }
 
-export function getD1(): D1Database {
-  const db = getPlatformEnv().DB;
-  if (!db) throw new Error('Database binding is unavailable');
-  return db;
+export function getDatabase() {
+  return injectedTestPlatform()?.DB ?? getPostgresDatabase();
 }
 
-export function getVideoBucket(): R2Bucket {
-  const bucket = getPlatformEnv().VIDEOS;
-  if (!bucket) throw new Error('Video storage binding is unavailable');
-  return bucket;
+export function getPrivateStorage() {
+  return injectedTestPlatform()?.STORAGE ?? getDiskStorage();
 }
+
+export { Database, PrivateStorage, type PrivateStoredObject };

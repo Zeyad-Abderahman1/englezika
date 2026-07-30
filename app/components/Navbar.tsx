@@ -16,10 +16,11 @@ type NavbarViewer = {
   displayName: string;
 } | null;
 
-export default function Navbar({ viewer }: { viewer: NavbarViewer }) {
+export default function Navbar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [light, setLight] = useState(false);
+  const [viewer, setViewer] = useState<NavbarViewer>(null);
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem('englizeka-theme');
@@ -31,6 +32,23 @@ export default function Navbar({ viewer }: { viewer: NavbarViewer }) {
     document.documentElement.dataset.theme = shouldUseLight ? 'light' : 'dark';
     document.documentElement.style.colorScheme = shouldUseLight ? 'light' : 'dark';
   }, []);
+
+  useEffect(() => {
+    if (pathname.startsWith('/admin') || pathname.startsWith('/staff')) return;
+    const controller = new AbortController();
+    void fetch('/api/users/me', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) return { viewer: null };
+        return (await response.json()) as { viewer?: NavbarViewer };
+      })
+      .then((result) => setViewer(result.viewer ?? null))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [pathname]);
 
   if (pathname.startsWith('/admin') || pathname.startsWith('/staff')) return null;
 

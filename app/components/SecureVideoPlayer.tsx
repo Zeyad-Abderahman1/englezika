@@ -24,7 +24,7 @@ type Video = {
 
 type ResolvedSource = {
   videoId: string;
-  kind: 'upload' | 'youtube';
+  kind: 'youtube';
   sourceUrl: string;
   completionToken: string;
   error?: string;
@@ -136,7 +136,7 @@ export default function SecureVideoPlayer({
     })
       .then(async (response) => {
         const result = (await response.json().catch(() => ({}))) as {
-          kind?: 'upload' | 'youtube';
+          kind?: 'youtube';
           sourceUrl?: string;
           completionToken?: string;
           error?: string;
@@ -155,7 +155,7 @@ export default function SecureVideoPlayer({
         if (controller.signal.aborted) return;
         setResolved({
           videoId: activeId,
-          kind: 'upload',
+          kind: 'youtube',
           sourceUrl: '',
           completionToken: '',
           error: error instanceof Error ? error.message : 'تعذر تجهيز مصدر الفيديو',
@@ -267,7 +267,7 @@ export default function SecureVideoPlayer({
                     <RefreshCw /> إعادة المحاولة
                   </button>
                 </div>
-              ) : activeSource.kind === 'youtube' ? (
+              ) : (
                 <iframe
                   key={activeSource.sourceUrl}
                   ref={iframeRef}
@@ -279,20 +279,6 @@ export default function SecureVideoPlayer({
                   sandbox="allow-scripts allow-same-origin allow-presentation"
                   onLoad={() => sendYouTubeCommand('get-state')}
                 />
-              ) : (
-                <video
-                  key={activeSource.sourceUrl}
-                  controls
-                  controlsList="nodownload noplaybackrate noremoteplayback"
-                  disablePictureInPicture
-                  disableRemotePlayback
-                  preload="metadata"
-                  src={activeSource.sourceUrl}
-                  onEnded={() => void completeLesson(active.id)}
-                  onContextMenu={(event) => event.preventDefault()}
-                >
-                  متصفحك لا يدعم تشغيل الفيديو.
-                </video>
               )}
               {activeSource?.kind === 'youtube' && !activeSource.error && (
                 <>

@@ -1,5 +1,4 @@
-import { getD1 } from './platform';
-import { ensureDatabase } from '../../db/runtime';
+import { getDatabase } from './platform';
 
 export type RateLimitResult = {
   allowed: boolean;
@@ -16,7 +15,7 @@ export function getClientIp(request: Request): string {
 }
 
 /**
- * IP & action rate limiter backed by D1 rate_limits table. (SEC-05)
+ * IP & action rate limiter backed by the PostgreSQL rate_limits table. (SEC-05)
  */
 export async function checkRateLimit(
   action: string,
@@ -30,8 +29,7 @@ export async function checkRateLimit(
   const resetAt = now + Math.round(safeWindow * 1000);
   const key = `ratelimit:${action.slice(0, 64)}:${identifier.slice(0, 160)}`;
 
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
 
   const current = await db
     .prepare(

@@ -1,8 +1,8 @@
-import { getD1 } from '../../lib/platform';
+import { getDatabase } from '../../lib/platform';
 
 export async function GET() {
   try {
-    const db = getD1();
+    const db = getDatabase();
     await db.prepare('SELECT 1').first();
     return Response.json({ status: 'ready' }, { status: 200 });
   } catch {

@@ -1,7 +1,7 @@
-import { ensureDatabase } from '../../../../db/runtime';
 import { apiStaff, isStaffResponse } from '../../../lib/staff-auth';
-import { getD1 } from '../../../lib/platform';
+import { getDatabase } from '../../../lib/platform';
 import { jsonError, requireSameOrigin, safeInteger, safeText } from '../../../lib/security';
+import { invalidatePublicCourseCache } from '../../../lib/public-course-cache';
 
 type RawQuestion = Record<string, unknown>;
 
@@ -54,8 +54,7 @@ export async function POST(request: Request) {
   if (questions.some((question) => !question.options.includes(question.correctAnswer))) {
     return jsonError('اختر الإجابة الصحيحة من اختيارات السؤال');
   }
-  await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
   if (courseId) {
     const course = await db.prepare('SELECT id FROM courses WHERE id = ?').bind(courseId).first();
     if (!course) return jsonError('الكورس المحدد غير موجود', 404);
@@ -106,5 +105,6 @@ export async function POST(request: Request) {
         )
     ),
   ]);
+  invalidatePublicCourseCache();
   return Response.json({ ok: true, id });
 }

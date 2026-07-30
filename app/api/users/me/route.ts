@@ -16,13 +16,27 @@
  * Enrollment and attempt records are retained for audit purposes.
  */
 
-import { ensureDatabase } from '../../../../db/runtime';
-import { apiUser, isResponse } from '../../../lib/api-auth';
+import { apiUser, getCurrentStudentUser, isResponse } from '../../../lib/api-auth';
 import { verifyStudentPassword } from '../../../lib/native-auth';
-import { getD1, getVideoBucket } from '../../../lib/platform';
+import { getDatabase, getPrivateStorage } from '../../../lib/platform';
 import { clearStudentSessionCookie } from '../../../lib/student-session';
 import { jsonError, requireSameOrigin, safeText } from '../../../lib/security';
 import { deleteStudentAccountData } from '../../../lib/account-deletion';
+
+export async function GET() {
+  const user = await getCurrentStudentUser();
+  return Response.json(
+    {
+      viewer: user ? { displayName: user.displayName } : null,
+    },
+    {
+      headers: {
+        'cache-control': 'private, no-store',
+        vary: 'Cookie',
+      },
+    }
+  );
+}
 
 export async function DELETE(request: Request) {
   const originError = requireSameOrigin(request);
@@ -44,9 +58,8 @@ export async function DELETE(request: Request) {
     return jsonError('كلمة المرور غير صحيحة', 401);
   }
 
-  await ensureDatabase();
-  const db = getD1();
-  const deleted = await deleteStudentAccountData(db, getVideoBucket(), user.email);
+  const db = getDatabase();
+  const deleted = await deleteStudentAccountData(db, getPrivateStorage(), user.email);
   if (!deleted) return jsonError('الحساب غير موجود أو تم حذفه من قبل', 404);
 
   // Clear the session cookie in the response.

@@ -1,6 +1,5 @@
-import { ensureDatabase } from '../../../../../db/runtime';
 import { apiStaff, isStaffResponse } from '../../../../lib/staff-auth';
-import { getD1 } from '../../../../lib/platform';
+import { getDatabase } from '../../../../lib/platform';
 import { jsonError, requireSameOrigin } from '../../../../lib/security';
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -11,9 +10,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const status = String(body.status);
   if (!['approved', 'rejected', 'pending'].includes(status)) return jsonError('حالة غير صالحة');
-  await ensureDatabase();
   const { id } = await params;
-  await getD1()
+  await getDatabase()
     .prepare('UPDATE enrollments SET status = ?, updated_at = ? WHERE id = ?')
     .bind(status, Date.now(), id)
     .run();
