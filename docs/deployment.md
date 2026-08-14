@@ -10,6 +10,8 @@
 
 ## متطلبات الـVPS لاحقًا
 
+Security deployment requirement: terminate HTTPS at a trusted reverse proxy, block direct public access to the Node origin, and strip incoming forwarding headers before Nginx writes the single header named by `TRUSTED_PROXY_IP_HEADER`. Set that variable only to a header Nginx controls. If it is empty, the application deliberately uses one shared untrusted-client limiter bucket instead of trusting caller-controlled headers. Configure Nginx request-body limits for public JSON and multipart routes as defense in depth.
+
 - Ubuntu حديث.
 - Node.js 22.
 - PostgreSQL 16.

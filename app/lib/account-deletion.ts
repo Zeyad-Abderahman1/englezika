@@ -20,10 +20,21 @@ export async function deleteStudentAccountData(
     await bucket.delete(student.birthCertificateKey);
   }
 
-  const [accountUpdate] = await db.batch([
+  const tombstoneEmail = `deleted+${crypto.randomUUID()}@deleted.invalid`;
+
+  const [, , accountUpdate] = await db.batch([
+    db
+      .prepare(
+        `UPDATE lecture_access_codes SET redeemed_by_student_email = NULL
+         WHERE redeemed_by_student_email = ?`
+      )
+      .bind(normalized),
+    db.prepare('DELETE FROM student_video_access_grants WHERE student_email = ?').bind(normalized),
     db
       .prepare(
         `UPDATE users SET
+           email = ?,
+           original_email = ?,
            name = '[deleted]',
            first_name = '',
            second_name = '',
@@ -47,7 +58,7 @@ export async function deleteStudentAccountData(
            updated_at = ?
          WHERE email = ? AND role = 'student'`
       )
-      .bind(now, normalized),
+      .bind(tombstoneEmail, normalized, now, normalized),
     db.prepare('DELETE FROM native_sessions WHERE email = ?').bind(normalized),
     db.prepare('DELETE FROM notification_reads WHERE user_email = ?').bind(normalized),
   ]);

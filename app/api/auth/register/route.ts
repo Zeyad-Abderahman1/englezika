@@ -86,6 +86,10 @@ export async function POST(request: Request) {
   if (!request.headers.get('content-type')?.includes('multipart/form-data')) {
     return jsonError('يجب رفع شهادة الميلاد مع بيانات التسجيل');
   }
+  const contentLength = Number(request.headers.get('content-length'));
+  if (!Number.isSafeInteger(contentLength) || contentLength <= 0 || contentLength > 6 * 1024 * 1024) {
+    return jsonError('request_too_large', 413);
+  }
   const form = await request.formData().catch(() => null);
   if (!form) return jsonError('تعذر قراءة بيانات التسجيل');
   const body = Object.fromEntries(form.entries()) as Record<string, unknown>;

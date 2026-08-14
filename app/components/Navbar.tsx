@@ -16,6 +16,11 @@ type NavbarViewer = {
   displayName: string;
 } | null;
 
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  window.location.assign('/login');
+}
+
 export default function Navbar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -50,6 +55,15 @@ export default function Navbar() {
     return () => controller.abort();
   }, [pathname]);
 
+  useEffect(() => {
+    if (!open) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [open]);
+
   if (pathname.startsWith('/admin') || pathname.startsWith('/staff')) return null;
 
   const toggleTheme = () => {
@@ -75,7 +89,7 @@ export default function Navbar() {
           </span>
         </Link>
 
-        <div className={`nav-menu ${open ? 'is-open' : ''}`}>
+        <div id="primary-navigation" className={`nav-menu ${open ? 'is-open' : ''}`}>
           {publicLinks.map((link) => (
             <Link
               key={link.href}
@@ -109,6 +123,7 @@ export default function Navbar() {
 
         <div className="nav-actions">
           <button
+            type="button"
             className={`theme-toggle ${light ? 'is-light' : 'is-dark'}`}
             onClick={toggleTheme}
             aria-pressed={light}
@@ -127,9 +142,9 @@ export default function Navbar() {
               <Link href="/account" className="btn btn-ghost nav-login">
                 حسابي
               </Link>
-              <a href="/student/logout" className="btn btn-primary nav-register">
+              <button type="button" onClick={() => void logout()} className="btn btn-primary nav-register">
                 تسجيل الخروج
-              </a>
+              </button>
             </>
           ) : (
             <>
@@ -142,10 +157,12 @@ export default function Navbar() {
             </>
           )}
           <button
+            type="button"
             className="menu-toggle"
             onClick={() => setOpen(!open)}
             aria-expanded={open}
-            aria-label="فتح القائمة"
+            aria-controls="primary-navigation"
+            aria-label={open ? 'إغلاق القائمة' : 'فتح القائمة'}
           >
             {open ? <X /> : <Menu />}
           </button>

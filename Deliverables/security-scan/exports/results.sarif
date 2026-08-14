@@ -1,0 +1,305 @@
+{
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/schemas/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "automationDetails": {
+        "id": "503de226-8c4a-4b6d-ae0b-7572cfac2d49"
+      },
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "toolExecutionNotifications": [
+            {
+              "level": "warning",
+              "message": {
+                "text": "76 security-relevant files fully reviewed, not all 375."
+              }
+            },
+            {
+              "level": "warning",
+              "message": {
+                "text": "Real payment/email behavior excluded."
+              }
+            }
+          ]
+        }
+      ],
+      "properties": {
+        "codexSecurityCoverageCompleteness": "partial",
+        "codexSecuritySchemaVersion": "1.0",
+        "codexSecurityTargetKind": "git_worktree"
+      },
+      "results": [
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/lib/video-token.ts"
+                },
+                "region": {
+                  "endLine": 97,
+                  "startLine": 97
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/lib/video-token.ts"
+                },
+                "region": {
+                  "endLine": 143,
+                  "startLine": 143
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/api/videos/%5Bid%5D/complete/route.ts"
+                },
+                "region": {
+                  "endLine": 15,
+                  "startLine": 15
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "A token issued before playback becomes valid after elapsed time alone."
+          },
+          "partialFingerprints": {
+            "codexSecurity/v1": "codex-security/v1:sha256:81749a3177b03dc2688619618cd232fc6eb571b2ddf71d83ac344e756211c823"
+          },
+          "properties": {
+            "category": "business_logic",
+            "confidence": "high",
+            "findingId": "csf_bbc0100d0d088f86ef197252",
+            "occurrenceId": "occ_6793706a1977b6e7dbba2102",
+            "severity": "medium"
+          },
+          "ruleId": "video-completion-elapsed-time-only",
+          "ruleIndex": 3
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/api/exams/%5Bid%5D/route.ts"
+                },
+                "region": {
+                  "endLine": 40,
+                  "startLine": 40
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/api/exams/%5Bid%5D/route.ts"
+                },
+                "region": {
+                  "endLine": 51,
+                  "startLine": 51
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/lib/exam-session.ts"
+                },
+                "region": {
+                  "endLine": 45,
+                  "startLine": 45
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "GET creates/resumes a timed session, so top-level navigation with a Lax cookie can start a victim timer."
+          },
+          "partialFingerprints": {
+            "codexSecurity/v1": "codex-security/v1:sha256:1f550b1191393d63a9896979d0072fa1839d7b05db72dad6b706aed891588a13"
+          },
+          "properties": {
+            "category": "cross_site_request_forgery",
+            "confidence": "high",
+            "findingId": "csf_feb03aeb346b4a183506a580",
+            "occurrenceId": "occ_85e94841e0fc44144a2b3ea0",
+            "severity": "medium"
+          },
+          "ruleId": "exam-start-get-csrf",
+          "ruleIndex": 1
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/lib/grading.ts"
+                },
+                "region": {
+                  "endLine": 34,
+                  "startLine": 34
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/lib/grading.ts"
+                },
+                "region": {
+                  "endLine": 37,
+                  "startLine": 37
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/api/exams/%5Bid%5D/route.ts"
+                },
+                "region": {
+                  "endLine": 135,
+                  "startLine": 135
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Recall-only token coverage awards points without penalizing unrelated text."
+          },
+          "partialFingerprints": {
+            "codexSecurity/v1": "codex-security/v1:sha256:a0057175b04edc4f396bcad3db8042461c3a893d1ee5dd16f4a0bbb58f552553"
+          },
+          "properties": {
+            "category": "business_logic",
+            "confidence": "high",
+            "findingId": "csf_32094c63816d6c37711c91b4",
+            "occurrenceId": "occ_9f86bc7df2218bc4e13ec525",
+            "severity": "medium"
+          },
+          "ruleId": "free-text-keyword-stuffing",
+          "ruleIndex": 2
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/lib/rate-limit.ts"
+                },
+                "region": {
+                  "endLine": 15,
+                  "startLine": 15
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/api/auth/login/route.ts"
+                },
+                "region": {
+                  "endLine": 11,
+                  "startLine": 11
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/api/staff/login/route.ts"
+                },
+                "region": {
+                  "endLine": 9,
+                  "startLine": 9
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Without a trusted proxy header, all clients share one rate-limit identifier."
+          },
+          "partialFingerprints": {
+            "codexSecurity/v1": "codex-security/v1:sha256:5ef0c1ec861cf490537c501d45cc27b7314ec5c2210017244896b0f874d413a9"
+          },
+          "properties": {
+            "category": "denial_of_service",
+            "confidence": "high",
+            "findingId": "csf_ef3773d7b4142490b5531622",
+            "occurrenceId": "occ_f84ee9a9c9dbe7e96ad2ff9d",
+            "severity": "medium"
+          },
+          "ruleId": "auth-rate-limit-shared-fallback",
+          "ruleIndex": 0
+        }
+      ],
+      "tool": {
+        "driver": {
+          "name": "Codex Security",
+          "rules": [
+            {
+              "id": "auth-rate-limit-shared-fallback",
+              "name": "auth-rate-limit-shared-fallback",
+              "properties": {
+                "tags": [
+                  "security"
+                ]
+              },
+              "shortDescription": {
+                "text": "auth-rate-limit-shared-fallback"
+              }
+            },
+            {
+              "id": "exam-start-get-csrf",
+              "name": "exam-start-get-csrf",
+              "properties": {
+                "tags": [
+                  "security"
+                ]
+              },
+              "shortDescription": {
+                "text": "exam-start-get-csrf"
+              }
+            },
+            {
+              "id": "free-text-keyword-stuffing",
+              "name": "free-text-keyword-stuffing",
+              "properties": {
+                "tags": [
+                  "security"
+                ]
+              },
+              "shortDescription": {
+                "text": "free-text-keyword-stuffing"
+              }
+            },
+            {
+              "id": "video-completion-elapsed-time-only",
+              "name": "video-completion-elapsed-time-only",
+              "properties": {
+                "tags": [
+                  "security"
+                ]
+              },
+              "shortDescription": {
+                "text": "video-completion-elapsed-time-only"
+              }
+            }
+          ],
+          "version": "0.1.18"
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

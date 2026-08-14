@@ -45,13 +45,20 @@ const QUALITY_LABELS: Record<string, string> = {
 export default function SecureVideoPlayer({
   videos,
   viewerEmail,
+  initialVideoId,
+  allowSequentialUnlock = true,
 }: {
   videos: Video[];
   viewerEmail: string;
+  initialVideoId?: string;
+  allowSequentialUnlock?: boolean;
 }) {
   const [lessons, setLessons] = useState(videos);
   const [activeId, setActiveId] = useState(
-    videos.find((video) => video.unlocked)?.id || videos[0]?.id || ''
+    videos.find((video) => video.id === initialVideoId && video.unlocked)?.id ||
+      videos.find((video) => video.unlocked)?.id ||
+      videos[0]?.id ||
+      ''
   );
   const [resolved, setResolved] = useState<ResolvedSource | null>(null);
   const [resolveAttempt, setResolveAttempt] = useState(0);
@@ -115,7 +122,8 @@ export default function SecureVideoPlayer({
           return current.map((lesson, index) => ({
             ...lesson,
             completed: index === completedIndex ? 1 : lesson.completed,
-            unlocked: index === completedIndex + 1 ? 1 : lesson.unlocked,
+            unlocked:
+              allowSequentialUnlock && index === completedIndex + 1 ? 1 : lesson.unlocked,
           }));
         });
         setCompletionMessage('تم إنهاء المحاضرة وفتح المحاضرة التالية بنجاح.');
@@ -123,7 +131,7 @@ export default function SecureVideoPlayer({
         completionInFlight.current.delete(videoId);
       }
     },
-    [resolved]
+    [allowSequentialUnlock, resolved]
   );
 
   useEffect(() => {

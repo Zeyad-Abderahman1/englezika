@@ -17,8 +17,8 @@ type PaymentIntentRow = {
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
-  const contentLength = Number(request.headers.get('content-length') || 0);
-  if (contentLength > 64 * 1024)
+  const contentLength = Number(request.headers.get('content-length'));
+  if (!Number.isSafeInteger(contentLength) || contentLength <= 0 || contentLength > 64 * 1024)
     return Response.json({ error: 'payload_too_large' }, { status: 413 });
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
@@ -74,27 +74,28 @@ export async function POST(request: Request) {
     ) {
       await db
         .prepare(
-          "UPDATE payment_intents SET status = 'amount_mismatch', transaction_id = ?, paid_amount_minor = ?, payment_method = ?, updated_at = ? WHERE id = ?"
+          "UPDATE payment_intents SET status = 'amount_mismatch', transaction_id = ?, paid_amount_minor = ?, payment_method = ?, updated_at = ? WHERE id = ? AND status <> 'paid'"
         )
         .bind(transactionId, paidAmountMinor, paymentMethod, now, paymentIntent.id)
         .run();
       return Response.json({ error: 'amount_mismatch' }, { status: 409 });
     }
 
-    await db.batch([
+    const transition = await db.batch([
       db
         .prepare(
           `UPDATE payment_intents
            SET status = 'paid', transaction_id = ?, paid_amount_minor = ?, payment_method = ?, paid_at = ?, updated_at = ?
-           WHERE id = ?`
+           WHERE id = ? AND status <> 'paid'`
         )
         .bind(transactionId, paidAmountMinor, paymentMethod, now, now, paymentIntent.id),
       db
         .prepare(
-          "UPDATE enrollments SET status = 'approved', payment_method = ?, payment_reference = ?, updated_at = ? WHERE id = ?"
+          "UPDATE enrollments SET status = 'approved', payment_method = ?, payment_reference = ?, updated_at = ? WHERE id = ? AND EXISTS (SELECT 1 FROM payment_intents WHERE id = ? AND status = 'paid')"
         )
-        .bind(paymentMethod || 'Fawaterak', transactionId, now, paymentIntent.enrollmentId),
+        .bind(paymentMethod || 'Fawaterak', transactionId, now, paymentIntent.enrollmentId, paymentIntent.id),
     ]);
+    if (transition[0]?.meta.changes !== 1) return Response.json({ status: 'ok' });
     await recordAuditLog({
       userEmail: paymentIntent.userEmail,
       action: 'payment.approved',
@@ -117,7 +118,7 @@ export async function POST(request: Request) {
     const nextStatus = status === 'pending' ? 'pending' : 'failed';
     await db
       .prepare(
-        'UPDATE payment_intents SET status = ?, transaction_id = ?, payment_method = ?, updated_at = ? WHERE id = ?'
+        "UPDATE payment_intents SET status = ?, transaction_id = ?, payment_method = ?, updated_at = ? WHERE id = ? AND status NOT IN ('paid', 'amount_mismatch')"
       )
       .bind(nextStatus, transactionId || null, paymentMethod || null, now, paymentIntent.id)
       .run();

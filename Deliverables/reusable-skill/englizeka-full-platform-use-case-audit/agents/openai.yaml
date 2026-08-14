@@ -1,0 +1,4 @@
+interface:
+  display_name: "Englizeka Full Platform Audit"
+  short_description: "Run Englizeka acceptance and regression audits"
+  default_prompt: "Use $englizeka-full-platform-use-case-audit to verify Englizeka end to end and update the acceptance evidence."

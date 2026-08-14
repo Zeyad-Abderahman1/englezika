@@ -7,7 +7,8 @@ import {
   savePasswordResetCode,
   sendPasswordResetEmail,
 } from '../../../lib/password-reset';
-import { checkRateLimit } from '../../../lib/rate-limit';
+import { checkRateLimit, getClientIp, rateLimitResponse } from '../../../lib/rate-limit';
+import { jsonError, requireSameOrigin, safeText } from '../../../lib/security';
 
 function jsonResponse(data: Record<string, unknown>, status = 200): Response {
   return Response.json(data, {
@@ -18,20 +19,23 @@ function jsonResponse(data: Record<string, unknown>, status = 200): Response {
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    const ip =
-      request.headers.get('cf-connecting-ip') ||
-      request.headers.get('x-forwarded-for') ||
-      '127.0.0.1';
+    const originError = requireSameOrigin(request);
+    if (originError) return originError;
+
+    const ip = getClientIp(request);
     const rateLimit = await checkRateLimit('forgot-password', ip, 10, 60);
     if (!rateLimit.allowed) {
-      return jsonResponse({ error: 'تجاوزت الحد المسموح من المحاولات. حاول مجدداً لاحقاً.' }, 429);
+      return rateLimitResponse(rateLimit.resetAfterSeconds);
     }
 
     const body = (await request.json().catch(() => ({}))) as { email?: string };
-    const rawEmail = body.email?.trim().toLowerCase();
+    const rawEmail = safeText(body.email, 200).toLowerCase();
     if (!rawEmail || !rawEmail.includes('@')) {
-      return jsonResponse({ error: 'البريد الإلكتروني غير صحيح' }, 400);
+      return jsonError('البريد الإلكتروني غير صحيح');
     }
+
+    const targetLimit = await checkRateLimit('forgot-password-email', rawEmail, 3, 60 * 60);
+    if (!targetLimit.allowed) return rateLimitResponse(targetLimit.resetAfterSeconds);
 
     const now = Date.now();
     const code = createPasswordResetCode();
@@ -40,9 +44,8 @@ export async function POST(request: Request): Promise<Response> {
 
     await savePasswordResetCode(rawEmail, codeHash, now);
 
-    let deliveryId: string;
     try {
-      deliveryId = await sendPasswordResetEmail(rawEmail, code, idempotencyKey);
+      const deliveryId = await sendPasswordResetEmail(rawEmail, code, idempotencyKey);
       await recordPasswordResetDelivery(rawEmail, codeHash, deliveryId);
     } catch (error) {
       await invalidatePasswordResetCode(rawEmail, codeHash).catch(() => {});
@@ -53,16 +56,10 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({
       ok: true,
       message: 'تم إرسال كود إعادة ضبط كلمة المرور إلى بريدك الإلكتروني بنجاح.',
-      deliveryId,
       ...(testCode ? { testCode } : {}),
     });
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    return jsonResponse(
-      {
-        error: `تعذر الإرسال: ${msg}`,
-      },
-      400
-    );
+    console.error('Password reset delivery failed', error);
+    return jsonResponse({ error: 'password_reset_delivery_failed' }, 400);
   }
 }

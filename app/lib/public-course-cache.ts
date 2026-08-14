@@ -11,8 +11,13 @@ export type PublicCourse = {
   exams?: number;
 };
 
+const CACHE_TTL_MS = 60_000;
 let courseListPromise: Promise<PublicCourse[]> | null = null;
-const courseDetails = new Map<string, Promise<PublicCourse | null>>();
+let courseListExpiresAt = 0;
+const courseDetails = new Map<
+  string,
+  { promise: Promise<PublicCourse | null>; expiresAt: number }
+>();
 
 async function queryPublishedCourses(): Promise<PublicCourse[]> {
   const result = await getDatabase()
@@ -47,26 +52,32 @@ async function queryPublishedCourse(id: string): Promise<PublicCourse | null> {
 }
 
 export async function getCachedPublishedCourses() {
-  courseListPromise ??= queryPublishedCourses().catch((error) => {
-    courseListPromise = null;
-    throw error;
-  });
+  if (courseListPromise && Date.now() >= courseListExpiresAt) courseListPromise = null;
+  if (!courseListPromise) {
+    courseListExpiresAt = Date.now() + CACHE_TTL_MS;
+    courseListPromise = queryPublishedCourses().catch((error) => {
+      courseListPromise = null;
+      courseListExpiresAt = 0;
+      throw error;
+    });
+  }
   return courseListPromise;
 }
 
 export async function getCachedPublishedCourse(id: string) {
-  let cached = courseDetails.get(id);
-  if (!cached) {
-    cached = queryPublishedCourse(id).catch((error) => {
+  const existing = courseDetails.get(id);
+  if (existing && Date.now() < existing.expiresAt) return existing.promise;
+
+  const promise = queryPublishedCourse(id).catch((error) => {
       courseDetails.delete(id);
       throw error;
     });
-    courseDetails.set(id, cached);
-  }
-  return cached;
+  courseDetails.set(id, { promise, expiresAt: Date.now() + CACHE_TTL_MS });
+  return promise;
 }
 
 export function invalidatePublicCourseCache() {
   courseListPromise = null;
+  courseListExpiresAt = 0;
   courseDetails.clear();
 }

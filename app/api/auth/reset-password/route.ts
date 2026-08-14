@@ -1,15 +1,12 @@
 import { consumePasswordResetCode } from '../../../lib/password-reset';
 import { updateStudentPassword } from '../../../lib/native-auth';
+import { isStrongPassword } from '../../../lib/security';
 
 function jsonResponse(data: Record<string, unknown>, status = 200): Response {
   return Response.json(data, {
     status,
     headers: { 'content-type': 'application/json; charset=utf-8' },
   });
-}
-
-function isStrongPassword(password: string): boolean {
-  return password.length >= 8;
 }
 
 export async function POST(request: Request): Promise<Response> {

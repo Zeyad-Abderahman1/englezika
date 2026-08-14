@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import './design-system.css';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import ScrollEffects from './components/ScrollEffects';
@@ -28,11 +29,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ar" dir="rtl" data-theme="dark">
+    <html lang="ar" dir="rtl" data-theme="light" data-scroll-behavior="smooth">
       <body>
+        <a className="skip-link" href="#main-content">
+          تخطَّ إلى المحتوى الرئيسي
+        </a>
         <ScrollEffects />
         <Navbar />
-        {children}
+        <div id="main-content">{children}</div>
         <Footer />
         <CookieConsent />
       </body>

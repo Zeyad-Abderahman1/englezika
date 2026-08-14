@@ -78,3 +78,40 @@ test('parallel rate-limit checks use one atomic counter and never drop the table
   assert.match(source, /ON CONFLICT\(key\) DO UPDATE SET/);
   assert.doesNotMatch(source, /DROP TABLE/i);
 });
+
+test('client-supplied forwarding headers are ignored unless trusted proxy mode is explicit', async () => {
+  const { getClientIp } = await import('../app/lib/rate-limit.ts');
+  const previous = process.env.TRUSTED_PROXY_IP_HEADER;
+  delete process.env.TRUSTED_PROXY_IP_HEADER;
+  assert.equal(
+    getClientIp(new Request('https://example.test', { headers: { 'x-forwarded-for': '198.51.100.8', 'cf-connecting-ip': '203.0.113.8' } })),
+    'untrusted-client'
+  );
+  process.env.TRUSTED_PROXY_IP_HEADER = 'cf-connecting-ip';
+  assert.equal(
+    getClientIp(new Request('https://example.test', { headers: { 'cf-connecting-ip': '203.0.113.8' } })),
+    '203.0.113.8'
+  );
+  if (previous === undefined) delete process.env.TRUSTED_PROXY_IP_HEADER;
+  else process.env.TRUSTED_PROXY_IP_HEADER = previous;
+});
+
+test('password reset uses trusted client identity and a per-account delivery limit', async () => {
+  const source = await readFile(
+    new URL('../app/api/auth/forgot-password/route.ts', import.meta.url),
+    'utf8'
+  );
+  assert.match(source, /requireSameOrigin\(request\)/);
+  assert.match(source, /getClientIp\(request\)/);
+  assert.doesNotMatch(source, /headers\.get\(['"](?:cf-connecting-ip|x-forwarded-for)['"]\)/);
+  assert.match(source, /checkRateLimit\('forgot-password-email', rawEmail, 3, 60 \* 60\)/);
+});
+
+test('verification resend does not disclose account existence or verification state', async () => {
+  const source = await readFile(
+    new URL('../app/api/auth/resend-code/route.ts', import.meta.url),
+    'utf8'
+  );
+  assert.doesNotMatch(source, /return jsonError\([^\n]+, 404\)/);
+  assert.doesNotMatch(source, /verified: true/);
+});

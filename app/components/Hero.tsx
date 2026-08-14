@@ -1,13 +1,11 @@
 import Image from 'next/image';
 import Link from 'next/link';
-import { ArrowLeft, BookOpenCheck, PlayCircle, Sparkles } from 'lucide-react';
+import { ArrowLeft, BookOpenCheck, PlayCircle } from 'lucide-react';
 
 const strengths = [
   'شرح بسيط ومنظم',
   'تدريب على نظام الامتحان',
   'متابعة مستمرة',
-  'جرامر ومفردات',
-  'لكل صفوف الثانوي',
 ];
 
 export default function Hero() {
@@ -18,7 +16,7 @@ export default function Hero() {
       <div className="container hero-grid">
         <div className="hero-copy">
           <div className="eyebrow">
-            <Sparkles size={16} /> ENGLIZEKA — ENGLISH EDUCATION
+            منصة إنجليزي للمرحلة الثانوية
           </div>
           <h1>
             <span>مستر</span>
@@ -51,20 +49,7 @@ export default function Hero() {
             </Link>
           </div>
 
-          <div className="hero-stats">
-            <div>
-              <strong>+5000</strong>
-              <span>طالب معانا</span>
-            </div>
-            <div>
-              <strong>+50</strong>
-              <span>حصة منظمة</span>
-            </div>
-            <div>
-              <strong>3</strong>
-              <span>صفوف ثانوية</span>
-            </div>
-          </div>
+          <p className="hero-assurance">شرح منظم · تطبيق مستمر · تقدّم واضح</p>
         </div>
 
         <div className="hero-visual" aria-label="مستر أحمد حسن">
@@ -78,7 +63,6 @@ export default function Hero() {
                 alt="مستر أحمد حسن"
                 fill
                 priority
-                unoptimized
                 sizes="(max-width: 800px) 86vw, 520px"
               />
               <span className="teacher-circle-shade" aria-hidden="true" />

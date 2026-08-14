@@ -11,6 +11,7 @@ export async function GET(request: Request) {
   const page = safeInteger(url.searchParams.get('page') ?? '1', 1, 1, 10_000);
   const pageSize = safeInteger(url.searchParams.get('pageSize') ?? '50', 50, 1, 100);
   const offset = (page - 1) * pageSize;
+  const canManageVideos = admin.permissions.includes('manage_videos');
 
   const [
     courses,
@@ -30,6 +31,7 @@ export async function GET(request: Request) {
     totalAnnouncements,
     totalExams,
     totalVideos,
+    accessCodes,
   ] = await Promise.all([
     db
       .prepare(
@@ -126,6 +128,19 @@ export async function GET(request: Request) {
     db.prepare('SELECT COUNT(*) AS total FROM announcements').first<{ total: number }>(),
     db.prepare('SELECT COUNT(*) AS total FROM exams').first<{ total: number }>(),
     db.prepare('SELECT COUNT(*) AS total FROM videos').first<{ total: number }>(),
+    db
+      .prepare(
+        `SELECT codes.id, codes.video_id AS videoId, codes.display_suffix AS displaySuffix,
+         codes.created_at AS createdAt, codes.redeemed_at AS redeemedAt,
+         v.title AS videoTitle, c.title AS courseTitle
+         FROM lecture_access_codes codes
+         JOIN videos v ON v.id = codes.video_id
+         JOIN courses c ON c.id = codes.course_id
+         WHERE ? = 1
+         ORDER BY codes.created_at DESC LIMIT 100`
+      )
+      .bind(canManageVideos ? 1 : 0)
+      .all(),
   ]);
 
   const can = (permission: string) =>
@@ -173,16 +188,28 @@ export async function GET(request: Request) {
     enrollments: can('manage_enrollments') ? enrollments.results : [],
     attempts: can('grade_exams') ? attempts.results : [],
     videos: can('manage_videos') ? videos.results : [],
+    accessCodes: can('manage_videos') ? accessCodes.results : [],
     contacts: can('manage_messages') ? contacts.results : [],
     pagination: {
-      courses: makePagination(totalCourses?.total || 0),
-      assignments: makePagination(totalAssignments?.total || 0),
-      announcements: makePagination(totalAnnouncements?.total || 0),
-      exams: makePagination(totalExams?.total || 0),
-      enrollments: makePagination(totalEnrollments?.total || 0),
-      attempts: makePagination(totalAttempts?.total || 0),
-      videos: makePagination(totalVideos?.total || 0),
-      contacts: makePagination(totalContacts?.total || 0),
+      courses: makePagination(
+        can('manage_courses') || can('manage_exams') || can('manage_videos') ||
+          can('manage_enrollments')
+          ? totalCourses?.total || 0
+          : 0
+      ),
+      assignments: makePagination(can('manage_assignments') ? totalAssignments?.total || 0 : 0),
+      announcements: makePagination(
+        can('manage_announcements') ? totalAnnouncements?.total || 0 : 0
+      ),
+      exams: makePagination(
+        can('manage_exams') || can('manage_videos') ? totalExams?.total || 0 : 0
+      ),
+      enrollments: makePagination(
+        can('manage_enrollments') ? totalEnrollments?.total || 0 : 0
+      ),
+      attempts: makePagination(can('grade_exams') ? totalAttempts?.total || 0 : 0),
+      videos: makePagination(can('manage_videos') ? totalVideos?.total || 0 : 0),
+      contacts: makePagination(can('manage_messages') ? totalContacts?.total || 0 : 0),
     },
   });
 }

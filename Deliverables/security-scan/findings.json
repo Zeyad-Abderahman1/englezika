@@ -1,0 +1,283 @@
+{
+  "documentType": "codex-security.findings",
+  "findings": [
+    {
+      "attackPath": {
+        "dataflow": {
+          "summary": "Anonymous login requests reach one PostgreSQL counter."
+        },
+        "reachability": {
+          "summary": "Anonymous login requests reach one PostgreSQL counter."
+        }
+      },
+      "confidence": {
+        "level": "high",
+        "rationale": "Source and atomic limiter tests confirm the shared key."
+      },
+      "findingId": "csf_ef3773d7b4142490b5531622",
+      "fingerprints": {
+        "algorithm": "codex-security/v1",
+        "primary": "codex-security/v1:sha256:5ef0c1ec861cf490537c501d45cc27b7314ec5c2210017244896b0f874d413a9"
+      },
+      "identity": {
+        "anchor": "authentication-rate-limits-collapse-to-a-shared-bucket-without-trusted-proxy-configuration"
+      },
+      "locations": [
+        {
+          "endLine": 15,
+          "label": "root_control",
+          "path": "app/lib/rate-limit.ts",
+          "startLine": 15
+        },
+        {
+          "endLine": 11,
+          "label": "affected",
+          "path": "app/api/auth/login/route.ts",
+          "startLine": 11
+        },
+        {
+          "endLine": 9,
+          "label": "affected",
+          "path": "app/api/staff/login/route.ts",
+          "startLine": 9
+        }
+      ],
+      "occurrenceId": "occ_f84ee9a9c9dbe7e96ad2ff9d",
+      "provenance": {
+        "method": "static trace and focused local validation",
+        "source": "codex_security"
+      },
+      "remediation": "Require and validate a trusted proxy IP source; combine per-client and per-account throttles.",
+      "rootCause": {
+        "summary": "Without a trusted proxy header, all clients share one rate-limit identifier."
+      },
+      "ruleId": "auth-rate-limit-shared-fallback",
+      "severity": {
+        "level": "medium",
+        "rationale": "Reachable path with meaningful availability or integrity impact and prerequisites."
+      },
+      "summary": "Without a trusted proxy header, all clients share one rate-limit identifier.",
+      "taxonomy": {
+        "category": "denial_of_service",
+        "cwe": [
+          "CWE-400"
+        ]
+      },
+      "title": "Authentication rate limits collapse to a shared bucket without trusted proxy configuration",
+      "validation": {
+        "confidence": "high",
+        "method": "code understanding and focused local tests",
+        "summary": "Source and atomic limiter tests confirm the shared key."
+      }
+    },
+    {
+      "attackPath": {
+        "dataflow": {
+          "summary": "Known exam link -> victim GET -> timer and possible expired attempt."
+        },
+        "reachability": {
+          "summary": "Known exam link -> victim GET -> timer and possible expired attempt."
+        }
+      },
+      "confidence": {
+        "level": "high",
+        "rationale": "Route trace proves GET invokes the database state transition."
+      },
+      "findingId": "csf_feb03aeb346b4a183506a580",
+      "fingerprints": {
+        "algorithm": "codex-security/v1",
+        "primary": "codex-security/v1:sha256:1f550b1191393d63a9896979d0072fa1839d7b05db72dad6b706aed891588a13"
+      },
+      "identity": {
+        "anchor": "exam-sessions-are-started-by-a-cross-site-triggerable-get-request"
+      },
+      "locations": [
+        {
+          "endLine": 40,
+          "label": "entrypoint",
+          "path": "app/api/exams/[id]/route.ts",
+          "startLine": 40
+        },
+        {
+          "endLine": 51,
+          "label": "root_control",
+          "path": "app/api/exams/[id]/route.ts",
+          "startLine": 51
+        },
+        {
+          "endLine": 45,
+          "label": "affected",
+          "path": "app/lib/exam-session.ts",
+          "startLine": 45
+        }
+      ],
+      "occurrenceId": "occ_85e94841e0fc44144a2b3ea0",
+      "provenance": {
+        "method": "static trace and focused local validation",
+        "source": "codex_security"
+      },
+      "remediation": "Make GET read-only and add a same-origin POST start action.",
+      "rootCause": {
+        "summary": "GET creates/resumes a timed session, so top-level navigation with a Lax cookie can start a victim timer."
+      },
+      "ruleId": "exam-start-get-csrf",
+      "severity": {
+        "level": "medium",
+        "rationale": "Reachable path with meaningful availability or integrity impact and prerequisites."
+      },
+      "summary": "GET creates/resumes a timed session, so top-level navigation with a Lax cookie can start a victim timer.",
+      "taxonomy": {
+        "category": "cross_site_request_forgery",
+        "cwe": [
+          "CWE-352"
+        ]
+      },
+      "title": "Exam sessions are started by a cross-site-triggerable GET request",
+      "validation": {
+        "confidence": "high",
+        "method": "code understanding and focused local tests",
+        "summary": "Route trace proves GET invokes the database state transition."
+      }
+    },
+    {
+      "attackPath": {
+        "dataflow": {
+          "summary": "Student text -> token set -> coverage -> authoritative score."
+        },
+        "reachability": {
+          "summary": "Student text -> token set -> coverage -> authoritative score."
+        }
+      },
+      "confidence": {
+        "level": "high",
+        "rationale": "The formula reaches full score whenever expected tokens occur despite arbitrary extra text."
+      },
+      "findingId": "csf_32094c63816d6c37711c91b4",
+      "fingerprints": {
+        "algorithm": "codex-security/v1",
+        "primary": "codex-security/v1:sha256:a0057175b04edc4f396bcad3db8042461c3a893d1ee5dd16f4a0bbb58f552553"
+      },
+      "identity": {
+        "anchor": "short-answer-grading-can-be-manipulated-with-keyword-stuffing"
+      },
+      "locations": [
+        {
+          "endLine": 34,
+          "label": "root_control",
+          "path": "app/lib/grading.ts",
+          "startLine": 34
+        },
+        {
+          "endLine": 37,
+          "label": "sink",
+          "path": "app/lib/grading.ts",
+          "startLine": 37
+        },
+        {
+          "endLine": 135,
+          "label": "affected",
+          "path": "app/api/exams/[id]/route.ts",
+          "startLine": 135
+        }
+      ],
+      "occurrenceId": "occ_9f86bc7df2218bc4e13ec525",
+      "provenance": {
+        "method": "static trace and focused local validation",
+        "source": "codex_security"
+      },
+      "remediation": "Use manual grading or a bounded provisional rubric with relevance and precision controls.",
+      "rootCause": {
+        "summary": "Recall-only token coverage awards points without penalizing unrelated text."
+      },
+      "ruleId": "free-text-keyword-stuffing",
+      "severity": {
+        "level": "medium",
+        "rationale": "Reachable path with meaningful availability or integrity impact and prerequisites."
+      },
+      "summary": "Recall-only token coverage awards points without penalizing unrelated text.",
+      "taxonomy": {
+        "category": "business_logic",
+        "cwe": [
+          "CWE-20"
+        ]
+      },
+      "title": "Short-answer grading can be manipulated with keyword stuffing",
+      "validation": {
+        "confidence": "high",
+        "method": "code understanding and focused local tests",
+        "summary": "The formula reaches full score whenever expected tokens occur despite arbitrary extra text."
+      }
+    },
+    {
+      "attackPath": {
+        "dataflow": {
+          "summary": "Resolve -> wait without playback -> complete -> progress row."
+        },
+        "reachability": {
+          "summary": "Resolve -> wait without playback -> complete -> progress row."
+        }
+      },
+      "confidence": {
+        "level": "high",
+        "rationale": "Live E2E and source prove no playback checkpoint is required."
+      },
+      "findingId": "csf_bbc0100d0d088f86ef197252",
+      "fingerprints": {
+        "algorithm": "codex-security/v1",
+        "primary": "codex-security/v1:sha256:81749a3177b03dc2688619618cd232fc6eb571b2ddf71d83ac344e756211c823"
+      },
+      "identity": {
+        "anchor": "video-completion-tokens-prove-elapsed-time-but-not-playback"
+      },
+      "locations": [
+        {
+          "endLine": 97,
+          "label": "root_control",
+          "path": "app/lib/video-token.ts",
+          "startLine": 97
+        },
+        {
+          "endLine": 143,
+          "label": "sink",
+          "path": "app/lib/video-token.ts",
+          "startLine": 143
+        },
+        {
+          "endLine": 15,
+          "label": "affected",
+          "path": "app/api/videos/[id]/complete/route.ts",
+          "startLine": 15
+        }
+      ],
+      "occurrenceId": "occ_6793706a1977b6e7dbba2102",
+      "provenance": {
+        "method": "static trace and focused local validation",
+        "source": "codex_security"
+      },
+      "remediation": "Track server-side playback sessions with sequential bounded checkpoints.",
+      "rootCause": {
+        "summary": "A token issued before playback becomes valid after elapsed time alone."
+      },
+      "ruleId": "video-completion-elapsed-time-only",
+      "severity": {
+        "level": "medium",
+        "rationale": "Reachable path with meaningful availability or integrity impact and prerequisites."
+      },
+      "summary": "A token issued before playback becomes valid after elapsed time alone.",
+      "taxonomy": {
+        "category": "business_logic",
+        "cwe": [
+          "CWE-840"
+        ]
+      },
+      "title": "Video completion tokens prove elapsed time but not playback",
+      "validation": {
+        "confidence": "high",
+        "method": "code understanding and focused local tests",
+        "summary": "Live E2E and source prove no playback checkpoint is required."
+      }
+    }
+  ],
+  "scanId": "503de226-8c4a-4b6d-ae0b-7572cfac2d49",
+  "schemaVersion": "1.0"
+}

@@ -96,7 +96,6 @@ function PasswordInput({
         type="button"
         className="auth-eye-btn"
         onClick={() => setShow((s) => !s)}
-        tabIndex={-1}
         aria-label="إظهار/إخفاء كلمة السر"
       >
         {show ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -505,6 +504,7 @@ function LoginForm() {
             </label>
             <button
               type="button"
+              className="auth-forgot-button"
               onClick={() => setShowForgotModal(true)}
               style={{
                 background: 'none',

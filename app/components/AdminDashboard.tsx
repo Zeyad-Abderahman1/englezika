@@ -42,6 +42,10 @@ import { AdminCourseList } from './admin/AdminCourseList';
 import { AdminAnnouncementsList } from './admin/AdminAnnouncementsList';
 import { AdminAssignmentList } from './admin/AdminAssignmentList';
 import { TeacherCourseWorkspace } from './admin/TeacherCourseWorkspace';
+import {
+  LectureAccessCodeManager,
+  type LectureAccessCodeHistory,
+} from './admin/LectureAccessCodeManager';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -181,6 +185,7 @@ type AdminData = {
   enrollments: Enrollment[];
   attempts: Attempt[];
   videos: Video[];
+  accessCodes: LectureAccessCodeHistory[];
   contacts: Contact[];
   announcements: Announcement[];
   pagination: {
@@ -883,6 +888,12 @@ export default function AdminDashboard() {
                       </small>
                     </div>
                     <div className="list-actions">
+                      <LectureAccessCodeManager
+                        videoId={video.id}
+                        videoTitle={video.title}
+                        history={data.accessCodes}
+                        onGenerated={() => load(currentPage)}
+                      />
                       <details>
                         <summary className="status-button">
                           <PencilLine /> تعديل ووضع امتحان فاصل

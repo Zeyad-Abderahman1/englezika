@@ -1,14 +1,13 @@
-import { findStudentByEmail } from './native-auth';
-import { isEmailVerified } from './email-verification';
 import { jsonError } from './security';
 import { cookies } from 'next/headers';
-import { STUDENT_SESSION_COOKIE, hasStudentSession } from './student-session';
+import { STUDENT_SESSION_COOKIE } from './student-session';
 import { getDatabase } from './platform';
 
 export type SessionUser = {
   email: string;
   displayName: string;
   fullName: string | null;
+  emailVerified: boolean;
 };
 
 /**
@@ -31,34 +30,31 @@ async function sha256(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function getStudentEmailFromCookie(): Promise<string | null> {
+async function getStudentFromCookie(): Promise<SessionUser | null> {
   const jar = await cookies();
   const cookieValue = jar.get(STUDENT_SESSION_COOKIE)?.value;
   if (!cookieValue || cookieValue.length < 16) return null;
 
   const tokenHash = await sha256(cookieValue);
-  const row = await getDatabase()
-    .prepare('SELECT email FROM native_sessions WHERE session_hash = ? AND expires_at > ?')
+  const student = await getDatabase()
+    .prepare(
+      `SELECT u.email, u.name, u.email_verified AS emailVerified
+       FROM native_sessions s JOIN users u ON u.email = s.email
+       WHERE s.session_hash = ? AND s.expires_at > ? AND u.role = 'student'`
+    )
     .bind(tokenHash, Date.now())
-    .first<{ email: string }>();
-  return row?.email ?? null;
+    .first<{ email: string; name: string; emailVerified: number }>();
+  if (!student) return null;
+  return {
+    email: student.email,
+    displayName: student.name || student.email,
+    fullName: student.name || null,
+    emailVerified: Boolean(student.emailVerified),
+  };
 }
 
 export async function getCurrentStudentUser(): Promise<SessionUser | null> {
-  const email = await getStudentEmailFromCookie();
-  if (!email) return null;
-
-  const student = await findStudentByEmail(email);
-  if (!student) return null;
-
-  // Verify HMAC is still valid for this email
-  if (!(await hasStudentSession(email))) return null;
-
-  return {
-    email,
-    displayName: student.name || email,
-    fullName: student.name || null,
-  };
+  return getStudentFromCookie();
 }
 
 export async function apiUser(): Promise<SessionUser | Response> {
@@ -69,7 +65,7 @@ export async function apiUser(): Promise<SessionUser | Response> {
 export async function apiVerifiedUser(): Promise<SessionUser | Response> {
   const user = await apiUser();
   if (user instanceof Response) return user;
-  if (!(await isEmailVerified(user.email))) {
+  if (!user.emailVerified) {
     return Response.json(
       { error: 'يجب تأكيد البريد الإلكتروني أولًا', code: 'EMAIL_NOT_VERIFIED' },
       { status: 403 }

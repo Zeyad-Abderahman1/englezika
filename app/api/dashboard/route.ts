@@ -1,5 +1,4 @@
 import { apiUser, isResponse } from '../../lib/api-auth';
-import { isEmailVerified } from '../../lib/email-verification';
 import { getDatabase } from '../../lib/platform';
 import { getCachedLeaderboard } from '../../lib/leaderboard-cache';
 import { safeInteger } from '../../lib/security';
@@ -13,7 +12,7 @@ export async function GET(request: Request) {
   const page = safeInteger(url.searchParams.get('page') ?? '1', 1, 1, 10_000);
   const pageSize = safeInteger(url.searchParams.get('pageSize') ?? '50', 50, 1, 100);
   const offset = (page - 1) * pageSize;
-  const verificationRequired = !(await isEmailVerified(email));
+  const verificationRequired = !user.emailVerified;
   if (verificationRequired) {
     return Response.json({
       user: { email: user.email, displayName: user.displayName, profile: null },
@@ -23,6 +22,7 @@ export async function GET(request: Request) {
       assignments: [],
       attempts: [],
       announcements: [],
+      lectureAccess: [],
     });
   }
   const [dashboardResults, leaderboardRows] = await Promise.all([
@@ -93,6 +93,16 @@ export async function GET(request: Request) {
            WHERE a.status = 'published' ORDER BY a.created_at DESC LIMIT ? OFFSET ?`
         )
         .bind(email, pageSize, offset),
+      db
+        .prepare(
+          `SELECT g.video_id AS videoId, g.created_at AS grantedAt,
+           v.course_id AS courseId, v.title AS videoTitle, c.title AS courseTitle
+           FROM student_video_access_grants g
+           JOIN videos v ON v.id = g.video_id AND v.status = 'published'
+           JOIN courses c ON c.id = v.course_id
+           WHERE g.student_email = ? ORDER BY g.created_at DESC`
+        )
+        .bind(email),
       db.prepare('SELECT COUNT(*) AS total FROM enrollments WHERE user_email = ?').bind(email),
       db
         .prepare(
@@ -121,6 +131,7 @@ export async function GET(request: Request) {
     assignments,
     attempts,
     announcements,
+    lectureAccess,
     enrollmentCount,
     examCount,
     assignmentCount,
@@ -160,6 +171,7 @@ export async function GET(request: Request) {
     assignments: assignments.results,
     attempts: attempts.results,
     announcements: announcements.results,
+    lectureAccess: lectureAccess.results,
     leaderboards,
     pagination: {
       page,

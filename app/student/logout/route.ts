@@ -4,8 +4,11 @@ import {
   STUDENT_SESSION_COOKIE,
 } from '../../lib/student-session';
 import { cookies } from 'next/headers';
+import { requireSameOrigin } from '../../lib/security';
 
-export async function GET(request: Request) {
+export async function POST(request: Request) {
+  const originError = requireSameOrigin(request);
+  if (originError) return originError;
   const url = new URL(request.url);
   const secure = url.protocol === 'https:';
 
@@ -19,12 +22,16 @@ export async function GET(request: Request) {
     // Best-effort
   }
 
-  return new Response(null, {
-    status: 303,
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
     headers: {
-      location: '/',
+      'content-type': 'application/json',
       'set-cookie': clearStudentSessionCookie(secure),
       'cache-control': 'no-store',
     },
   });
+}
+
+export async function GET() {
+  return new Response(null, { status: 405, headers: { allow: 'POST' } });
 }

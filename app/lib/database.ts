@@ -150,24 +150,32 @@ export class Database {
   }
 
   async readBatch(statements: PreparedStatement[]) {
-    const client = await this.pool.connect();
-    try {
-      const results: DatabaseResult[] = [];
-      for (const statement of statements) {
-        const result = await client.query(
+    const requestedConcurrency = Number(process.env.DATABASE_READ_BATCH_CONCURRENCY || 4);
+    const concurrency = Number.isFinite(requestedConcurrency)
+      ? Math.min(Math.max(Math.round(requestedConcurrency), 1), statements.length)
+      : Math.min(4, statements.length);
+    const results = new Array<DatabaseResult>(statements.length);
+    let nextIndex = 0;
+
+    async function worker(database: Database) {
+      while (nextIndex < statements.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        const statement = statements[index];
+        const result = await database.pool.query(
           postgresSql(statement.sql),
           statement.values.map(normalizeValue)
         );
-        results.push({
+        results[index] = {
           results: result.rows,
           success: true,
           meta: { changes: result.rowCount ?? 0 },
-        });
+        };
       }
-      return results;
-    } finally {
-      client.release();
     }
+
+    await Promise.all(Array.from({ length: concurrency }, () => worker(this)));
+    return results;
   }
 }
 

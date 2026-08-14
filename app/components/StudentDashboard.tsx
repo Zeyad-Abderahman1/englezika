@@ -29,7 +29,13 @@ import {
   Trophy,
   X,
 } from 'lucide-react';
+
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  window.location.assign('/login');
+}
 import EmailVerification from './EmailVerification';
+import LectureCodeRedemption from './LectureCodeRedemption';
 
 type DashboardData = {
   verificationRequired: boolean;
@@ -85,6 +91,13 @@ type DashboardData = {
     createdAt: number;
     isRead: number;
   }>;
+  lectureAccess: Array<{
+    videoId: string;
+    videoTitle: string;
+    courseId: string;
+    courseTitle: string;
+    grantedAt: number;
+  }>;
   leaderboards: Record<
     string,
     Array<{
@@ -97,7 +110,15 @@ type DashboardData = {
   >;
 };
 type View =
-  'home' | 'course' | 'exams' | 'assignments' | 'grades' | 'leaderboard' | 'profile' | 'security';
+  | 'home'
+  | 'course'
+  | 'redeem'
+  | 'exams'
+  | 'assignments'
+  | 'grades'
+  | 'leaderboard'
+  | 'profile'
+  | 'security';
 const LEADERBOARD_GRADES = ['أولى ثانوي', 'تانية ثانوي', 'تالتة ثانوي'];
 function percent(score: number, maxScore: number) {
   return maxScore > 0 ? Math.round((score * 100) / maxScore) : 0;
@@ -220,9 +241,9 @@ export default function StudentDashboard() {
             <h1>أهلًا، {data.user.displayName}</h1>
             <p>خطوة واحدة قبل فتح الكورسات والامتحانات.</p>
           </div>
-          <a href="/student/logout" className="btn btn-outline">
+          <button type="button" onClick={() => void logout()} className="btn btn-outline">
             تسجيل الخروج
-          </a>
+          </button>
         </header>
         <EmailVerification email={data.user.email} onVerified={load} />
       </div>
@@ -290,6 +311,10 @@ export default function StudentDashboard() {
             </div>
           )}
         </div>
+        <button className={view === 'redeem' ? 'active' : ''} onClick={() => navigate('redeem')}>
+          <KeyRound />
+          <span>كود المحاضرة</span>
+        </button>
         <button className={view === 'exams' ? 'active' : ''} onClick={() => navigate('exams', '')}>
           <ClipboardCheck />
           <span>الامتحانات</span>
@@ -335,10 +360,10 @@ export default function StudentDashboard() {
         </button>
       </nav>
       <div className="student-sidebar-bottom">
-        <a href="/student/logout">
+        <button type="button" onClick={() => void logout()}>
           <LogOut />
           <span>تسجيل الخروج</span>
-        </a>
+        </button>
         <small>Englizeka Student Portal</small>
       </div>
     </aside>
@@ -370,9 +395,11 @@ export default function StudentDashboard() {
                 ? 'الرئيسية'
                 : view === 'course'
                   ? activeCourse?.title || 'الكورس'
-                  : view === 'exams'
-                    ? 'الامتحانات'
-                    : view === 'assignments'
+                  : view === 'redeem'
+                    ? 'استخدام كود المحاضرة'
+                    : view === 'exams'
+                      ? 'الامتحانات'
+                      : view === 'assignments'
                       ? 'الواجبات'
                       : view === 'grades'
                         ? 'الدرجات'
@@ -495,6 +522,33 @@ export default function StudentDashboard() {
                 </div>
               )}
             </section>
+            {data.lectureAccess.length > 0 && (
+              <section className="student-card granted-lectures-card">
+                <div className="student-card-title">
+                  <div>
+                    <KeyRound />
+                    <span>
+                      <small>وصول بكود المحاضرة</small>
+                      <strong>المحاضرات المفتوحة لك</strong>
+                    </span>
+                  </div>
+                  <button onClick={() => navigate('redeem')}>استخدام كود آخر</button>
+                </div>
+                <div className="granted-lecture-list">
+                  {data.lectureAccess.map((lecture) => (
+                    <article key={lecture.videoId}>
+                      <span>
+                        <strong>{lecture.videoTitle}</strong>
+                        <small>{lecture.courseTitle}</small>
+                      </span>
+                      <Link href={`/learn/${lecture.courseId}?video=${encodeURIComponent(lecture.videoId)}`}>
+                        مشاهدة <Play />
+                      </Link>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
             <section className="student-overview-grid">
               <article className="student-card upcoming-card">
                 <div className="student-card-title">
@@ -565,6 +619,37 @@ export default function StudentDashboard() {
                       <strong>{item.title}</strong>
                       {!item.isRead && <small className="status-pill status-pending">جديد</small>}
                       <p>{item.body}</p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+        {view === 'redeem' && (
+          <div className="student-view">
+            <LectureCodeRedemption onRedeemed={load} />
+            {data.lectureAccess.length > 0 && (
+              <section className="student-card granted-lectures-card">
+                <div className="student-card-title">
+                  <div>
+                    <Play />
+                    <span>
+                      <small>وصول دائم</small>
+                      <strong>محاضراتك المفتوحة بالكود</strong>
+                    </span>
+                  </div>
+                </div>
+                <div className="granted-lecture-list">
+                  {data.lectureAccess.map((lecture) => (
+                    <article key={lecture.videoId}>
+                      <span>
+                        <strong>{lecture.videoTitle}</strong>
+                        <small>{lecture.courseTitle}</small>
+                      </span>
+                      <Link href={`/learn/${lecture.courseId}?video=${encodeURIComponent(lecture.videoId)}`}>
+                        مشاهدة <Play />
+                      </Link>
                     </article>
                   ))}
                 </div>

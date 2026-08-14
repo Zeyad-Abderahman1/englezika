@@ -25,9 +25,9 @@ export async function POST(request: Request) {
     return jsonError('البريد الإلكتروني غير صحيح');
   }
   const student = await findStudentByEmail(email);
-  if (!student) return jsonError('لا يوجد حساب طالب بهذا البريد الإلكتروني', 404);
+  if (!student) return Response.json({ ok: true });
   if (await isEmailVerified(email)) {
-    return Response.json({ ok: true, verified: true });
+    return Response.json({ ok: true });
   }
 
   const rateCheck = await checkRateLimit('resend-verification', email, 1, 60);

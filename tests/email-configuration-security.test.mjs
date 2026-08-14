@@ -7,7 +7,8 @@ import { emailTestModeEnabled, validateEmailConfiguration } from '../app/lib/ema
 test('email test mode requires an explicit flag and is forbidden in production', () => {
   assert.equal(emailTestModeEnabled({}), false);
   assert.equal(emailTestModeEnabled({ EMAIL_TEST_MODE: 'false' }), false);
-  assert.equal(emailTestModeEnabled({ EMAIL_TEST_MODE: 'true' }), true);
+  assert.equal(emailTestModeEnabled({ EMAIL_TEST_MODE: 'true' }, 'development'), true);
+  assert.equal(emailTestModeEnabled({ EMAIL_TEST_MODE: 'true' }, 'production'), false);
   assert.deepEqual(validateEmailConfiguration({ EMAIL_TEST_MODE: 'true' }, 'development'), []);
   assert.match(
     validateEmailConfiguration({ EMAIL_TEST_MODE: 'true' }, 'production').join(' '),

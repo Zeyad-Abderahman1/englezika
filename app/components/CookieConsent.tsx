@@ -94,7 +94,7 @@ export default function CookieConsent() {
         </Link>{' '}
         لمعرفة المزيد.
       </p>
-      <div style={{ display: 'flex', gap: '0.75rem', flexShrink: 0 }}>
+      <div className="cookie-consent-actions" style={{ display: 'flex', gap: '0.75rem', flexShrink: 0 }}>
         <button
           className="btn btn-ghost"
           style={{ minHeight: '44px', fontSize: '0.85rem' }}

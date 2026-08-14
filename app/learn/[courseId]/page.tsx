@@ -8,8 +8,16 @@ import { requireStudentUser } from '../../lib/student-session';
 export const metadata: Metadata = { title: 'مشاهدة الكورس' };
 export const dynamic = 'force-dynamic';
 
-export default async function LearnPage({ params }: { params: Promise<{ courseId: string }> }) {
+export default async function LearnPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ courseId: string }>;
+  searchParams: Promise<{ video?: string | string[] }>;
+}) {
   const { courseId } = await params;
+  const requestedVideo = (await searchParams).video;
+  const initialVideoId = typeof requestedVideo === 'string' ? requestedVideo.slice(0, 80) : undefined;
   const user = await requireStudentUser(`/learn/${courseId}`);
   const db = getDatabase();
   if (!(await isEmailVerified(user.email))) {
@@ -34,7 +42,15 @@ export default async function LearnPage({ params }: { params: Promise<{ courseId
     )
     .bind(user.email.toLowerCase(), courseId)
     .first();
-  if (!enrollment) {
+  const grants = await db
+    .prepare(
+      `SELECT g.video_id AS videoId FROM student_video_access_grants g
+       JOIN videos v ON v.id = g.video_id
+       WHERE g.student_email = ? AND v.course_id = ? AND v.status = 'published'`
+    )
+    .bind(user.email.toLowerCase(), courseId)
+    .all<{ videoId: string }>();
+  if (!enrollment && grants.results.length === 0) {
     return (
       <main className="portal-page">
         <div className="container">
@@ -77,10 +93,15 @@ export default async function LearnPage({ params }: { params: Promise<{ courseId
     .bind(user.email.toLowerCase(), courseId)
     .all<{ videoId: string }>();
   const completedIds = new Set(completed.results.map((item) => item.videoId));
+  const grantedIds = new Set(grants.results.map((item) => item.videoId));
   const videos = result.results.map((video, index, allVideos) => ({
     ...video,
     completed: completedIds.has(video.id) ? 1 : 0,
-    unlocked: index === 0 || completedIds.has(allVideos[index - 1].id) ? 1 : 0,
+    unlocked:
+      grantedIds.has(video.id) ||
+      (Boolean(enrollment) && (index === 0 || completedIds.has(allVideos[index - 1].id)))
+        ? 1
+        : 0,
   }));
   return (
     <main className="portal-page learning-page">
@@ -89,7 +110,12 @@ export default async function LearnPage({ params }: { params: Promise<{ courseId
           <span className="section-label">{course?.grade || 'الكورس'}</span>
           <h1>{course?.title || 'محتوى الكورس'}</h1>
         </div>
-        <SecureVideoPlayer videos={videos} viewerEmail={user.email} />
+        <SecureVideoPlayer
+          videos={videos}
+          viewerEmail={user.email}
+          initialVideoId={initialVideoId}
+          allowSequentialUnlock={Boolean(enrollment)}
+        />
       </div>
     </main>
   );

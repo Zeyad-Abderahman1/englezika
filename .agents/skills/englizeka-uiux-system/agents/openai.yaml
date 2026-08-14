@@ -1,0 +1,4 @@
+interface:
+  display_name: "Englizeka UI/UX System"
+  short_description: "Enforce the Englizeka Arabic RTL design system"
+  default_prompt: "Use $englizeka-uiux-system to apply the Arabic-first Englizeka design system to this frontend task."

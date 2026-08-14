@@ -7,11 +7,12 @@ export type RateLimitResult = {
 };
 
 export function getClientIp(request: Request): string {
-  const cfIp = request.headers.get('cf-connecting-ip');
-  if (cfIp) return cfIp.trim();
-  const forwarded = request.headers.get('x-forwarded-for');
-  if (forwarded) return forwarded.split(',')[0].trim();
-  return '127.0.0.1';
+  const trustedHeader = process.env.TRUSTED_PROXY_IP_HEADER?.trim().toLowerCase();
+  if (trustedHeader === 'cf-connecting-ip' || trustedHeader === 'x-real-ip') {
+    const value = request.headers.get(trustedHeader);
+    if (value?.trim()) return value.trim();
+  }
+  return 'untrusted-client';
 }
 
 /**

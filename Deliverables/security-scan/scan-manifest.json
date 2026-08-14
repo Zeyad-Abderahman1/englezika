@@ -1,0 +1,87 @@
+{
+  "documentType": "codex-security.scan-manifest",
+  "scan": {
+    "artifacts": [
+      {
+        "mediaType": "application/json",
+        "path": "findings.json",
+        "sha256": "a45e72448a28bac2a8b8e804d30610db5395138b20b1c461eec89594dd10ad24"
+      },
+      {
+        "mediaType": "application/json",
+        "path": "coverage.json",
+        "sha256": "c0caa88efcf0a7e7b46babe3757f5db3cf72c383294495bc023856997578905a"
+      }
+    ],
+    "completedAt": "2026-08-13T12:31:51.531487Z",
+    "coverageRef": "coverage.json",
+    "findingsRef": "findings.json",
+    "id": "503de226-8c4a-4b6d-ae0b-7572cfac2d49",
+    "producer": {
+      "name": "codex-security-plugin",
+      "version": "0.1.18"
+    },
+    "scope": {
+      "artifactsReviewed": [
+        "package.json",
+        "database/migrations",
+        "app/api",
+        "app/lib",
+        "tests"
+      ],
+      "excludePaths": [],
+      "includePaths": [
+        "."
+      ],
+      "limitations": [
+        "Independent baseline fully reviewed 76 files."
+      ],
+      "runtimeStatus": "Local PostgreSQL, API E2E, and browser available.",
+      "summary": "Whole current Englizeka repository, emphasizing security-sensitive product routes.",
+      "validationMode": "Static trace plus focused tests."
+    },
+    "sealedAt": "2026-08-13T12:31:51.531487Z",
+    "startedAt": "2026-08-13T12:11:10.940619Z",
+    "status": "completed",
+    "target": {
+      "displayName": "Englezika",
+      "kind": "git_worktree",
+      "revision": "94980d831e6c59a6a03afbbd9ce7cd2564b7d580",
+      "snapshotDigest": "codex-security-snapshot/v1:sha256:f11a54c7d8f4108032701c945fada70ba00131ebeb7abbdb3fcf352032a3665b",
+      "targetId": "target_sha256_7a997f48199816256d823da39333248fbfb15fc5e825c1b6b24cd13002ac642a"
+    },
+    "threatModel": {
+      "assets": [
+        "sessions",
+        "private student data",
+        "payment and enrollment state",
+        "learning grants and grades"
+      ],
+      "assumptions": [
+        "Production uses a trusted proxy."
+      ],
+      "attackerCapabilities": [
+        "anonymous requests",
+        "student account",
+        "restricted staff",
+        "concurrent requests"
+      ],
+      "securityObjectives": [
+        "authentication",
+        "least privilege",
+        "ownership isolation",
+        "atomic code redemption",
+        "grade/payment integrity"
+      ],
+      "summary": "Protect identities, private files, payment/enrollment state, video grants, lecture codes, and grades across browser, permission, database, storage, email and payment boundaries.",
+      "trustBoundaries": [
+        "browser to Next.js",
+        "session to permissions",
+        "application to PostgreSQL",
+        "application to private storage",
+        "payment webhook"
+      ]
+    }
+  },
+  "schemaVersion": "1.0"
+}

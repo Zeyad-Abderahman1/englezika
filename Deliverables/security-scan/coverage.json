@@ -1,0 +1,94 @@
+{
+  "completeness": "partial",
+  "deferred": [
+    {
+      "id": "deferred-496ec96a19fe87fb",
+      "label": "Remaining files",
+      "reason": "76 security-relevant files fully reviewed, not all 375."
+    },
+    {
+      "id": "deferred-622044dac84dfed4",
+      "label": "External providers",
+      "reason": "Real payment/email behavior excluded."
+    }
+  ],
+  "documentType": "codex-security.coverage",
+  "excludePaths": [],
+  "explicitExclusions": [
+    {
+      "pattern": "node_modules/**",
+      "reason": "Third-party code; npm audit used."
+    },
+    {
+      "pattern": ".next/**",
+      "reason": "Generated output."
+    },
+    {
+      "pattern": ".git/**",
+      "reason": "Git history excluded."
+    }
+  ],
+  "includePaths": [
+    "."
+  ],
+  "inventoryStrategy": "repository",
+  "mode": "repository",
+  "openQuestions": [
+    {
+      "question": "Playback attestation and free-text grading policy."
+    }
+  ],
+  "scanId": "503de226-8c4a-4b6d-ae0b-7572cfac2d49",
+  "schemaVersion": "1.0",
+  "surfaces": [
+    {
+      "disposition": "reported",
+      "id": "surface_authentication-and-sessions",
+      "label": "Authentication and sessions",
+      "receiptRefs": [],
+      "summary": "One current issue; three auth defects fixed."
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_staff-authorization",
+      "label": "Staff authorization",
+      "receiptRefs": [],
+      "summary": "Reviewed; metadata leak fixed."
+    },
+    {
+      "disposition": "reported",
+      "id": "surface_videos-and-lecture-codes",
+      "label": "Videos and lecture codes",
+      "receiptRefs": [],
+      "summary": "Playback issue; code atomicity passed."
+    },
+    {
+      "disposition": "reported",
+      "id": "surface_exams-and-grading",
+      "label": "Exams and grading",
+      "receiptRefs": [],
+      "summary": "Two integrity issues."
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_payments-and-enrollment",
+      "label": "Payments and enrollment",
+      "receiptRefs": [],
+      "summary": "Controls passed."
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_private-storage/account-lifecycle",
+      "label": "Private storage/account lifecycle",
+      "receiptRefs": [],
+      "summary": "Controls passed."
+    },
+    {
+      "disposition": "not_applicable",
+      "id": "surface_assignment-submission",
+      "label": "Assignment submission",
+      "receiptRefs": [],
+      "summary": "Not implemented."
+    }
+  ]
+}

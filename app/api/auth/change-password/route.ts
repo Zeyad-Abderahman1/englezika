@@ -40,7 +40,18 @@ export async function POST(request: Request) {
 
   // Get current session hash to preserve it (so the user stays logged in)
   const jar = await cookies();
-  const currentSessionHash = jar.get(STUDENT_SESSION_COOKIE)?.value ?? null;
+  const currentSessionToken = jar.get(STUDENT_SESSION_COOKIE)?.value ?? null;
+  const currentSessionHash = currentSessionToken
+    ? Array.from(
+        new Uint8Array(
+          await crypto.subtle.digest(
+            'SHA-256',
+            new TextEncoder().encode(currentSessionToken)
+          )
+        ),
+        (byte) => byte.toString(16).padStart(2, '0')
+      ).join('')
+    : null;
 
   await db.batch([
     db

@@ -29,6 +29,8 @@ class VideoAccessDatabase {
             title: 'Protected lesson',
             prerequisiteExamId: 'exam-1',
             minimumScore: 70,
+            hasEnrollmentAccess: 1,
+            hasIndividualGrant: 0,
           };
         }
         if (normalizedSql.startsWith('SELECT id FROM videos')) return null;

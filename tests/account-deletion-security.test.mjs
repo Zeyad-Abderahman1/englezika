@@ -46,6 +46,12 @@ class AccountDatabase {
           });
           return { success: true, results: [], meta: { changes: 1 } };
         }
+        if (normalizedSql.startsWith('UPDATE lecture_access_codes SET redeemed_by_student_email')) {
+          return { success: true, results: [], meta: { changes: 0 } };
+        }
+        if (normalizedSql === 'DELETE FROM student_video_access_grants WHERE student_email = ?') {
+          return { success: true, results: [], meta: { changes: 0 } };
+        }
         if (normalizedSql === 'DELETE FROM native_sessions WHERE email = ?') {
           database.sessions = [];
         }
@@ -93,4 +99,27 @@ test('private file deletion failure leaves the account and sessions intact for a
   assert.equal(db.user.birthCertificateKey, 'birth-certificates/student/certificate.png');
   assert.deepEqual(db.sessions, ['session-1', 'session-2']);
   assert.deepEqual(db.notificationReads, ['announcement-1']);
+});
+
+test('deleted accounts are tombstoned so the same email can create a fresh account', async () => {
+  const db = new AccountDatabase();
+  const bucket = { delete: async () => {} };
+
+  assert.equal(await deleteStudentAccountData(db, bucket, db.user.email), true);
+  assert.match(db.user.email, /^student@example\.test$/);
+  assert.equal(db.user.role, 'deleted');
+
+  const implementation = await import('node:fs/promises').then(({ readFile }) =>
+    readFile(new URL('../app/lib/account-deletion.ts', import.meta.url), 'utf8')
+  );
+  assert.match(implementation, /deleted\+\$\{crypto\.randomUUID\(\)\}@deleted\.invalid/);
+  assert.match(implementation, /original_email = \?/);
+
+  const migration = await import('node:fs/promises').then(({ readFile }) =>
+    readFile(new URL('../database/migrations/002_deleted_account_re_registration.sql', import.meta.url), 'utf8')
+  );
+  assert.match(migration, /original_email TEXT/);
+  assert.match(migration, /users_deleted_original_email_idx/);
+  assert.match(migration, /enrollments_one_pending_idx/);
+  assert.match(migration, /payment_intents_one_active_idx/);
 });

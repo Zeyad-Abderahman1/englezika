@@ -18,6 +18,8 @@ export type AuthorizedVideo = {
   title: string;
   prerequisiteExamId: string | null;
   minimumScore: number;
+  hasEnrollmentAccess: number;
+  hasIndividualGrant: number;
 };
 
 export type VideoAccessResult =
@@ -73,16 +75,24 @@ export async function authorizeVideoAccess(
     .prepare(
       `SELECT v.id, v.course_id AS courseId, v.source_type AS sourceType,
        v.youtube_id AS youtubeId, v.duration_seconds AS durationSeconds, v.title,
-       v.prerequisite_exam_id AS prerequisiteExamId, v.minimum_score AS minimumScore
-       FROM videos v JOIN enrollments e ON e.course_id = v.course_id
-       WHERE v.id = ? AND v.status = 'published'
-       AND e.user_email = ? AND e.status = 'approved' LIMIT 1`
+       v.prerequisite_exam_id AS prerequisiteExamId, v.minimum_score AS minimumScore,
+       CASE WHEN EXISTS (
+         SELECT 1 FROM enrollments e
+         WHERE e.course_id = v.course_id AND e.user_email = ? AND e.status = 'approved'
+       ) THEN 1 ELSE 0 END AS hasEnrollmentAccess,
+       CASE WHEN EXISTS (
+         SELECT 1 FROM student_video_access_grants g
+         WHERE g.video_id = v.id AND g.student_email = ?
+       ) THEN 1 ELSE 0 END AS hasIndividualGrant
+       FROM videos v WHERE v.id = ? AND v.status = 'published' LIMIT 1`
     )
-    .bind(videoId, normalized)
+    .bind(normalized, normalized, videoId)
     .first<AuthorizedVideo>();
-  if (!video) {
+  if (!video || (!Number(video.hasEnrollmentAccess) && !Number(video.hasIndividualGrant))) {
     return { ok: false, status: 403, error: 'هذه المحاضرة غير متاحة لهذا الحساب' };
   }
+
+  if (Number(video.hasIndividualGrant)) return { ok: true, video };
 
   const previousVideo = await db
     .prepare(

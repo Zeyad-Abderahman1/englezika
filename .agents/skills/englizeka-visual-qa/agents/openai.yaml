@@ -1,0 +1,4 @@
+interface:
+  display_name: "Englizeka Visual QA"
+  short_description: "Verify Englizeka UI across RTL breakpoints"
+  default_prompt: "Use $englizeka-visual-qa to verify the requested Englizeka routes across RTL breakpoints."

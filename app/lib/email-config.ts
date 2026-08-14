@@ -1,7 +1,7 @@
 import type { PlatformEnv } from './platform';
 
-export function emailTestModeEnabled(env: PlatformEnv): boolean {
-  return env.EMAIL_TEST_MODE?.trim().toLowerCase() === 'true';
+export function emailTestModeEnabled(env: PlatformEnv, nodeEnv = process.env.NODE_ENV): boolean {
+  return nodeEnv !== 'production' && env.EMAIL_TEST_MODE?.trim().toLowerCase() === 'true';
 }
 
 export function validateEmailConfiguration(env: PlatformEnv, nodeEnv?: string): string[] {
@@ -11,7 +11,7 @@ export function validateEmailConfiguration(env: PlatformEnv, nodeEnv?: string): 
   if (testModeValue && testModeValue !== 'true' && testModeValue !== 'false') {
     errors.push('EMAIL_TEST_MODE must be explicitly set to either true or false');
   }
-  if (nodeEnv === 'production' && emailTestModeEnabled(env)) {
+  if (nodeEnv === 'production' && emailTestModeEnabled(env, 'development')) {
     errors.push('EMAIL_TEST_MODE cannot be enabled when NODE_ENV=production');
   }
 

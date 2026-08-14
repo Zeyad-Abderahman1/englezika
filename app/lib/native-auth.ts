@@ -134,7 +134,7 @@ export async function registerStudent(data: {
 }): Promise<'ok' | 'email_taken'> {
   const email = data.email.trim().toLowerCase();
   const existing = await findStudentByEmail(email);
-  if (existing?.passwordHash) return 'email_taken';
+  if (existing) return 'email_taken';
 
   const { hash, salt, iterations } = await hashPassword(
     data.password,
@@ -146,7 +146,7 @@ export async function registerStudent(data: {
     .join(' ');
   const now = Date.now();
 
-  await getDatabase()
+  const result = await getDatabase()
     .prepare(
       `INSERT INTO users
      (email, name, first_name, second_name, third_name, last_name,
@@ -157,22 +157,7 @@ export async function registerStudent(data: {
       password_hash, password_salt, password_iterations,
       role, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'student', ?, ?)
-     ON CONFLICT(email) DO UPDATE SET
-       name = excluded.name,
-       first_name = excluded.first_name, second_name = excluded.second_name,
-       third_name = excluded.third_name, last_name = excluded.last_name,
-       phone = excluded.phone, father_phone = excluded.father_phone,
-       mother_phone = excluded.mother_phone, school_name = excluded.school_name,
-       parent_job = excluded.parent_job, governorate = excluded.governorate,
-       gender = excluded.gender, grade = excluded.grade, section = excluded.section,
-       birth_certificate_key = excluded.birth_certificate_key,
-       birth_certificate_content_type = excluded.birth_certificate_content_type,
-       account_use_agreement_accepted_at = excluded.account_use_agreement_accepted_at,
-       account_use_agreement_version = excluded.account_use_agreement_version,
-       password_hash = excluded.password_hash, password_salt = excluded.password_salt,
-       password_iterations = excluded.password_iterations,
-       updated_at = excluded.updated_at
-     WHERE users.password_hash = ''`
+     ON CONFLICT(email) DO NOTHING`
     )
     .bind(
       email,
@@ -202,7 +187,7 @@ export async function registerStudent(data: {
     )
     .run();
 
-  return 'ok';
+  return result.meta.changes === 1 ? 'ok' : 'email_taken';
 }
 
 /** Update an existing student's password and revoke every active session. */

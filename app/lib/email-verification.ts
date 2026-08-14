@@ -136,25 +136,29 @@ export async function verifyStoredCode(
 
   const candidateHash = await hashVerificationCode(normalized, code);
   if (candidateHash !== row.codeHash) {
-    const attempts = row.attempts + 1;
-    await getDatabase()
+    const failedAttempt = await getDatabase()
       .prepare(
-        `UPDATE email_verifications SET attempts = ?,
-       expires_at = CASE WHEN ? >= ? THEN 0 ELSE expires_at END
-       WHERE email = ? AND code_hash = ?`
+        `UPDATE email_verifications SET attempts = attempts + 1,
+       expires_at = CASE WHEN attempts + 1 >= ? THEN 0 ELSE expires_at END
+       WHERE email = ? AND code_hash = ? AND verified_at IS NULL
+         AND expires_at >= ? AND attempts < ?
+       RETURNING attempts`
       )
-      .bind(attempts, attempts, VERIFICATION_MAX_ATTEMPTS, normalized, row.codeHash)
-      .run();
-    return attempts >= VERIFICATION_MAX_ATTEMPTS ? 'locked' : 'invalid';
+      .bind(VERIFICATION_MAX_ATTEMPTS, normalized, row.codeHash, Date.now(), VERIFICATION_MAX_ATTEMPTS)
+      .first<{ attempts: number }>();
+    if (!failedAttempt) return 'locked';
+    return failedAttempt.attempts >= VERIFICATION_MAX_ATTEMPTS ? 'locked' : 'invalid';
   }
 
-  await getDatabase()
+  const claimed = await getDatabase()
     .prepare(
       `UPDATE email_verifications SET verified_at = ?, code_hash = '', expires_at = 0
-     WHERE email = ? AND code_hash = ?`
+     WHERE email = ? AND code_hash = ? AND verified_at IS NULL AND expires_at >= ?
+     RETURNING email`
     )
-    .bind(Date.now(), normalized, row.codeHash)
-    .run();
+    .bind(Date.now(), normalized, row.codeHash, Date.now())
+    .first<{ email: string }>();
+  if (!claimed) return 'invalid';
   await getDatabase()
     .prepare(
       `UPDATE users SET email_verified = 1, verification_code = NULL,
@@ -179,6 +183,9 @@ export async function sendVerificationEmail(
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: { user: gmailUser, pass: gmailPassword },
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
     });
     const delivery = await transporter.sendMail({
       from: `Englizeka <${gmailUser}>`,
@@ -227,6 +234,7 @@ export async function sendVerificationEmail(
           <p style="font-size:13px;color:#666;margin:0">الكود صالح لمدة 10 دقائق. لا تشاركه مع أي شخص.</p>
         </div>`,
       }),
+      signal: AbortSignal.timeout(15_000),
     });
 
     const result = (await response.json().catch(() => ({}))) as {
@@ -260,6 +268,7 @@ export async function sendVerificationEmail(
           <p>الكود صالح لمدة 10 دقائق. لا تشاركه مع أي شخص.</p>
         </div>`,
       }),
+      signal: AbortSignal.timeout(15_000),
     });
 
     const result = (await response.json().catch(() => ({}))) as {

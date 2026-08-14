@@ -188,6 +188,27 @@ const lessonGate = await call(`/api/admin/videos/${videoId}`, {
 });
 expectStatus(lessonGate, 200, 'teacher places an exam with a pass percentage before a lesson');
 
+const otherVideo = await call('/api/admin/videos', {
+  method: 'POST',
+  cookie: teacherLogin.cookie,
+  json: {
+    courseId,
+    title: `Other protected lesson ${suffix}`,
+    durationSeconds: 3,
+    youtubeUrl: 'https://youtu.be/dQw4w9WgXcQ',
+  },
+});
+expectStatus(otherVideo, 200, 'teacher adds a second protected lesson');
+const otherVideoId = otherVideo.result.id;
+
+const generatedLectureCode = await call(`/api/admin/videos/${otherVideoId}/access-codes`, {
+  method: 'POST',
+  cookie: teacherLogin.cookie,
+  json: {},
+});
+expectStatus(generatedLectureCode, 201, 'authorized teacher generates one-time lecture code');
+assert.match(generatedLectureCode.result.code, /^ENG(?:-[123456789ABCDEFGHJKMNPQRSTUVWXYZ]{5}){6}$/);
+
 const studentEmail = `student-${suffix}@example.test`;
 const studentPassword = 'Student!2026';
 const registrationForm = new FormData();
@@ -237,6 +258,95 @@ const verified = await call('/api/auth/verify-code', {
 });
 expectStatus(verified, 200, 'verify student email');
 
+const anonymousRedeem = await call('/api/lecture-access-codes/redeem', {
+  method: 'POST',
+  json: { code: generatedLectureCode.result.code },
+});
+expectStatus(anonymousRedeem, 401, 'anonymous user cannot redeem a lecture code');
+const studentGeneration = await call(`/api/admin/videos/${videoId}/access-codes`, {
+  method: 'POST',
+  cookie: studentCookie,
+  json: {},
+});
+expectStatus(studentGeneration, 401, 'ordinary student cannot generate lecture codes');
+const beforeCodeAccess = await call(`/api/videos/${otherVideoId}/resolve`, { cookie: studentCookie });
+expectStatus(beforeCodeAccess, 403, 'student cannot access target lecture before redemption');
+const redeemedLecture = await call('/api/lecture-access-codes/redeem', {
+  method: 'POST',
+  cookie: studentCookie,
+  json: { code: generatedLectureCode.result.code },
+});
+expectStatus(redeemedLecture, 200, 'student redeems a valid one-time lecture code');
+assert.equal(redeemedLecture.result.lecture.videoId, otherVideoId);
+assert.equal(redeemedLecture.result.lecture.courseId, courseId);
+const grantedDashboard = await call('/api/dashboard', { cookie: studentCookie });
+assert.ok(grantedDashboard.result.lectureAccess.some((item) => item.videoId === otherVideoId));
+const grantedVideo = await call(`/api/videos/${otherVideoId}/resolve`, { cookie: studentCookie });
+expectStatus(grantedVideo, 200, 'redeemed student can resolve the selected lecture');
+const unrelatedVideo = await call(`/api/videos/${videoId}/resolve`, { cookie: studentCookie });
+expectStatus(unrelatedVideo, 403, 'lecture grant does not unlock another lecture or the course');
+const replayByOwner = await call('/api/lecture-access-codes/redeem', {
+  method: 'POST',
+  cookie: studentCookie,
+  json: { code: generatedLectureCode.result.code },
+});
+expectStatus(replayByOwner, 409, 'consumed lecture code cannot be replayed by its owner');
+
+const secondStudentEmail = `second-${suffix}@example.test`;
+const secondRegistrationForm = new FormData();
+for (const [key, value] of Object.entries({
+  email: secondStudentEmail,
+  password: studentPassword,
+  password_confirm: studentPassword,
+  first_name: 'Second',
+  second_name: 'Student',
+  third_name: '',
+  last_name: suffix,
+  phone: '01000000011',
+  father_phone: '01000000012',
+  mother_phone: '01000000013',
+  school_name: 'E2E School',
+  parent_job: 'Tester',
+  governorate: 'القاهرة',
+  gender: 'ذكر',
+  grade: 'تالتة ثانوي',
+  section: 'علمي علوم',
+  account_use_agreement: 'accepted',
+})) {
+  secondRegistrationForm.set(key, value);
+}
+secondRegistrationForm.set(
+  'birth_certificate',
+  new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], { type: 'image/png' }),
+  'certificate.png'
+);
+const secondRegistration = await call('/api/auth/register', {
+  method: 'POST',
+  body: secondRegistrationForm,
+});
+expectStatus(secondRegistration, 200, 'second student registration');
+const secondCookie = secondRegistration.cookie;
+const secondVerified = await call('/api/auth/verify-code', {
+  method: 'POST',
+  cookie: secondCookie,
+  json: { code: secondRegistration.result.testCode },
+});
+expectStatus(secondVerified, 200, 'verify second student email');
+const replayBySecondStudent = await call('/api/lecture-access-codes/redeem', {
+  method: 'POST',
+  cookie: secondCookie,
+  json: { code: generatedLectureCode.result.code },
+});
+expectStatus(replayBySecondStudent, 409, 'another student cannot reuse the consumed code');
+const secondStudentVideo = await call(`/api/videos/${otherVideoId}/resolve`, { cookie: secondCookie });
+expectStatus(secondStudentVideo, 403, 'losing student receives no lecture access');
+const deleteSecondStudent = await call('/api/users/me', {
+  method: 'DELETE',
+  cookie: secondCookie,
+  json: { password: studentPassword },
+});
+expectStatus(deleteSecondStudent, 200, 'second E2E student cleanup');
+
 const enrollment = await call('/api/enrollments', {
   method: 'POST',
   cookie: studentCookie,
@@ -246,6 +356,11 @@ expectStatus(enrollment, 200, 'student submits payment');
 
 const bootstrap = await call('/api/admin/bootstrap', { cookie: teacherLogin.cookie });
 expectStatus(bootstrap, 200, 'teacher dashboard');
+const redeemedHistory = bootstrap.result.accessCodes.find((item) => item.videoId === otherVideoId);
+assert.ok(redeemedHistory, 'teacher sees masked lecture-code history');
+assert.ok(redeemedHistory.redeemedAt, 'teacher sees the code as redeemed');
+assert.equal(redeemedHistory.displaySuffix, generatedLectureCode.result.displaySuffix);
+assert.equal(JSON.stringify(bootstrap.result).includes(generatedLectureCode.result.code), false);
 const enrollmentRow = bootstrap.result.enrollments.find(
   (item) => item.userEmail === studentEmail && item.courseId === courseId
 );
@@ -316,8 +431,12 @@ const completedVideo = await call(`/api/videos/${videoId}/complete`, {
   json: { completionToken: resolvedVideo.result.completionToken },
 });
 expectStatus(completedVideo, 200, 'signed lesson completion proof succeeds after watch time');
-const studentLogout = await call('/student/logout', { cookie: studentCookie });
-expectStatus(studentLogout, 303, 'student logout');
+const studentLogout = await call('/student/logout', {
+  method: 'POST',
+  cookie: studentCookie,
+  json: {},
+});
+expectStatus(studentLogout, 200, 'student logout');
 assert.ok(studentLogout.cookie);
 const dashboardAfterLogout = await call('/api/dashboard', { cookie: studentLogout.cookie });
 expectStatus(dashboardAfterLogout, 401, 'student session is cleared on logout');
@@ -358,6 +477,12 @@ const graderAssignment = await call('/api/admin/assignments', {
   json: { courseId, title: 'Forbidden assignment' },
 });
 expectStatus(graderAssignment, 403, 'grader cannot create assignments');
+const graderLectureCode = await call(`/api/admin/videos/${videoId}/access-codes`, {
+  method: 'POST',
+  cookie: graderLogin.cookie,
+  json: {},
+});
+expectStatus(graderLectureCode, 403, 'staff without manage_videos cannot generate lecture codes');
 
 const managerEmail = `manager-${suffix}@staff.test`;
 const createManager = await call('/api/admin/staff', {
@@ -439,13 +564,19 @@ const postResetLogin = await call('/api/auth/login', {
 });
 expectStatus(postResetLogin, 200, 'new student password works');
 
-const accountDeletion = await call('/api/users/me', {
-  method: 'DELETE',
-  cookie: postResetLogin.cookie,
-  json: { password: newStudentPassword },
-});
-expectStatus(accountDeletion, 200, 'student account and birth certificate are deleted');
+if (process.env.MOBILE_QA_FIXTURES === 'true') {
+  console.log(
+    `MOBILE_QA_FIXTURES=${JSON.stringify({ teacherEmail, teacherPassword, studentEmail, studentPassword: newStudentPassword, courseId, examId, videoId, attemptId: submitted.result.attemptId })}`
+  );
+} else {
+  const accountDeletion = await call('/api/users/me', {
+    method: 'DELETE',
+    cookie: postResetLogin.cookie,
+    json: { password: newStudentPassword },
+  });
+  expectStatus(accountDeletion, 200, 'student account and birth certificate are deleted');
+}
 
 console.log(
-  'E2E PASS: auth, reset, course/exam editing, assignments, read notifications, payment, quiz timing/gate, completion proof, storage deletion, and staff permissions'
+  `E2E PASS: auth, reset, one-time lecture code generation/redemption/isolation, course/exam editing, assignments, read notifications, payment, quiz timing/gate, completion proof, ${process.env.MOBILE_QA_FIXTURES === 'true' ? 'mobile QA fixture retention' : 'storage deletion'}, and staff permissions`
 );

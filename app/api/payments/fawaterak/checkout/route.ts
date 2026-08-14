@@ -13,6 +13,10 @@ type StudentRow = {
   phone: string;
 };
 
+function isUniqueViolation(error: unknown) {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
+}
+
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
@@ -63,6 +67,13 @@ export async function POST(request: Request) {
   const amountMinor = Math.round(course.price * 100);
 
   if (existingEnrollment) {
+    const activeIntent = await db
+      .prepare(
+        "SELECT id FROM payment_intents WHERE enrollment_id = ? AND status IN ('creating', 'created') LIMIT 1"
+      )
+      .bind(enrollmentId)
+      .first<{ id: string }>();
+    if (activeIntent) return jsonError('Ù„Ø¯ÙŠÙƒ Ø·Ù„Ø¨ Ø¯ÙØ¹ Ù‚ÙŠØ¯ Ø§Ù„Ù…Ø¹Ø§Ù„Ø¬Ø©', 409);
     await db
       .prepare(
         "UPDATE enrollments SET status = 'pending', payment_method = 'Fawaterak', payment_reference = NULL, updated_at = ? WHERE id = ?"
@@ -70,24 +81,34 @@ export async function POST(request: Request) {
       .bind(now, enrollmentId)
       .run();
   } else {
-    await db
-      .prepare(
-        `INSERT INTO enrollments
-         (id, user_email, course_id, status, payment_method, payment_reference, created_at, updated_at)
-         VALUES (?, ?, ?, 'pending', 'Fawaterak', NULL, ?, ?)`
-      )
-      .bind(enrollmentId, user.email.toLowerCase(), courseId, now, now)
-      .run();
+    try {
+      await db
+        .prepare(
+          `INSERT INTO enrollments
+           (id, user_email, course_id, status, payment_method, payment_reference, created_at, updated_at)
+           VALUES (?, ?, ?, 'pending', 'Fawaterak', NULL, ?, ?)`
+        )
+        .bind(enrollmentId, user.email.toLowerCase(), courseId, now, now)
+        .run();
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      return jsonError('Ù„Ø¯ÙŠÙƒ Ø·Ù„Ø¨ Ø¯ÙØ¹ Ù‚ÙŠØ¯ Ø§Ù„Ù…Ø¹Ø§Ù„Ø¬Ø©', 409);
+    }
   }
 
-  await db
-    .prepare(
-      `INSERT INTO payment_intents
-       (id, enrollment_id, user_email, course_id, gateway, amount_minor, currency, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'fawaterak', ?, 'EGP', 'creating', ?, ?)`
-    )
-    .bind(paymentIntentId, enrollmentId, user.email.toLowerCase(), courseId, amountMinor, now, now)
-    .run();
+  try {
+    await db
+      .prepare(
+        `INSERT INTO payment_intents
+         (id, enrollment_id, user_email, course_id, gateway, amount_minor, currency, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'fawaterak', ?, 'EGP', 'creating', ?, ?)`
+      )
+      .bind(paymentIntentId, enrollmentId, user.email.toLowerCase(), courseId, amountMinor, now, now)
+      .run();
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    return jsonError('Ù„Ø¯ÙŠÙƒ Ø·Ù„Ø¨ Ø¯ÙØ¹ Ù‚ÙŠØ¯ Ø§Ù„Ù…Ø¹Ø§Ù„Ø¬Ø©', 409);
+  }
 
   try {
     const origin = resolvePublicAppOrigin(
