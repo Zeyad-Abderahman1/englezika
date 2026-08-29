@@ -49,6 +49,18 @@ export default function QuizRunner({ examId }: { examId: string }) {
 
   useEffect(() => {
     const load = async () => {
+      const startResponse = await fetch(`/api/exams/${examId}/start`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+        cache: 'no-store',
+      });
+      const startData = (await startResponse.json().catch(() => ({}))) as { error?: string };
+      if (!startResponse.ok) {
+        setError(startData.error || 'تعذر بدء الامتحان');
+        setLoading(false);
+        return;
+      }
       const response = await fetch(`/api/exams/${examId}`, { cache: 'no-store' });
       const data = (await response.json().catch(() => ({}))) as ExamPayload & { error?: string };
       if (!response.ok) {
