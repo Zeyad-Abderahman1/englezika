@@ -22,6 +22,7 @@ export async function POST(request: Request) {
   const dueAt = optionalTimestamp(body.dueAt);
   const maxScore = safeInteger(body.maxScore, 0, 0, 10_000);
   const status = body.status === 'published' ? 'published' : 'draft';
+  const type = body.type === 'mcq' ? 'mcq' : body.type === 'generic' ? 'generic' : 'pdf';
   if (!courseId || title.length < 3) return jsonError('اختر الكورس وأدخل عنواناً صحيحاً للواجب');
   if (body.dueAt !== undefined && dueAt === undefined)
     return jsonError('موعد تسليم الواجب غير صالح');
@@ -32,13 +33,14 @@ export async function POST(request: Request) {
 
   const id = crypto.randomUUID();
   const now = Date.now();
+
   await db
     .prepare(
       `INSERT INTO assignments
-       (id, course_id, title, description, due_at, max_score, status, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (id, course_id, title, description, due_at, max_score, status, type, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .bind(id, courseId, title, description, dueAt ?? null, maxScore, status, staff.email, now, now)
+    .bind(id, courseId, title, description, dueAt ?? null, maxScore, status, type, staff.email, now, now)
     .run();
   return Response.json({ ok: true, id });
 }

@@ -21,7 +21,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const existing = await db
     .prepare(
       `SELECT course_id AS courseId, title, description, due_at AS dueAt,
-       max_score AS maxScore, status FROM assignments WHERE id = ?`
+       max_score AS maxScore, status, COALESCE(type, 'pdf') AS type FROM assignments WHERE id = ?`
     )
     .bind(id)
     .first<Record<string, unknown>>();
@@ -38,6 +38,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       : body.status === 'published'
         ? 'published'
         : 'draft';
+  const rawType = body.type === undefined ? String(existing.type) : String(body.type);
+  const type = rawType === 'mcq' ? 'mcq' : rawType === 'generic' ? 'generic' : 'pdf';
+
   if (!courseId || title.length < 3) return jsonError('بيانات الواجب غير مكتملة');
   if (dueAt === undefined) return jsonError('موعد تسليم الواجب غير صالح');
   const course = await db.prepare('SELECT id FROM courses WHERE id = ?').bind(courseId).first();
@@ -46,10 +49,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   await db
     .prepare(
       `UPDATE assignments SET course_id = ?, title = ?, description = ?, due_at = ?,
-       max_score = ?, status = ?, updated_at = ? WHERE id = ?`
+       max_score = ?, status = ?, type = ?, updated_at = ? WHERE id = ?`
     )
-    .bind(courseId, title, description, dueAt, maxScore, status, Date.now(), id)
+    .bind(courseId, title, description, dueAt, maxScore, status, type, Date.now(), id)
     .run();
+
   await db
     .prepare(
       "DELETE FROM notification_reads WHERE notification_type = 'assignment' AND notification_id = ?"
