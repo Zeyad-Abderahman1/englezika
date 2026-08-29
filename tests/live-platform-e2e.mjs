@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
+import { Client } from 'pg';
 
 const base = process.env.TEST_BASE_URL || 'http://localhost:4180';
 const teacherEmail = process.env.TEST_TEACHER_EMAIL || 'teacher@test.local';
@@ -29,6 +31,12 @@ async function call(path, { cookie, json, body, headers = {}, method = 'GET' } =
 
 function expectStatus(value, status, label) {
   assert.equal(value.response.status, status, `${label}: ${JSON.stringify(value.result)}`);
+}
+
+function signPaymentWebhook(transactionId, transactionKey, paymentMethod, secret) {
+  return createHmac('sha256', secret)
+    .update(`TransactionId=${transactionId}&TransactionKey=${transactionKey}&PaymentMethod=${paymentMethod}`)
+    .digest('hex');
 }
 
 const anonymousAdmin = await call('/api/admin/bootstrap');
@@ -372,6 +380,87 @@ const approved = await call(`/api/admin/enrollments/${enrollmentRow.id}`, {
 });
 expectStatus(approved, 200, 'teacher approves payment');
 
+const assignmentDetails = await call(`/api/student/assignments/${assignmentId}`, {
+  cookie: studentCookie,
+});
+expectStatus(assignmentDetails, 200, 'enrolled student opens assignment');
+assert.equal(assignmentDetails.result.submission, null);
+const assignmentAnswer = new FormData();
+assignmentAnswer.set(
+  'file',
+  new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a])], {
+    type: 'application/pdf',
+  }),
+  'answer.pdf'
+);
+const assignmentSubmission = await call(`/api/student/assignments/${assignmentId}/submit`, {
+  method: 'POST',
+  cookie: studentCookie,
+  body: assignmentAnswer,
+});
+expectStatus(assignmentSubmission, 200, 'student submits a PDF assignment');
+assert.ok(assignmentSubmission.result.submissionId);
+const duplicateAssignmentSubmission = await call(
+  `/api/student/assignments/${assignmentId}/submit`,
+  {
+    method: 'POST',
+    cookie: studentCookie,
+    body: assignmentAnswer,
+  }
+);
+expectStatus(duplicateAssignmentSubmission, 409, 'assignment cannot be submitted twice');
+const submittedAssignmentDetails = await call(`/api/student/assignments/${assignmentId}`, {
+  cookie: studentCookie,
+});
+expectStatus(submittedAssignmentDetails, 200, 'student sees submitted assignment');
+assert.equal(submittedAssignmentDetails.result.submission.status, 'submitted');
+assert.equal(submittedAssignmentDetails.result.submission.hasPdf, 1);
+
+const webhookSecret = 'e2e-fawaterak-vendor-secret';
+const webhookTransactionKey = `e2e-intent-${suffix}`;
+const webhookTransactionId = `e2e-transaction-${suffix}`;
+const paymentDb = new Client({ connectionString: process.env.DATABASE_URL });
+await paymentDb.connect();
+const paymentCreatedAt = Date.now();
+await paymentDb.query(
+  "UPDATE enrollments SET status = 'pending', updated_at = $1 WHERE id = $2",
+  [paymentCreatedAt, enrollmentRow.id]
+);
+await paymentDb.query(
+  `INSERT INTO payment_intents
+     (id, enrollment_id, user_email, course_id, gateway, transaction_key, amount_minor,
+      currency, status, created_at, updated_at)
+   VALUES ($1, $2, $3, $4, 'fawaterak', $5, 17500, 'EGP', 'created', $6, $6)`,
+  [crypto.randomUUID(), enrollmentRow.id, studentEmail, courseId, webhookTransactionKey, paymentCreatedAt]
+);
+await paymentDb.end();
+const webhookPayload = {
+  transaction_key: webhookTransactionKey,
+  transaction_id: webhookTransactionId,
+  payment_method: 'Fawry',
+  transactionHashKey: signPaymentWebhook(
+    webhookTransactionId,
+    webhookTransactionKey,
+    'Fawry',
+    webhookSecret
+  ),
+  status: 'paid',
+  paidAmount: '175.00',
+  paidCurrency: 'EGP',
+};
+const paymentWebhook = await call('/api/payments/fawaterak/webhook', {
+  method: 'POST',
+  json: webhookPayload,
+});
+expectStatus(paymentWebhook, 200, 'signed payment webhook approves enrollment');
+assert.equal(paymentWebhook.result.status, 'ok');
+const paymentWebhookReplay = await call('/api/payments/fawaterak/webhook', {
+  method: 'POST',
+  json: webhookPayload,
+});
+expectStatus(paymentWebhookReplay, 200, 'payment webhook is idempotent');
+assert.equal(paymentWebhookReplay.result.status, 'ok');
+
 const notificationsBeforeRead = await call('/api/dashboard', { cookie: studentCookie });
 expectStatus(notificationsBeforeRead, 200, 'student receives assignments and alerts');
 assert.equal(
@@ -424,6 +513,14 @@ expectStatus(unlockedVideo, 409, 'raw video download remains unavailable after q
 const resolvedVideo = await call(`/api/videos/${videoId}/resolve`, { cookie: studentCookie });
 expectStatus(resolvedVideo, 200, 'student resolves completion proof');
 assert.equal(resolvedVideo.result.kind, 'youtube');
+const embeddedVideo = await call(resolvedVideo.result.sourceUrl, { cookie: studentCookie });
+expectStatus(embeddedVideo, 200, 'authorized student opens YouTube embed frame');
+assert.match(embeddedVideo.result, /new YT\.Player/);
+assert.equal(
+  embeddedVideo.response.headers.get('content-security-policy'),
+  "default-src 'none'; script-src 'unsafe-inline' https://www.youtube.com https://s.ytimg.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; connect-src https://www.youtube.com https://*.googlevideo.com; img-src data: https://i.ytimg.com https://*.ggpht.com; style-src 'unsafe-inline'; frame-ancestors 'self'"
+);
+assert.equal(embeddedVideo.response.headers.get('x-frame-options'), 'SAMEORIGIN');
 const earlyCompletion = await call(`/api/videos/${videoId}/complete`, {
   method: 'POST',
   cookie: studentCookie,
@@ -437,6 +534,35 @@ const completedVideo = await call(`/api/videos/${videoId}/complete`, {
   json: { completionToken: resolvedVideo.result.completionToken },
 });
 expectStatus(completedVideo, 200, 'signed lesson completion proof succeeds after watch time');
+
+const expiryStart = await call(`/api/exams/${examId}/start`, {
+  method: 'POST',
+  cookie: studentCookie,
+  json: {},
+});
+expectStatus(expiryStart, 200, 'student starts a second exam session for expiry check');
+const expiryDb = new Client({ connectionString: process.env.DATABASE_URL });
+await expiryDb.connect();
+await expiryDb.query('UPDATE exam_sessions SET expires_at = $1 WHERE id = $2', [
+  Date.now() - 1,
+  expiryStart.result.session.id,
+]);
+await expiryDb.end();
+const expiryRecovery = await call(`/api/exams/${examId}/start`, {
+  method: 'POST',
+  cookie: studentCookie,
+  json: {},
+});
+expectStatus(expiryRecovery, 200, 'expired exam session is claimed before a fresh session');
+assert.notEqual(expiryRecovery.result.session.id, expiryStart.result.session.id);
+const expiredAttemptDb = new Client({ connectionString: process.env.DATABASE_URL });
+await expiredAttemptDb.connect();
+const expiredAttempt = await expiredAttemptDb.query(
+  "SELECT id FROM attempts WHERE exam_id = $1 AND user_email = $2 AND status = 'expired' LIMIT 1",
+  [examId, studentEmail]
+);
+await expiredAttemptDb.end();
+assert.equal(expiredAttempt.rowCount, 1, 'expired session creates one timeout attempt');
 const studentLogout = await call('/student/logout', {
   method: 'POST',
   cookie: studentCookie,
@@ -584,5 +710,5 @@ if (process.env.MOBILE_QA_FIXTURES === 'true') {
 }
 
 console.log(
-  `E2E PASS: auth, reset, one-time lecture code generation/redemption/isolation, course/exam editing, assignments, read notifications, payment, quiz timing/gate, completion proof, ${process.env.MOBILE_QA_FIXTURES === 'true' ? 'mobile QA fixture retention' : 'storage deletion'}, and staff permissions`
+  `E2E PASS: auth, reset, one-time lecture code generation/redemption/isolation, course/exam editing, assignment submission and duplicate rejection, signed payment webhook approval/idempotency, read notifications, payment, quiz timing/gate/expiry, completion proof, ${process.env.MOBILE_QA_FIXTURES === 'true' ? 'mobile QA fixture retention' : 'storage deletion'}, and staff permissions`
 );
