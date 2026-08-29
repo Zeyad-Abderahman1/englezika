@@ -7,6 +7,9 @@ on:
     branches: [main, master, staging, develop]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     name: Build, lint and test
@@ -30,7 +33,11 @@ jobs:
       PRIVATE_STORAGE_DIR: ${{ github.workspace }}/storage/private
       VERIFICATION_SECRET: ci-verification-secret-that-is-long-enough
       VIDEO_RESOLVE_SECRET: ci-video-secret-that-is-long-enough
-      EMAIL_TEST_MODE: 'true'
+      EMAIL_TEST_MODE: 'false'
+      RESEND_API_KEY: ci-resend-key-for-build-only
+      EMAIL_FROM: ci@example.test
+      APP_URL: https://ci.example.test
+      TRUSTED_PROXY_IP_HEADER: x-real-ip
       INITIAL_STAFF_EMAIL: bootstrap@example.test
       INITIAL_STAFF_NAME: CI Bootstrap Staff
       INITIAL_STAFF_PASSWORD_HASH: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -39,10 +46,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
           cache: npm
@@ -66,4 +73,7 @@ jobs:
         run: npm run test:e2e
 
       - name: Dependency audit
-        run: npm audit --audit-level=high --omit=dev || true
+        run: npm audit --audit-level=high
+
+      - name: Production dependency audit
+        run: npm audit --audit-level=high --omit=dev
