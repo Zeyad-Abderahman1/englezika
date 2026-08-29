@@ -10,6 +10,7 @@ export type EnvValidationResult = {
 export function validatePlatformEnv(): EnvValidationResult {
   const env = getPlatformEnv();
   const errors: string[] = [];
+  const isProduction = process.env.NODE_ENV === 'production';
 
   if (!process.env.DATABASE_URL?.trim()) {
     errors.push("Required PostgreSQL connection string 'DATABASE_URL' is missing");
@@ -27,6 +28,26 @@ export function validatePlatformEnv(): EnvValidationResult {
     errors.push(
       "Required secret 'VERIFICATION_SECRET' (or 'SESSION_SECRET') is missing or too short (< 24 characters)"
     );
+  }
+
+  if (isProduction) {
+    const trustedProxyHeader = env.TRUSTED_PROXY_IP_HEADER?.trim().toLowerCase();
+    if (trustedProxyHeader !== 'cf-connecting-ip' && trustedProxyHeader !== 'x-real-ip') {
+      errors.push(
+        "Production requires TRUSTED_PROXY_IP_HEADER to be 'cf-connecting-ip' or 'x-real-ip'"
+      );
+    }
+    const appUrl = env.APP_URL?.trim();
+    if (!appUrl) {
+      errors.push("Required public application URL 'APP_URL' is missing");
+    } else {
+      try {
+        const parsed = new URL(appUrl);
+        if (parsed.protocol !== 'https:') errors.push('Production APP_URL must use HTTPS');
+      } catch {
+        errors.push('Production APP_URL must be a valid URL');
+      }
+    }
   }
 
   try {

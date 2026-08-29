@@ -1,5 +1,6 @@
 import { getDatabase } from './platform';
 import { captureMessage } from './observability';
+import { getClientIp } from './rate-limit';
 
 export type AuditLogEntry = {
   userEmail: string;
@@ -20,11 +21,8 @@ export async function recordAuditLog(entry: AuditLogEntry): Promise<void> {
   let userAgent: string | null = null;
 
   if (entry.request) {
-    ip =
-      entry.request.headers.get('cf-connecting-ip') ||
-      entry.request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      '127.0.0.1';
-    userAgent = entry.request.headers.get('user-agent') || null;
+    ip = getClientIp(entry.request);
+    userAgent = entry.request.headers.get('user-agent')?.slice(0, 500) || null;
   }
 
   const detailsJson = entry.details ? JSON.stringify(entry.details) : null;

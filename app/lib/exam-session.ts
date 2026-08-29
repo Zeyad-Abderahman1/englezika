@@ -44,30 +44,27 @@ export async function startOrResumeExamSession(
 
   if (session?.status === 'active' && session.expiresAt <= now) {
     const timeoutAttemptId = crypto.randomUUID();
-    await db.batch([
-      db
-        .prepare(
-          `INSERT INTO attempts
+    await db
+      .prepare(
+        `WITH expired_session AS (
+           UPDATE exam_sessions SET status = 'expired'
+           WHERE id = ? AND exam_id = ? AND user_email = ?
+             AND status = 'active' AND expires_at <= ?
+           RETURNING exam_id, user_email, started_at
+         )
+         INSERT INTO attempts
            (id, exam_id, user_email, status, score, max_score, feedback,
             grading_method, started_at, submitted_at)
-           SELECT ?, ?, ?, 'expired', 0,
-             COALESCE((SELECT SUM(points) FROM questions WHERE exam_id = ?), 0),
-             'Exam time expired before submission.', 'timeout', started_at, ?
-           FROM exam_sessions
-           WHERE id = ? AND exam_id = ? AND user_email = ?
-             AND status = 'active' AND expires_at <= ?`
-        )
-        .bind(timeoutAttemptId, examId, email, examId, now, session.id, examId, email, now),
-      db
-        .prepare(
-          `UPDATE exam_sessions SET status = 'expired'
-           WHERE id = ? AND exam_id = ? AND user_email = ?
-             AND status = 'active' AND expires_at <= ?`
-        )
-        .bind(session.id, examId, email, now),
-    ]);
+         SELECT ?, exam_id, user_email, 'expired', 0,
+           COALESCE((SELECT SUM(points) FROM questions WHERE exam_id = expired_session.exam_id), 0),
+           'Exam time expired before submission.', 'timeout', started_at, ?
+         FROM expired_session
+         RETURNING id`
+      )
+      .bind(session.id, examId, email, now, timeoutAttemptId, now)
+      .first<{ id: string }>();
     session = await loadSession(db, examId, email);
-    if (session?.status === 'active') return { kind: 'ready', session };
+    if (session?.status === 'active' && session.expiresAt > now) return { kind: 'ready', session };
   }
 
   const safeMaximum = Number.isSafeInteger(maxAttempts) && maxAttempts > 0 ? maxAttempts : 1;

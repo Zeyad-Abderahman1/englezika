@@ -398,6 +398,12 @@ const lockedVideo = await call(`/api/videos/${videoId}`, { cookie: studentCookie
 expectStatus(lockedVideo, 403, 'lesson blocked before quiz');
 assert.equal(lockedVideo.result.code, 'LESSON_QUIZ_REQUIRED');
 
+const startedExam = await call(`/api/exams/${examId}/start`, {
+  method: 'POST',
+  cookie: studentCookie,
+  json: {},
+});
+expectStatus(startedExam, 200, 'student starts quiz');
 const openedExam = await call(`/api/exams/${examId}`, { cookie: studentCookie });
 expectStatus(openedExam, 200, 'student opens quiz');
 const resumedExam = await call(`/api/exams/${examId}`, { cookie: studentCookie });

@@ -69,7 +69,7 @@ export async function POST(request: Request) {
   if (status === 'paid') {
     if (
       paidAmountMinor === null ||
-      paidAmountMinor < paymentIntent.amountMinor ||
+      paidAmountMinor !== paymentIntent.amountMinor ||
       paidCurrency !== paymentIntent.currency
     ) {
       await db

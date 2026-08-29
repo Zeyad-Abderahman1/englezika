@@ -1,13 +1,16 @@
 import { apiVerifiedUser, isResponse } from '../../../lib/api-auth';
+import { examAvailabilityError, loadStudentExam } from '../../../lib/exam-access';
 import { gradeWrittenAnswers, type WrittenGradingInput } from '../../../lib/grading';
+import { claimExamSession, releaseExamSessionClaim } from '../../../lib/exam-session';
 import { getDatabase } from '../../../lib/platform';
 import { invalidateLeaderboardCache } from '../../../lib/leaderboard-cache';
-import { jsonError, requireSameOrigin, safeText } from '../../../lib/security';
+import { checkRateLimit, getClientIp, rateLimitResponse } from '../../../lib/rate-limit';
 import {
-  claimExamSession,
-  releaseExamSessionClaim,
-  startOrResumeExamSession,
-} from '../../../lib/exam-session';
+  jsonError,
+  requestBodyWithinLimit,
+  requireSameOrigin,
+  safeText,
+} from '../../../lib/security';
 
 type QuestionRow = {
   id: string;
@@ -20,58 +23,38 @@ type QuestionRow = {
   sortOrder: number;
 };
 
-async function loadExam(id: string, email: string) {
-  const db = getDatabase();
-  const exam = await db
-    .prepare(
-      `SELECT x.id, x.course_id AS courseId, x.title, x.description, x.instructions,
-     x.duration_minutes AS durationMinutes, x.passing_score AS passingScore,
-     x.max_attempts AS maxAttempts,
-     x.opens_at AS opensAt, x.closes_at AS closesAt
-     FROM exams x LEFT JOIN enrollments e
-     ON e.course_id = x.course_id AND e.user_email = ? AND e.status = 'approved'
-     WHERE x.id = ? AND x.status = 'published' AND (x.course_id IS NULL OR e.id IS NOT NULL)`
-    )
-    .bind(email, id)
-    .first<Record<string, unknown>>();
-  return exam;
-}
-
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await apiVerifiedUser();
   if (isResponse(user)) return user;
   const { id } = await params;
-  const exam = await loadExam(id, user.email.toLowerCase());
-  if (!exam) return jsonError('الامتحان غير متاح لحسابك', 404);
-  const now = Date.now();
-  if (exam.opensAt && Number(exam.opensAt) > now) return jsonError('الامتحان لم يبدأ بعد', 403);
-  if (exam.closesAt && Number(exam.closesAt) < now)
-    return jsonError('انتهى وقت إتاحة الامتحان', 403);
   const email = user.email.toLowerCase();
-  const sessionResult = await startOrResumeExamSession(
-    getDatabase(),
-    id,
-    email,
-    Number(exam.durationMinutes || 30),
-    Number(exam.maxAttempts || 3),
-    now
-  );
-  if (sessionResult.kind === 'attempt_limit') {
-    return jsonError('انتهى عدد المحاولات المتاحة لهذا الاختبار', 409);
+  const exam = await loadStudentExam(id, email);
+  if (!exam) return jsonError('الامتحان غير متاح لحسابك', 404);
+  const availabilityError = examAvailabilityError(exam, Date.now());
+  if (availabilityError === 'not-open') return jsonError('الامتحان لم يبدأ بعد', 403);
+  if (availabilityError === 'closed') return jsonError('انتهى وقت إتاحة الامتحان', 403);
+
+  const session = await getDatabase()
+    .prepare(
+      `SELECT id, started_at AS startedAt, expires_at AS expiresAt, status
+       FROM exam_sessions WHERE exam_id = ? AND user_email = ?`
+    )
+    .bind(id, email)
+    .first<{ id: string; startedAt: number; expiresAt: number; status: string }>();
+  if (!session || session.status !== 'active' || Number(session.expiresAt) <= Date.now()) {
+    return jsonError('ابدأ الامتحان من حسابك أولاً', 409);
   }
-  if (sessionResult.kind === 'busy') {
-    return jsonError('جاري تسليم هذا الامتحان', 409);
-  }
+
   const result = await getDatabase()
     .prepare(
       `SELECT id, sort_order AS sortOrder, type, prompt, options, points
-     FROM questions WHERE exam_id = ? ORDER BY sort_order`
+       FROM questions WHERE exam_id = ? ORDER BY sort_order`
     )
     .bind(id)
     .all();
   return Response.json({
     exam,
-    session: sessionResult.session,
+    session,
     questions: result.results.map((question) => ({
       ...question,
       options: question.options ? JSON.parse(String(question.options)) : [],
@@ -84,13 +67,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (originError) return originError;
   const user = await apiVerifiedUser();
   if (isResponse(user)) return user;
+  if (!requestBodyWithinLimit(request, 768 * 1024)) {
+    return jsonError('حجم الطلب غير صالح أو يتجاوز الحد المسموح', 413);
+  }
   const { id } = await params;
   const email = user.email.toLowerCase();
-  const exam = await loadExam(id, email);
+  const submitRate = await checkRateLimit('exam-submit', `${getClientIp(request)}:${email}`, 10, 60);
+  if (!submitRate.allowed) return rateLimitResponse(submitRate.resetAfterSeconds);
+  const exam = await loadStudentExam(id, email);
   if (!exam) return jsonError('الامتحان غير متاح لحسابك', 404);
   const now = Date.now();
-  if (exam.opensAt && Number(exam.opensAt) > now) return jsonError('الامتحان لم يبدأ بعد', 403);
-  if (exam.closesAt && Number(exam.closesAt) < now) return jsonError('انتهى وقت الامتحان', 403);
+  const availabilityError = examAvailabilityError(exam, now);
+  if (availabilityError === 'not-open') return jsonError('الامتحان لم يبدأ بعد', 403);
+  if (availabilityError === 'closed') return jsonError('انتهى وقت الامتحان', 403);
   const attemptCount = await getDatabase()
     .prepare('SELECT COUNT(*) AS count FROM attempts WHERE exam_id = ? AND user_email = ?')
     .bind(id, email)
@@ -113,12 +102,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .first<{ id: string; startedAt: number; expiresAt: number; status: string }>();
   if (!session || session.status !== 'active')
     return jsonError('جلسة الامتحان غير صالحة، افتح الامتحان من حسابك', 409);
-  if (now > Number(session.expiresAt)) return jsonError('انتهى وقت الامتحان', 408);
+  if (now >= Number(session.expiresAt)) return jsonError('انتهى وقت الامتحان', 408);
   const answers = payload.answers && typeof payload.answers === 'object' ? payload.answers : {};
   const questionResult = await getDatabase()
     .prepare(
       `SELECT id, sort_order AS sortOrder, type, prompt, options, correct_answer AS correctAnswer,
-     rubric, points FROM questions WHERE exam_id = ? ORDER BY sort_order`
+       rubric, points FROM questions WHERE exam_id = ? ORDER BY sort_order`
     )
     .bind(id)
     .all<QuestionRow>();
@@ -171,9 +160,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const percentage = maxScore ? Math.round((score / maxScore) * 100) : 0;
   const submittedAt = Date.now();
   const claimedSession = await claimExamSession(getDatabase(), sessionId, id, email, submittedAt);
-  if (!claimedSession) {
-    return jsonError('جلسة الامتحان انتهت أو تم تسليمها', 409);
-  }
+  if (!claimedSession) return jsonError('جلسة الامتحان انتهت أو تم تسليمها', 409);
   const attemptId = crypto.randomUUID();
   const startedAt = Number(claimedSession.startedAt);
   const feedback =
@@ -186,20 +173,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       db
         .prepare(
           `INSERT INTO attempts
-       (id, exam_id, user_email, status, score, max_score, feedback, grading_method, started_at, submitted_at)
-       VALUES (?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?)`
+         (id, exam_id, user_email, status, score, max_score, feedback, grading_method, started_at, submitted_at)
+         VALUES (?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?)`
         )
-        .bind(
-          attemptId,
-          id,
-          email,
-          score,
-          maxScore,
-          feedback,
-          written.method,
-          startedAt,
-          submittedAt
-        ),
+        .bind(attemptId, id, email, score, maxScore, feedback, written.method, startedAt, submittedAt),
       ...allAnswers.map((item) =>
         db
           .prepare(
@@ -215,9 +192,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           )
       ),
       db
-        .prepare(
-          "UPDATE exam_sessions SET status = 'submitted' WHERE id = ? AND status = 'submitting'"
-        )
+        .prepare("UPDATE exam_sessions SET status = 'submitted' WHERE id = ? AND status = 'submitting'")
         .bind(claimedSession.id),
     ]);
   } catch (error) {

@@ -14,6 +14,8 @@ export async function POST(request: Request) {
   }
   if (!/^\d{6}$/.test(code)) return jsonError('أدخل كود التفعيل المكون من 6 أرقام');
 
+  const ipRateCheck = await checkRateLimit('verify-email-ip', getClientIp(request), 20, 60);
+  if (!ipRateCheck.allowed) return rateLimitResponse(ipRateCheck.resetAfterSeconds);
   const rateCheck = await checkRateLimit(
     'verify-email',
     `${getClientIp(request)}:${email}`,

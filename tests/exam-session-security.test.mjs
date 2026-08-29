@@ -29,6 +29,20 @@ class ExamDatabase {
 
       async first() {
         const normalizedSql = sql.replace(/\s+/g, ' ').trim();
+        if (normalizedSql.startsWith('WITH expired_session AS')) {
+          const [sessionId, examId, email, now, timeoutAttemptId, submittedAt] = this.bindings;
+          const session = database.sessions.get(database.key(examId, email));
+          if (
+            session?.id === sessionId &&
+            session.status === 'active' &&
+            session.expiresAt <= now
+          ) {
+            session.status = 'expired';
+            database.attempts.push({ examId, email, submittedAt, status: 'expired' });
+            return { id: timeoutAttemptId };
+          }
+          return null;
+        }
         if (normalizedSql.startsWith('SELECT id, started_at AS startedAt')) {
           const [examId, email] = this.bindings;
           const session = database.sessions.get(database.key(examId, email));

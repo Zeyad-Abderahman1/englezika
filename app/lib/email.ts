@@ -8,6 +8,17 @@ export type EmailTemplate =
   | { type: 'password_reset'; resetUrl: string }
   | { type: 'enrollment_approved'; courseTitle: string };
 
+function escapeHtml(value: string): string {
+  const entities: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  };
+  return value.replace(/[&<>"']/g, (character) => entities[character] || character);
+}
+
 export function isEmailConfigured(): boolean {
   const env = getPlatformEnv();
   const hasServerSmtp = Boolean(
@@ -43,6 +54,10 @@ export async function sendTransactionalEmail(
 
   let subject = '';
   let html = '';
+  const studentName = template.type === 'welcome' ? escapeHtml(template.studentName) : '';
+  const resetUrl = template.type === 'password_reset' ? escapeHtml(template.resetUrl) : '';
+  const courseTitle =
+    template.type === 'enrollment_approved' ? escapeHtml(template.courseTitle) : '';
 
   switch (template.type) {
     case 'verification':
@@ -57,7 +72,7 @@ export async function sendTransactionalEmail(
     case 'welcome':
       subject = 'أهلاً بك في منصة إنجليزيكا للغة الإنجليزية';
       html = `<div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.8;color:#17181d">
-        <h2>أهلاً بك يا ${template.studentName}!</h2>
+        <h2>أهلاً بك يا ${studentName}!</h2>
         <p>تم تفعيل حسابك بنجاح في منصة مستر أحمد حسن. يمكنك الآن تصفح الكورسات والبدء في المذاكرة والامتحانات.</p>
       </div>`;
       break;
@@ -66,14 +81,14 @@ export async function sendTransactionalEmail(
       html = `<div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.8;color:#17181d">
         <h2>إعادة ضبط كلمة المرور</h2>
         <p>اضغط على الرابط التالي لإعادة ضبط كلمة المرور الخاصة بحسابك:</p>
-        <p><a href="${template.resetUrl}" style="color:#ef233c;font-weight:800">${template.resetUrl}</a></p>
+        <p><a href="${resetUrl}" style="color:#ef233c;font-weight:800">${resetUrl}</a></p>
       </div>`;
       break;
     case 'enrollment_approved':
       subject = `تم تفعيل اشتراكك في كورس: ${template.courseTitle}`;
       html = `<div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.8;color:#17181d">
         <h2>تهانينا! تم تفعيل الاشتراك</h2>
-        <p>تم تفعيل اشتراكك بنجاح في كورس <strong>${template.courseTitle}</strong>. استعد للبدء الآن من لوحة التحكم الخاصة بك.</p>
+        <p>تم تفعيل اشتراكك بنجاح في كورس <strong>${courseTitle}</strong>. استعد للبدء الآن من لوحة التحكم الخاصة بك.</p>
       </div>`;
       break;
   }

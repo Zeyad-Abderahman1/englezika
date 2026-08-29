@@ -22,6 +22,13 @@ export function jsonError(message: string, status = 400): Response {
   return Response.json({ error: message }, { status });
 }
 
+export function requestBodyWithinLimit(request: Request, maximum: number): boolean {
+  const rawLength = request.headers.get('content-length');
+  if (!rawLength) return false;
+  const length = Number(rawLength);
+  return Number.isSafeInteger(length) && length > 0 && length <= maximum;
+}
+
 export function requireSameOrigin(request: Request): Response | null {
   const origin = request.headers.get('origin');
   if (!origin) return null;

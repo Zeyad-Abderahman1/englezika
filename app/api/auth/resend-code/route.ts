@@ -12,12 +12,15 @@ import {
   VERIFICATION_RESEND_MS,
 } from '../../../lib/email-verification';
 import { findStudentByEmail } from '../../../lib/native-auth';
-import { checkRateLimit, rateLimitResponse } from '../../../lib/rate-limit';
+import { checkRateLimit, getClientIp, rateLimitResponse } from '../../../lib/rate-limit';
 import { jsonError, requireSameOrigin, safeText } from '../../../lib/security';
 
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
+
+  const ipRateCheck = await checkRateLimit('resend-verification-ip', getClientIp(request), 10, 60);
+  if (!ipRateCheck.allowed) return rateLimitResponse(ipRateCheck.resetAfterSeconds);
 
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const email = safeText(body.email, 200).toLowerCase();

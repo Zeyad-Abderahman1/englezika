@@ -31,6 +31,8 @@ export type PlatformEnv = {
   FAWATERAK_CLIENT_SECRET?: string;
   FAWATERAK_VENDOR_API_KEY?: string;
   APP_URL?: string;
+  SESSION_SECRET?: string;
+  TRUSTED_PROXY_IP_HEADER?: string;
 };
 
 type TestPlatform = PlatformEnv & {
@@ -78,6 +80,9 @@ export function getPlatformEnv(): PlatformEnv {
     FAWATERAK_VENDOR_API_KEY:
       injected?.FAWATERAK_VENDOR_API_KEY ?? process.env.FAWATERAK_VENDOR_API_KEY,
     APP_URL: injected?.APP_URL ?? process.env.APP_URL,
+    SESSION_SECRET: injected?.SESSION_SECRET ?? process.env.SESSION_SECRET,
+    TRUSTED_PROXY_IP_HEADER:
+      injected?.TRUSTED_PROXY_IP_HEADER ?? process.env.TRUSTED_PROXY_IP_HEADER,
   };
 }
 

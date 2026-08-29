@@ -1,5 +1,6 @@
 import { apiVerifiedUser, isResponse } from '../../lib/api-auth';
 import { getDatabase } from '../../lib/platform';
+import { checkRateLimit, rateLimitResponse } from '../../lib/rate-limit';
 import { jsonError, requireSameOrigin, safeText } from '../../lib/security';
 
 export async function POST(request: Request) {
@@ -7,6 +8,8 @@ export async function POST(request: Request) {
   if (originError) return originError;
   const user = await apiVerifiedUser();
   if (isResponse(user)) return user;
+  const rateLimit = await checkRateLimit('enrollment', user.email.toLowerCase(), 10, 60);
+  if (!rateLimit.allowed) return rateLimitResponse(rateLimit.resetAfterSeconds);
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const courseId = safeText(body.courseId, 80);
   const paymentMethod = safeText(body.paymentMethod, 60);
