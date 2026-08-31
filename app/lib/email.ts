@@ -4,6 +4,8 @@ import nodemailer from 'nodemailer';
 import {
   emailTestModeEnabled,
   isEmailProviderConfigured,
+  parseBillionmailPort,
+  parseBillionmailSecure,
   selectedEmailProvider,
 } from './email-config';
 
@@ -124,6 +126,46 @@ export async function sendTransactionalEmail(
       return { success: true, deliveryId: delivery.messageId };
     } catch (error) {
       captureException(error, { module: 'email-delivery', toEmail, templateType: template.type });
+      return { success: false };
+    }
+  }
+
+  if (provider === 'billionmail') {
+    const bmHost = env.BILLIONMAIL_SMTP_HOST!.trim();
+    const bmUser = env.BILLIONMAIL_SMTP_USER!.trim();
+    const bmPassword = env.BILLIONMAIL_SMTP_PASSWORD!.trim();
+    const bmPort = parseBillionmailPort(env);
+    const bmSecure = parseBillionmailSecure(env);
+
+    const transporter = nodemailer.createTransport({
+      host: bmHost,
+      port: bmPort,
+      // secure=true → immediate TLS (port 465)
+      // secure=false → plain then STARTTLS upgrade (port 587)
+      secure: bmSecure,
+      auth: { user: bmUser, pass: bmPassword },
+      // Enforce valid TLS certificates — never set rejectUnauthorized=false
+      tls: { rejectUnauthorized: true },
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
+    });
+
+    try {
+      const delivery = await transporter.sendMail({
+        from: from!,
+        to: toEmail.trim().toLowerCase(),
+        subject,
+        html,
+      });
+      return { success: true, deliveryId: delivery.messageId };
+    } catch (error) {
+      captureException(error, {
+        module: 'email-delivery',
+        provider: 'billionmail',
+        toEmail,
+        templateType: template.type,
+      });
       return { success: false };
     }
   }
