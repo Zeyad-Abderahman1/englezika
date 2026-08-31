@@ -119,6 +119,33 @@ export default function Navbar() {
               </Link>
             </>
           )}
+
+          {/* Mobile drawer auth actions — visible only when hamburger menu is open */}
+          <div className="nav-menu-auth">
+            {viewer ? (
+              <>
+                <Link href="/account" className="btn btn-ghost" onClick={closeMenu}>
+                  حسابي
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => { closeMenu(); void logout(); }}
+                  className="btn nav-menu-logout"
+                >
+                  تسجيل الخروج
+                </button>
+              </>
+            ) : (
+              <>
+                <Link href="/register" className="btn btn-primary" onClick={closeMenu}>
+                  إنشاء حساب
+                </Link>
+                <Link href="/login" className="btn btn-ghost" onClick={closeMenu}>
+                  تسجيل الدخول
+                </Link>
+              </>
+            )}
+          </div>
         </div>
 
         <div className="nav-actions">

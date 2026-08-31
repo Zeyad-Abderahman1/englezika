@@ -10,60 +10,7 @@ export type Course = {
   popular?: boolean;
 };
 
-export const courses: Course[] = [
-  {
-    id: 'sep-3',
-    month: 'شهر سبتمبر',
-    grade: 'تالتة ثانوي',
-    lectures: 8,
-    price: 150,
-    available: true,
-    badge: 'الأكثر مبيعاً',
-    popular: true,
-  },
-  {
-    id: 'oct-3',
-    month: 'شهر أكتوبر',
-    grade: 'تالتة ثانوي',
-    lectures: 8,
-    price: 150,
-    available: true,
-  },
-  {
-    id: 'nov-3',
-    month: 'شهر نوفمبر',
-    grade: 'تالتة ثانوي',
-    lectures: 8,
-    price: 150,
-    available: false,
-    badge: 'قريباً',
-  },
-  {
-    id: 'sep-2',
-    month: 'شهر سبتمبر',
-    grade: 'تانية ثانوي',
-    lectures: 6,
-    price: 120,
-    available: true,
-  },
-  {
-    id: 'sep-1',
-    month: 'شهر سبتمبر',
-    grade: 'أولى ثانوي',
-    lectures: 6,
-    price: 100,
-    available: true,
-    badge: 'جديد',
-  },
-  {
-    id: 'grammar-2',
-    month: 'تأسيس الجرامر',
-    grade: 'تانية ثانوي',
-    lectures: 10,
-    price: 180,
-    available: true,
-  },
-];
+export const courses: Course[] = [];
 
 // This is mock data. Replace with API call to /api/testimonials.
 export const testimonials = [

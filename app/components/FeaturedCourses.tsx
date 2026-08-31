@@ -1,15 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { BookOpen, LoaderCircle } from 'lucide-react';
 import CourseCard from './CourseCard';
-import { courses as fallbackCourses, type Course } from '../data/content';
+import type { Course } from '../data/content';
 
 export default function FeaturedCourses() {
-  const [courses, setCourses] = useState<Course[]>(fallbackCourses);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetch('/api/courses', { signal: controller.signal })
+    fetch('/api/courses', { signal: controller.signal, cache: 'no-store' })
       .then(async (response) => {
         if (!response.ok) throw new Error('Unable to load courses');
         return (await response.json()) as { courses?: Array<Record<string, unknown>> };
@@ -23,11 +25,38 @@ export default function FeaturedCourses() {
           price: Number(course.price) || 0,
           available: Boolean(course.available),
         }));
-        if (loaded.length) setCourses(loaded);
+        setCourses(loaded);
+        setLoading(false);
       })
-      .catch(() => undefined);
+      .catch((err: Error) => {
+        if (err.name !== 'AbortError') {
+          setCourses([]);
+          setLoading(false);
+        }
+      });
     return () => controller.abort();
   }, []);
+
+  if (loading) {
+    return (
+      <div className="courses-loading-state" role="status" aria-live="polite">
+        <LoaderCircle className="spin" size={32} />
+        <span>جاري تحميل الكورسات...</span>
+      </div>
+    );
+  }
+
+  if (courses.length === 0) {
+    return (
+      <div className="empty-state-card" role="status">
+        <div className="empty-state-icon">
+          <BookOpen size={36} />
+        </div>
+        <h3>لا توجد كورسات متاحة حالياً</h3>
+        <p>سيتم إضافة الكورسات الجديدة قريباً.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="course-grid">
@@ -37,3 +66,4 @@ export default function FeaturedCourses() {
     </div>
   );
 }
+

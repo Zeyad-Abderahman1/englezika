@@ -2754,9 +2754,6 @@ html[data-theme='light'] .feature-number {
   .nav-menu a {
     font-size: 12px;
   }
-  .nav-login {
-    display: none;
-  }
   .hero-grid {
     grid-template-columns: 1.08fr 0.92fr;
   }
@@ -2787,9 +2784,6 @@ html[data-theme='light'] .feature-number {
   .brand strong {
     font-size: 18px;
   }
-  .nav-register {
-    display: none;
-  }
   .menu-toggle {
     display: grid;
   }
@@ -2803,7 +2797,7 @@ html[data-theme='light'] .feature-number {
     flex-direction: column;
     align-items: stretch;
     gap: 3px;
-    background: #fff;
+    background: var(--surface);
     border-radius: 15px;
     box-shadow: var(--shadow);
   }

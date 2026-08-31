@@ -83,12 +83,12 @@ export default function CookieConsent() {
         boxShadow: '0 -4px 24px rgba(0,0,0,0.4)',
       }}
     >
-      <Cookie size={22} style={{ flexShrink: 0, color: 'var(--accent, #6C63FF)' }} />
+      <Cookie size={22} style={{ flexShrink: 0, color: 'var(--brand, #d7193f)' }} />
       <p style={{ flex: 1, margin: 0, fontSize: '0.875rem', lineHeight: 1.6 }}>
         نستخدم ملفات تعريف الارتباط (كوكيز) لتحسين تجربتك على منصة إنجليزيكا. يمكنك قراءة{' '}
         <Link
           href="/privacy-policy"
-          style={{ color: 'var(--accent, #6C63FF)', textDecoration: 'underline' }}
+          style={{ color: 'var(--brand, #d7193f)', textDecoration: 'underline' }}
         >
           سياسة الخصوصية
         </Link>{' '}
