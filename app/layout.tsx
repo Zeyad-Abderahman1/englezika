@@ -14,6 +14,10 @@ export const metadata: Metadata = {
   title: { default: `${SITE_CONFIG.name} | ${SITE_CONFIG.nameArabic}`, template: `%s | ${SITE_CONFIG.name}` },
   description:
     `منصة ${SITE_CONFIG.teacher.nameArabic} لتعليم اللغة الإنجليزية لطلاب الثانوية العامة بطريقة واضحة ومختلفة.`,
+  icons: {
+    icon: '/icon',
+    apple: '/apple-icon',
+  },
   openGraph: {
     title: `${SITE_CONFIG.name} | ${SITE_CONFIG.tagline}`,
     description: `منصة ${SITE_CONFIG.teacher.nameArabic} لطلاب الثانوية العامة.`,
