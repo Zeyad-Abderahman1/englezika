@@ -1,8 +1,10 @@
 import Link from 'next/link';
-import { BookOpenCheck, Clock3, Headphones, ShieldCheck, Star, ArrowLeft } from 'lucide-react';
+import { BookOpenCheck, Clock3, Headphones, ShieldCheck, Star, ArrowLeft, Phone } from 'lucide-react';
 import Hero from './components/Hero';
 import FeaturedCourses from './components/FeaturedCourses';
 import { testimonials } from './data/content';
+import { SITE_CONFIG } from './lib/site-config';
+import { TikTokIcon, WhatsAppIcon, YouTubeIcon } from './components/ui/SocialIcons';
 
 export const dynamic = 'force-static';
 
@@ -40,6 +42,7 @@ export default function Home() {
           <FeaturedCourses />
         </div>
       </section>
+
       <section className="section why-section">
         <div className="container">
           <div className="section-heading centered">
@@ -63,6 +66,7 @@ export default function Home() {
           </div>
         </div>
       </section>
+
       <section className="section testimonial-section">
         <div className="container">
           <div className="section-heading">
@@ -92,6 +96,60 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      <section className="section teacher-connect-section" style={{ paddingBlock: '48px', borderTop: '1px solid var(--line)', background: 'var(--surface)' }}>
+        <div className="container" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '20px' }}>
+          <div>
+            <span className="section-label" style={{ fontSize: '13px' }}>تابع {SITE_CONFIG.teacher.nameArabic}</span>
+            <h3 style={{ margin: '4px 0 0', fontSize: '20px' }}>تواصل معنا وتابع أحدث الشروحات والتريكات</h3>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+            <a
+              href={SITE_CONFIG.teacher.whatsapp}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-primary"
+              style={{ gap: '8px', display: 'inline-flex', alignItems: 'center' }}
+              aria-label="تواصل مع مستر أحمد حسن عبر واتساب"
+            >
+              <WhatsAppIcon width={18} height={18} />
+              <span>واتساب</span>
+            </a>
+            <a
+              href={SITE_CONFIG.teacher.youtube}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-outline"
+              style={{ gap: '8px', display: 'inline-flex', alignItems: 'center' }}
+              aria-label="قناة مستر أحمد حسن على يوتيوب"
+            >
+              <YouTubeIcon width={18} height={18} />
+              <span>يوتيوب</span>
+            </a>
+            <a
+              href={SITE_CONFIG.teacher.tiktok}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-outline"
+              style={{ gap: '8px', display: 'inline-flex', alignItems: 'center' }}
+              aria-label="حساب مستر أحمد حسن على تيك توك"
+            >
+              <TikTokIcon width={18} height={18} />
+              <span>تيك توك</span>
+            </a>
+            <a
+              href={SITE_CONFIG.teacher.phoneHref}
+              className="btn btn-ghost"
+              style={{ gap: '8px', display: 'inline-flex', alignItems: 'center' }}
+              aria-label={`اتصل هاتفياً: ${SITE_CONFIG.teacher.phoneDisplay}`}
+            >
+              <Phone size={17} />
+              <bdi dir="ltr">{SITE_CONFIG.teacher.phoneDisplay}</bdi>
+            </a>
+          </div>
+        </div>
+      </section>
+
       <section className="cta-section">
         <div className="container cta-inner">
           <div>
