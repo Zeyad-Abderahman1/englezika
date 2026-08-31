@@ -100,6 +100,12 @@ export function requireSameOrigin(request: Request): Response | null {
   const requestUrl = new URL(request.url);
   try {
     const originUrl = new URL(origin);
+
+    if (process.env.NODE_ENV === 'production') {
+      const appUrl = process.env.APP_URL?.trim();
+      if (appUrl && originUrl.origin === new URL(appUrl).origin) return null;
+    }
+
     if (originUrl.host === requestUrl.host) return null;
     const localHostnames = new Set(['127.0.0.1', 'localhost', '[::1]']);
     if (

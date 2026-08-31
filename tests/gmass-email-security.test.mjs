@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
+import nodemailer from 'nodemailer';
 
 import { sendVerificationEmail } from '../app/lib/email-verification.ts';
 
 const originalFetch = globalThis.fetch;
+const originalCreateTransport = nodemailer.createTransport;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  nodemailer.createTransport = originalCreateTransport;
   delete globalThis.__ENGLIZEKA_ENV__;
 });
 
@@ -123,4 +126,46 @@ test('explicit GMass selection does not silently fall through to another configu
     sendVerificationEmail('recipient@example.test', '123456', 'verify-missing-key'),
     /GMASS_API_KEY is not configured/
   );
+});
+
+
+test('BillionMail can send verification emails through SMTP', async () => {
+  let smtpConfig;
+  let mail;
+
+  globalThis.__ENGLIZEKA_ENV__ = {
+    EMAIL_PROVIDER: 'billionmail',
+    BILLIONMAIL_SMTP_HOST: 'mail.englezika.com',
+    BILLIONMAIL_SMTP_PORT: '587',
+    BILLIONMAIL_SMTP_SECURE: 'false',
+    BILLIONMAIL_SMTP_USER: 'noreply@englezika.com',
+    BILLIONMAIL_SMTP_PASSWORD: 'test-password',
+    EMAIL_FROM: 'Englizeka <noreply@englezika.com>',
+    EMAIL_TEST_MODE: 'false',
+  };
+
+  nodemailer.createTransport = (config) => {
+    smtpConfig = config;
+    return {
+      sendMail: async (message) => {
+        mail = message;
+        return { messageId: 'billionmail-verification-123' };
+      },
+    };
+  };
+
+  const deliveryId = await sendVerificationEmail(
+    ' Recipient@Example.Test ',
+    '123456',
+    'verify-bm-123'
+  );
+
+  assert.equal(deliveryId, 'billionmail-verification-123');
+  assert.equal(smtpConfig.host, 'mail.englezika.com');
+  assert.equal(smtpConfig.port, 587);
+  assert.equal(smtpConfig.secure, false);
+  assert.equal(smtpConfig.tls.rejectUnauthorized, true);
+  assert.equal(mail.to, 'recipient@example.test');
+  assert.equal(mail.from, 'Englizeka <noreply@englezika.com>');
+  assert.match(mail.html, /123456/);
 });

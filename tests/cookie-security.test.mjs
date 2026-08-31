@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isSecureRequest } from '../app/lib/security.ts';
+import { isSecureRequest, requireSameOrigin } from '../app/lib/security.ts';
 import { studentSessionCookie } from '../app/lib/student-session.ts';
 import { staffCookie } from '../app/lib/staff-auth.ts';
 
@@ -49,4 +49,22 @@ test('student and staff session cookies include Secure flag when isSecure is tru
   assert.ok(staff.includes('; Secure'), 'Staff cookie must include Secure attribute');
   assert.ok(staff.includes('HttpOnly'), 'Staff cookie must include HttpOnly');
   assert.ok(staff.includes('SameSite=Strict'), 'Staff cookie must include SameSite=Strict');
+});
+
+test('requireSameOrigin accepts production APP_URL behind reverse proxy', () => {
+  const oldEnv = process.env.NODE_ENV;
+  const oldUrl = process.env.APP_URL;
+  process.env.NODE_ENV = 'production';
+  process.env.APP_URL = 'https://englezika.com';
+
+  try {
+    const req = new Request('http://127.0.0.1:3000/api/staff/login', {
+      headers: { origin: 'https://englezika.com' },
+    });
+    assert.equal(requireSameOrigin(req), null);
+  } finally {
+    process.env.NODE_ENV = oldEnv;
+    if (oldUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = oldUrl;
+  }
 });

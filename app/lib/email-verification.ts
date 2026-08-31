@@ -1,6 +1,11 @@
 import { getDatabase, getPlatformEnv } from './platform';
 import nodemailer from 'nodemailer';
-import { emailTestModeEnabled, selectedEmailProvider } from './email-config';
+import {
+  emailTestModeEnabled,
+  parseBillionmailPort,
+  parseBillionmailSecure,
+  selectedEmailProvider,
+} from './email-config';
 
 export const VERIFICATION_CODE_TTL_MS = 10 * 60_000;
 export const VERIFICATION_RESEND_MS = 60_000;
@@ -408,6 +413,43 @@ export async function sendVerificationEmail(
       throw new Error(`Resend rejected delivery (${response.status}): ${errorMsg}`);
     }
     return result.id;
+  }
+
+  if (provider === 'billionmail') {
+    const bmHost = env.BILLIONMAIL_SMTP_HOST?.trim();
+    const bmUser = env.BILLIONMAIL_SMTP_USER?.trim();
+    const bmPassword = env.BILLIONMAIL_SMTP_PASSWORD?.trim();
+
+    if (!bmHost) throw new Error('BILLIONMAIL_SMTP_HOST is not configured');
+    if (!bmUser) throw new Error('BILLIONMAIL_SMTP_USER is not configured');
+    if (!bmPassword) throw new Error('BILLIONMAIL_SMTP_PASSWORD is not configured');
+    if (!from) throw new Error('EMAIL_FROM is not configured');
+
+    const transporter = nodemailer.createTransport({
+      host: bmHost,
+      port: parseBillionmailPort(env),
+      secure: parseBillionmailSecure(env),
+      auth: {
+        user: bmUser,
+        pass: bmPassword,
+      },
+      tls: {
+        rejectUnauthorized: true,
+      },
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
+    });
+
+    const delivery = await transporter.sendMail({
+      from,
+      to: normalizedEmail(email),
+      subject: content.subject,
+      text: content.text,
+      html: content.html,
+    });
+
+    return delivery.messageId;
   }
 
   if (provider === 'gmass') {
