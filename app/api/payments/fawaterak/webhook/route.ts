@@ -1,8 +1,8 @@
-import { recordAuditLog } from '@/app/lib/audit';
-import { amountToMinorUnits } from '@/app/lib/fawaterak-crypto';
-import { verifyFawaterakWebhook } from '@/app/lib/fawaterak';
-import { getDatabase } from '@/app/lib/platform';
-import { safeText } from '@/app/lib/security';
+import { recordAuditLog } from '../../../../lib/audit';
+import { amountToMinorUnits } from '../../../../lib/fawaterak-crypto';
+import { verifyFawaterakWebhook } from '../../../../lib/fawaterak';
+import { getDatabase } from '../../../../lib/platform';
+import { safeText } from '../../../../lib/security';
 
 type PaymentIntentRow = {
   id: string;

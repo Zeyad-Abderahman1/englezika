@@ -12,6 +12,10 @@ export type DatabaseResult<T = Record<string, unknown>> = {
   };
 };
 
+/**
+ * Returns DATABASE_URL. For remote/cloud PostgreSQL instances outside localhost,
+ * append `?sslmode=require` to enforce TLS encrypted transport (DEP-03).
+ */
 function databaseUrl() {
   const value = process.env.DATABASE_URL?.trim();
   if (!value) {

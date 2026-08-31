@@ -18,6 +18,14 @@ export function isStrongPassword(value: string): boolean {
   );
 }
 
+export function isSecureRequest(request: Request): boolean {
+  return (
+    process.env.NODE_ENV === 'production' ||
+    request.headers.get('x-forwarded-proto')?.toLowerCase() === 'https' ||
+    new URL(request.url).protocol === 'https:'
+  );
+}
+
 export function jsonError(message: string, status = 400): Response {
   return Response.json({ error: message }, { status });
 }
@@ -27,6 +35,63 @@ export function requestBodyWithinLimit(request: Request, maximum: number): boole
   if (!rawLength) return false;
   const length = Number(rawLength);
   return Number.isSafeInteger(length) && length > 0 && length <= maximum;
+}
+
+export async function readBoundedJson<T = Record<string, unknown>>(
+  request: Request,
+  maximum = 32 * 1024
+): Promise<{ ok: true; data: T } | { ok: false; response: Response }> {
+  const rawLength = request.headers.get('content-length');
+  if (rawLength) {
+    const length = Number(rawLength);
+    if (!Number.isSafeInteger(length) || length <= 0 || length > maximum) {
+      return { ok: false, response: jsonError('حجم الطلب غير صالح', 413) };
+    }
+  }
+
+  if (!request.body) {
+    return { ok: false, response: jsonError('محتوى الطلب فارغ', 400) };
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        totalBytes += value.byteLength;
+        if (totalBytes > maximum) {
+          await reader.cancel();
+          return { ok: false, response: jsonError('حجم الطلب غير صالح', 413) };
+        }
+        chunks.push(value);
+      }
+    }
+  } catch {
+    return { ok: false, response: jsonError('تعذر قراءة محتوى الطلب', 400) };
+  }
+
+  if (totalBytes === 0) {
+    return { ok: false, response: jsonError('محتوى الطلب فارغ', 400) };
+  }
+
+  const combined = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    const text = new TextDecoder().decode(combined);
+    const data = JSON.parse(text) as T;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, response: jsonError('صيغة البيانات غير صحيحة', 400) };
+  }
 }
 
 export function requireSameOrigin(request: Request): Response | null {

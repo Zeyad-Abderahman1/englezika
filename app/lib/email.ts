@@ -1,6 +1,11 @@
 import { getPlatformEnv } from './platform';
 import { captureException, captureMessage } from './observability';
-import { emailTestModeEnabled } from './email-config';
+import nodemailer from 'nodemailer';
+import {
+  emailTestModeEnabled,
+  isEmailProviderConfigured,
+  selectedEmailProvider,
+} from './email-config';
 
 export type EmailTemplate =
   | { type: 'verification'; code: string }
@@ -19,13 +24,18 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => entities[character] || character);
 }
 
+export function sanitizeSubjectText(value: string, maxLength = 120): string {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/[\r\n\t\f\v]+/g, ' ')
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+    .trim()
+    .slice(0, maxLength);
+}
+
 export function isEmailConfigured(): boolean {
   const env = getPlatformEnv();
-  const hasServerSmtp = Boolean(
-    (env.SERVERSMTP_CONSUMER_KEY || env.TURBO_SMTP_CONSUMER_KEY) &&
-    (env.SERVERSMTP_CONSUMER_SECRET || env.TURBO_SMTP_CONSUMER_SECRET)
-  );
-  return hasServerSmtp || Boolean(env.RESEND_API_KEY?.trim());
+  return isEmailProviderConfigured(env);
 }
 
 export async function sendTransactionalEmail(
@@ -44,7 +54,8 @@ export async function sendTransactionalEmail(
     captureMessage(`[TEST_EMAIL_DELIVERY] Template: ${template.type}`, 'INFO');
     return { success: true, deliveryId: `test-${Date.now()}` };
   }
-  if ((!apiKey && (!consumerKey || !consumerSecret)) || !from) {
+  const provider = selectedEmailProvider(env);
+  if (!provider || !isEmailProviderConfigured(env, provider)) {
     captureException(new Error('Transactional email provider is not configured'), {
       module: 'email-delivery',
       templateType: template.type,
@@ -85,7 +96,7 @@ export async function sendTransactionalEmail(
       </div>`;
       break;
     case 'enrollment_approved':
-      subject = `تم تفعيل اشتراكك في كورس: ${template.courseTitle}`;
+      subject = `تم تفعيل اشتراكك في كورس: ${sanitizeSubjectText(template.courseTitle)}`;
       html = `<div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.8;color:#17181d">
         <h2>تهانينا! تم تفعيل الاشتراك</h2>
         <p>تم تفعيل اشتراكك بنجاح في كورس <strong>${courseTitle}</strong>. استعد للبدء الآن من لوحة التحكم الخاصة بك.</p>
@@ -93,9 +104,36 @@ export async function sendTransactionalEmail(
       break;
   }
 
+  if (provider === 'gmail') {
+    const gmailUser = env.GMAIL_USER!.trim();
+    const gmailPassword = env.GMAIL_APP_PASSWORD!.replace(/\s+/g, '');
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: gmailUser, pass: gmailPassword },
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
+    });
+    try {
+      const delivery = await transporter.sendMail({
+        from: from || `Englizeka <${gmailUser}>`,
+        to: toEmail.trim().toLowerCase(),
+        subject,
+        html,
+      });
+      return { success: true, deliveryId: delivery.messageId };
+    } catch (error) {
+      captureException(error, { module: 'email-delivery', toEmail, templateType: template.type });
+      return { success: false };
+    }
+  }
+
   try {
-    if (consumerKey && consumerSecret) {
-      const fromAddr = from.includes('<') ? from.split('<')[1].replace('>', '').trim() : from;
+    if (provider === 'serversmtp') {
+      const configuredFrom = from!;
+      const fromAddr = configuredFrom.includes('<')
+        ? configuredFrom.split('<')[1].replace('>', '').trim()
+        : configuredFrom;
       const textContent = html
         .replace(/<[^>]+>/g, ' ')
         .replace(/\s+/g, ' ')
@@ -103,8 +141,8 @@ export async function sendTransactionalEmail(
       const response = await fetch('https://api.turbo-smtp.com/api/v2/mail/send', {
         method: 'POST',
         headers: {
-          consumerKey,
-          consumerSecret,
+          consumerKey: consumerKey!,
+          consumerSecret: consumerSecret!,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -124,6 +162,39 @@ export async function sendTransactionalEmail(
         throw new Error(`ServerSMTP error (${response.status}): ${result.message || ''}`);
       }
       return { success: true, deliveryId: String(result.mid) };
+    }
+
+    if (provider === 'gmass') {
+      const gmassApiKey = env.GMASS_API_KEY!.trim();
+      const sender = from!.includes('<')
+        ? { email: from!.split('<')[1].replace('>', '').trim(), name: from!.split('<')[0].trim() || 'Englizeka' }
+        : { email: from!, name: 'Englizeka' };
+      const response = await fetch('https://api.gmass.co/api/transactional', {
+        method: 'POST',
+        headers: {
+          'X-apikey': gmassApiKey,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          transactionalEmailId: idempotencyKey,
+          fromEmail: sender.email,
+          fromName: sender.name,
+          to: toEmail.trim().toLowerCase(),
+          subject,
+          message: html,
+          settings: { openTrack: false, clickTrack: false, useCustomerSmtp: false },
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        transactionalEmailId?: string;
+        message?: string;
+        error?: string;
+      };
+      if (!response.ok || !result.transactionalEmailId?.trim()) {
+        throw new Error(`GMass error (${response.status}): ${result.message || result.error || ''}`);
+      }
+      return { success: true, deliveryId: result.transactionalEmailId };
     }
 
     const response = await fetch('https://api.resend.com/emails', {

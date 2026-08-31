@@ -44,6 +44,8 @@ export async function GET(request: Request) {
       .prepare(
         `SELECT a.id, a.course_id AS courseId, a.title, a.description,
        a.due_at AS dueAt, a.max_score AS maxScore, a.status,
+       COALESCE(a.type, 'pdf') AS type,
+       CASE WHEN a.teacher_file_key IS NOT NULL THEN 1 ELSE 0 END AS hasTeacherFile,
        a.created_by AS createdBy, a.created_at AS createdAt, c.title AS courseTitle
        FROM assignments a JOIN courses c ON c.id = a.course_id
        ORDER BY a.created_at DESC LIMIT ? OFFSET ?`

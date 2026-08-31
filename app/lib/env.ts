@@ -1,5 +1,4 @@
 import { getPlatformEnv } from './platform';
-import { getBootstrapStaffConfig } from './bootstrap-config';
 import { validateEmailConfiguration } from './email-config';
 
 export type EnvValidationResult = {
@@ -12,11 +11,34 @@ export function validatePlatformEnv(): EnvValidationResult {
   const errors: string[] = [];
   const isProduction = process.env.NODE_ENV === 'production';
 
-  if (!process.env.DATABASE_URL?.trim()) {
+  const dbUrl = env.DATABASE_URL?.trim();
+  if (!dbUrl) {
     errors.push("Required PostgreSQL connection string 'DATABASE_URL' is missing");
+  } else {
+    try {
+      const parsed = new URL(dbUrl);
+      const host = parsed.hostname.toLowerCase();
+      const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '';
+      const sslParam =
+        parsed.searchParams.get('sslmode')?.toLowerCase() ||
+        parsed.searchParams.get('ssl')?.toLowerCase();
+      const hasSsl =
+        sslParam === 'require' ||
+        sslParam === 'verify-full' ||
+        sslParam === 'verify-ca' ||
+        sslParam === 'true' ||
+        sslParam === '1';
+      if (!isLocal && !hasSsl) {
+        console.warn(
+          `[SECURITY WARNING] DATABASE_URL connects to remote host '${host}' without explicit SSL (e.g. ?sslmode=require). Encrypted transport is strongly recommended for remote databases.`
+        );
+      }
+    } catch {
+      // Non-standard database URL format; pg driver will validate during connection
+    }
   }
 
-  if (!process.env.PRIVATE_STORAGE_DIR?.trim()) {
+  if (!env.PRIVATE_STORAGE_DIR?.trim()) {
     errors.push("Required private file directory 'PRIVATE_STORAGE_DIR' is missing");
   }
 
@@ -50,11 +72,8 @@ export function validatePlatformEnv(): EnvValidationResult {
     }
   }
 
-  try {
-    getBootstrapStaffConfig(env);
-  } catch (error) {
-    errors.push(error instanceof Error ? error.message : 'Initial staff bootstrap is invalid');
-  }
+  // Note: INITIAL_STAFF_* are bootstrap-only variables handled by scripts/bootstrap-initial-staff.mjs
+  // and are not required during normal application runtime.
 
   errors.push(...validateEmailConfiguration(env, process.env.NODE_ENV));
 

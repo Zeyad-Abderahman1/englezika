@@ -7,16 +7,36 @@ Englizeka is an educational platform built with Next.js and PostgreSQL. It inclu
 Requirements:
 
 - Node.js 22 or later
-- Docker Desktop for running PostgreSQL locally
+- PostgreSQL 16 installed natively and running as a local service
 
-Copy `.env.example` to `.env.local`, then run:
+In a Windows Command Prompt, copy `.env.example` to `.env.local`, set a local
+`DATABASE_URL` for a dedicated non-superuser PostgreSQL role, then run:
 
-```bash
+```cmd
+winget install --id PostgreSQL.PostgreSQL.16 --exact --source winget
+copy .env.example .env.local
 npm install
-npm run db:up
+npm run db:start
 npm run db:migrate
 npm run dev
 ```
+
+For a first-time database setup, connect as the PostgreSQL administrator and
+create the application role interactively so its password is never placed in
+the repository or shell history:
+
+```cmd
+psql -U postgres -h 127.0.0.1 -d postgres
+```
+
+```sql
+CREATE ROLE englizeka LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+\password englizeka
+CREATE DATABASE englizeka OWNER englizeka;
+\q
+```
+
+The application uses the native PostgreSQL installation directly.
 
 The application will be available at `http://127.0.0.1:3000`.
 

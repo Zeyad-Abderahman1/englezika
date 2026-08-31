@@ -22,8 +22,11 @@
     "format:check": "prettier --check .",
     "db:migrate": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/migrate.mjs",
     "db:migrate:local": "npm run db:migrate",
-    "db:up": "docker compose up -d database",
-    "db:down": "docker compose stop database"
+    "db:start": "node scripts/db-service.mjs start",
+    "db:stop": "node scripts/db-service.mjs stop",
+    "bootstrap:staff": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/bootstrap-initial-staff.mjs",
+    "job:clean-exam-sessions": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/clean-exam-sessions.mjs",
+    "job:clean-orphan-files": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/clean-orphan-private-files.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.25.0",

@@ -1,16 +1,18 @@
 import type { Metadata } from 'next';
-import { redirect } from 'next/navigation';
-import AdminDashboard from '../components/AdminDashboard';
-import { getCurrentStaff } from '../lib/staff-auth';
+import { Suspense } from 'react';
+import { AdminOverviewView } from '../components/admin/domains/AdminOverviewView';
+import { AdminLoadingSkeleton } from '../components/admin/shell/AdminLoadingSkeleton';
 
-export const metadata: Metadata = { title: 'لوحة المدرس' };
+export const metadata: Metadata = {
+  title: 'نظرة عامة | لوحة الإدارة',
+};
+
 export const dynamic = 'force-dynamic';
 
-export default async function AdminPage() {
-  if (!(await getCurrentStaff())) redirect('/staff/login');
+export default function AdminOverviewPage() {
   return (
-    <main className="admin-page">
-      <AdminDashboard />
-    </main>
+    <Suspense fallback={<AdminLoadingSkeleton type="metrics" />}>
+      <AdminOverviewView />
+    </Suspense>
   );
 }

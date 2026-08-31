@@ -1,5 +1,6 @@
 import { apiStaff, isStaffResponse } from '../../../../lib/staff-auth';
-import { getDatabase } from '../../../../lib/platform';
+import { getDatabase, getPrivateStorage } from '../../../../lib/platform';
+import { captureException } from '../../../../lib/observability';
 import { jsonError, requireSameOrigin, safeInteger, safeText } from '../../../../lib/security';
 
 function optionalTimestamp(value: unknown): number | null | undefined {
@@ -70,14 +71,47 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (isStaffResponse(staff)) return staff;
   const { id } = await params;
   const db = getDatabase();
-  const existing = await db.prepare('SELECT id FROM assignments WHERE id = ?').bind(id).first();
+  const existing = await db
+    .prepare('SELECT id, teacher_file_key AS teacherFileKey FROM assignments WHERE id = ?')
+    .bind(id)
+    .first<{ id: string; teacherFileKey?: string | null }>();
   if (!existing) return jsonError('الواجب غير موجود', 404);
+
+  const storage = getPrivateStorage();
+  const submissions = await db
+    .prepare(
+      'SELECT pdf_storage_key AS pdfStorageKey FROM assignment_submissions WHERE assignment_id = ? AND pdf_storage_key IS NOT NULL'
+    )
+    .bind(id)
+    .all<{ pdfStorageKey: string }>()
+    .catch(() => ({ results: [] as { pdfStorageKey: string }[] }));
+
+  const filesToDelete = new Set<string>();
+  if (existing.teacherFileKey) {
+    filesToDelete.add(existing.teacherFileKey);
+  } else {
+    filesToDelete.add(`assignments/${id}/teacher.pdf`);
+  }
+  for (const sub of submissions.results) {
+    if (sub.pdfStorageKey) filesToDelete.add(sub.pdfStorageKey);
+  }
+
+  for (const key of filesToDelete) {
+    try {
+      await storage.delete(key);
+    } catch (error) {
+      captureException(error, { module: 'assignment-delete-storage', storageKey: key, assignmentId: id });
+    }
+  }
+
   await db.batch([
     db
       .prepare(
         "DELETE FROM notification_reads WHERE notification_type = 'assignment' AND notification_id = ?"
       )
       .bind(id),
+    db.prepare('DELETE FROM assignment_submissions WHERE assignment_id = ?').bind(id),
+    db.prepare('DELETE FROM assignment_questions WHERE assignment_id = ?').bind(id),
     db.prepare('DELETE FROM assignments WHERE id = ?').bind(id),
   ]);
   return new Response(null, { status: 204 });

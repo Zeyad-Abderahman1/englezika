@@ -15,6 +15,7 @@ jobs:
     name: Build, lint and test
     runs-on: ubuntu-latest
     services:
+      # CI-only PostgreSQL service container; local and VPS runtime use native PostgreSQL.
       postgres:
         image: postgres:16-alpine
         env:

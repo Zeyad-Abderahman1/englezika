@@ -10,6 +10,8 @@ import {
 } from './private-storage';
 
 export type PlatformEnv = {
+  EMAIL_PROVIDER?: string;
+  GMASS_API_KEY?: string;
   GMAIL_USER?: string;
   GMAIL_APP_PASSWORD?: string;
   SERVERSMTP_CONSUMER_KEY?: string;
@@ -33,6 +35,8 @@ export type PlatformEnv = {
   APP_URL?: string;
   SESSION_SECRET?: string;
   TRUSTED_PROXY_IP_HEADER?: string;
+  DATABASE_URL?: string;
+  PRIVATE_STORAGE_DIR?: string;
 };
 
 type TestPlatform = PlatformEnv & {
@@ -48,6 +52,8 @@ function injectedTestPlatform(): TestPlatform | undefined {
 export function getPlatformEnv(): PlatformEnv {
   const injected = injectedTestPlatform();
   return {
+    EMAIL_PROVIDER: injected?.EMAIL_PROVIDER ?? process.env.EMAIL_PROVIDER,
+    GMASS_API_KEY: injected?.GMASS_API_KEY ?? process.env.GMASS_API_KEY,
     VERIFICATION_SECRET: injected?.VERIFICATION_SECRET ?? process.env.VERIFICATION_SECRET,
     VIDEO_RESOLVE_SECRET: injected?.VIDEO_RESOLVE_SECRET ?? process.env.VIDEO_RESOLVE_SECRET,
     GMAIL_USER: injected?.GMAIL_USER ?? process.env.GMAIL_USER,
@@ -83,6 +89,8 @@ export function getPlatformEnv(): PlatformEnv {
     SESSION_SECRET: injected?.SESSION_SECRET ?? process.env.SESSION_SECRET,
     TRUSTED_PROXY_IP_HEADER:
       injected?.TRUSTED_PROXY_IP_HEADER ?? process.env.TRUSTED_PROXY_IP_HEADER,
+    DATABASE_URL: injected?.DATABASE_URL ?? process.env.DATABASE_URL,
+    PRIVATE_STORAGE_DIR: injected?.PRIVATE_STORAGE_DIR ?? process.env.PRIVATE_STORAGE_DIR,
   };
 }
 

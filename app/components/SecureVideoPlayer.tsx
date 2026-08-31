@@ -1,8 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
+  Award,
   CheckCircle2,
+  ClipboardCheck,
   LoaderCircle,
   LockKeyhole,
   Maximize2,
@@ -14,12 +17,22 @@ import {
   UserRound,
 } from 'lucide-react';
 
-type Video = {
+export type PrerequisiteExam = {
+  id: string;
+  title: string;
+  minimumScore: number;
+  bestPercentage: number | null;
+  passed: boolean;
+};
+
+export type Video = {
   id: string;
   title: string;
   durationSeconds: number;
   completed: number;
   unlocked: number;
+  prerequisiteExam?: PrerequisiteExam | null;
+  lockReason?: 'previous_lesson' | 'prerequisite_exam' | null;
 };
 
 type ResolvedSource = {
@@ -119,12 +132,20 @@ export default function SecureVideoPlayer({
         if (!response.ok) return;
         setLessons((current) => {
           const completedIndex = current.findIndex((lesson) => lesson.id === videoId);
-          return current.map((lesson, index) => ({
-            ...lesson,
-            completed: index === completedIndex ? 1 : lesson.completed,
-            unlocked:
-              allowSequentialUnlock && index === completedIndex + 1 ? 1 : lesson.unlocked,
-          }));
+          return current.map((lesson, index) => {
+            if (index === completedIndex) {
+              return { ...lesson, completed: 1 };
+            }
+            if (allowSequentialUnlock && index === completedIndex + 1) {
+              const examPassed = !lesson.prerequisiteExam || lesson.prerequisiteExam.passed;
+              return {
+                ...lesson,
+                unlocked: examPassed ? 1 : 0,
+                lockReason: !examPassed ? 'prerequisite_exam' : null,
+              };
+            }
+            return lesson;
+          });
         });
         setCompletionMessage('تم إنهاء المحاضرة وفتح المحاضرة التالية بنجاح.');
       } finally {
@@ -367,6 +388,35 @@ export default function SecureVideoPlayer({
               </div>
             )}
           </div>
+        ) : active?.lockReason === 'prerequisite_exam' && active?.prerequisiteExam ? (
+          <div className="locked-lesson" style={{ padding: '2.5rem 1.5rem', textAlign: 'center' }}>
+            <Award size={48} style={{ color: 'var(--primary, #e11d48)', margin: '0 auto 1rem' }} />
+            <h2 style={{ fontSize: '1.4rem', margin: '0 0 0.5rem' }}>امتحان مطلوب لفتح هذه المحاضرة</h2>
+            <p style={{ maxWidth: '500px', margin: '0 auto 0.75rem', color: 'var(--text-secondary)' }}>
+              يجب اجتياز <strong>{active.prerequisiteExam.title}</strong> بنسبة{' '}
+              <strong>{active.prerequisiteExam.minimumScore}%</strong> على الأقل لتتمكن من مشاهدة هذه المحاضرة.
+            </p>
+            {active.prerequisiteExam.bestPercentage !== null && (
+              <p style={{ fontSize: '0.9rem', color: 'var(--text-dim)', marginBottom: '1.25rem' }}>
+                أعلى نتيجة حققتها حتى الآن:{' '}
+                <span
+                  style={{
+                    color: active.prerequisiteExam.passed ? '#10b981' : '#ef4444',
+                    fontWeight: 700,
+                  }}
+                >
+                  {active.prerequisiteExam.bestPercentage}%
+                </span>
+              </p>
+            )}
+            <Link
+              href={`/exams/${active.prerequisiteExam.id}`}
+              className="btn btn-primary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', margin: '0.5rem auto 0' }}
+            >
+              <ClipboardCheck size={16} /> دخول الامتحان الآن
+            </Link>
+          </div>
         ) : (
           <div className="locked-lesson">
             <LockKeyhole />
@@ -398,39 +448,107 @@ export default function SecureVideoPlayer({
         <h2>محتوى الكورس</h2>
         <div>
           {lessons.map((video, index) => (
-            <button
-              key={video.id}
-              className={`${video.id === activeId ? 'active' : ''} ${video.unlocked ? '' : 'locked'}`}
-              onClick={() => {
-                setActiveId(video.id);
-                setCompletionMessage('');
-                setSecurityMessage('');
-                setYoutubePlaying(false);
-                setQualityLevels([]);
-                setSelectedQuality('default');
-              }}
-            >
-              <span>{index + 1}</span>
-              <div>
-                <strong>{video.title}</strong>
-                <small>
-                  {video.completed
-                    ? 'تمت المشاهدة'
-                    : video.unlocked
-                      ? video.durationSeconds
-                        ? `${Math.ceil(video.durationSeconds / 60)} دقيقة`
-                        : 'جاهزة للمشاهدة'
-                      : 'أكمل المحاضرة السابقة'}
-                </small>
-              </div>
-              {video.completed ? (
-                <CheckCircle2 />
-              ) : video.unlocked ? (
-                <PlayCircle />
-              ) : (
-                <LockKeyhole />
+            <div key={video.id} className="curriculum-item-group" style={{ marginBottom: '0.5rem' }}>
+              {video.prerequisiteExam && (
+                <div
+                  className="curriculum-exam-card"
+                  style={{
+                    background: video.prerequisiteExam.passed
+                      ? 'rgba(16, 185, 129, 0.08)'
+                      : 'rgba(239, 68, 68, 0.08)',
+                    border: `1px solid ${
+                      video.prerequisiteExam.passed ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'
+                    }`,
+                    borderRadius: '8px',
+                    padding: '0.65rem 0.75rem',
+                    marginBottom: '0.35rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '0.5rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, flex: 1 }}>
+                    <span
+                      style={{
+                        width: '26px',
+                        height: '26px',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: video.prerequisiteExam.passed ? '#10b981' : '#ef4444',
+                        color: '#fff',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <ClipboardCheck size={14} />
+                    </span>
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: '0.85rem',
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {video.prerequisiteExam.title}
+                      </div>
+                      <small style={{ fontSize: '0.72rem', color: 'var(--text-dim)', display: 'block' }}>
+                        {video.prerequisiteExam.passed
+                          ? `✓ تم الاجتياز بنجاح (${video.prerequisiteExam.bestPercentage}%)`
+                          : `مطلوب ${video.prerequisiteExam.minimumScore}% لفتح المحاضرة`}
+                      </small>
+                    </div>
+                  </div>
+                  <Link
+                    href={`/exams/${video.prerequisiteExam.id}`}
+                    className={`btn btn-sm ${video.prerequisiteExam.passed ? 'btn-outline' : 'btn-primary'}`}
+                    style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', flexShrink: 0 }}
+                  >
+                    {video.prerequisiteExam.passed ? 'مراجعة' : 'دخول الاختبار'}
+                  </Link>
+                </div>
               )}
-            </button>
+
+              <button
+                type="button"
+                className={`${video.id === activeId ? 'active' : ''} ${video.unlocked ? '' : 'locked'}`}
+                onClick={() => {
+                  setActiveId(video.id);
+                  setCompletionMessage('');
+                  setSecurityMessage('');
+                  setYoutubePlaying(false);
+                  setQualityLevels([]);
+                  setSelectedQuality('default');
+                }}
+              >
+                <span>{index + 1}</span>
+                <div>
+                  <strong>{video.title}</strong>
+                  <small>
+                    {video.completed
+                      ? 'تمت المشاهدة'
+                      : video.unlocked
+                        ? video.durationSeconds
+                          ? `${Math.ceil(video.durationSeconds / 60)} دقيقة`
+                          : 'جاهزة للمشاهدة'
+                        : video.lockReason === 'prerequisite_exam'
+                          ? `مطلوب اجتياز: ${video.prerequisiteExam?.title}`
+                          : 'أكمل المحاضرة السابقة'}
+                  </small>
+                </div>
+                {video.completed ? (
+                  <CheckCircle2 />
+                ) : video.unlocked ? (
+                  <PlayCircle />
+                ) : (
+                  <LockKeyhole />
+                )}
+              </button>
+            </div>
           ))}
         </div>
       </aside>

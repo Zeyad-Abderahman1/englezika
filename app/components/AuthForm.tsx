@@ -17,7 +17,6 @@ import {
   Mail,
   Lock,
   Users,
-  Briefcase,
   FileUp,
   ShieldCheck,
 } from 'lucide-react';
@@ -585,9 +584,7 @@ function RegisterForm() {
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
   const [fatherPhone, setFatherPhone] = useState('');
-  const [motherPhone, setMotherPhone] = useState('');
   const [schoolName, setSchoolName] = useState('');
-  const [parentJob, setParentJob] = useState('');
   const [governorate, setGovernorate] = useState('');
   const [gender, setGender] = useState('');
   const [grade, setGrade] = useState('');
@@ -656,9 +653,7 @@ function RegisterForm() {
         last_name: lastName,
         phone,
         father_phone: fatherPhone,
-        mother_phone: motherPhone,
         school_name: schoolName,
-        parent_job: parentJob,
         governorate,
         gender,
         grade,
@@ -671,9 +666,17 @@ function RegisterForm() {
         method: 'POST',
         body: payload,
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        ok?: boolean;
+        accountCreated?: boolean;
+        verificationPending?: boolean;
+      };
       if (!res.ok) {
         setError(data.error || 'حدث خطأ في التسجيل');
+        if (data.accountCreated && data.verificationPending) {
+          setTimeout(() => router.push('/account'), 1800);
+        }
         return;
       }
       setSuccess(true);
@@ -815,25 +818,10 @@ function RegisterForm() {
             required
           />
         </div>
-        <div className="auth-field-group">
-          <label className="auth-label" htmlFor="reg-mother-phone">
-            رقم هاتف الأم <span className="auth-req">*</span>
-          </label>
-          <Field
-            icon={Phone}
-            id="reg-mother-phone"
-            name="mother_phone"
-            type="tel"
-            placeholder="01xxxxxxxxx"
-            value={motherPhone}
-            onChange={setMotherPhone}
-            required
-          />
-        </div>
       </div>
 
-      {/* School & Parent job */}
-      <div className="auth-grid-2">
+      {/* School */}
+      <div className="auth-grid-1">
         <div className="auth-field-group">
           <label className="auth-label" htmlFor="reg-school">
             اسم المدرسة <span className="auth-req">*</span>
@@ -846,19 +834,6 @@ function RegisterForm() {
             value={schoolName}
             onChange={setSchoolName}
             required
-          />
-        </div>
-        <div className="auth-field-group">
-          <label className="auth-label" htmlFor="reg-parent-job">
-            مهنة ولي الأمر
-          </label>
-          <Field
-            icon={Briefcase}
-            id="reg-parent-job"
-            name="parent_job"
-            placeholder="مهنة ولي الأمر"
-            value={parentJob}
-            onChange={setParentJob}
           />
         </div>
       </div>

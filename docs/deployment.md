@@ -1,12 +1,31 @@
-# تشغيل Englizeka محليًا وعلى VPS
+# تشغيل Englizeka محليًا وعلى VPS باستخدام PostgreSQL الأصلي
 
 ## محليًا
 
-1. ثبّت Node.js 22 وDocker Desktop.
-2. انسخ `.env.example` إلى `.env.local`.
-3. شغّل قاعدة البيانات: `npm run db:up`.
-4. طبّق الجداول: `npm run db:migrate`.
-5. شغّل الموقع: `npm run dev`.
+1. ثبّت Node.js 22 وPostgreSQL 16 كتثبيت أصلي على Windows. يمكن استخدام الأمر التالي
+   من Command Prompt أو PowerShell:
+
+```cmd
+winget install --id PostgreSQL.PostgreSQL.16 --exact --source winget
+```
+
+   أكمل كلمة مرور مسؤول PostgreSQL داخل برنامج التثبيت ولا تحفظها في المستودع.
+2. أنشئ دورًا مخصصًا للتطبيق بصلاحيات `NOSUPERUSER NOCREATEDB NOCREATEROLE` وقاعدة
+   بيانات يملكها هذا الدور. استخدم `\password` داخل `psql` لإدخال كلمة المرور
+   تفاعليًا، ولا تضعها في Git أو في أوامر محفوظة.
+3. انسخ `.env.example` إلى `.env.local` واضبط `DATABASE_URL` على `127.0.0.1:5432`
+   باستخدام دور التطبيق.
+4. من Windows Command Prompt شغّل:
+
+```cmd
+npm install
+npm run db:start
+npm run db:migrate
+npm run dev
+```
+
+لإيقاف خدمة PostgreSQL محليًا استخدم `npm run db:stop`. اسم الخدمة الافتراضي هو
+`postgresql-x64-16` ويمكن تغييره عبر `POSTGRES_SERVICE_NAME` عند الحاجة.
 
 ## متطلبات الـVPS لاحقًا
 
@@ -14,13 +33,23 @@ Security deployment requirement: terminate HTTPS at a trusted reverse proxy, blo
 
 - Ubuntu حديث.
 - Node.js 22.
-- PostgreSQL 16.
+- PostgreSQL 16 مثبتًا من حزم النظام، ويعمل كخدمة systemd.
 - Nginx أمام التطبيق مع HTTPS.
 - قرص دائم ومجلد خاص لشهادات الميلاد.
 - نسخ احتياطي يومي لقاعدة البيانات ومجلد الملفات الخاصة.
 
-ابنِ التطبيق بالأمر `npm run build` وشغّله بالأمر `npm run start`. يفضّل تشغيله عبر
-systemd أو مدير عمليات يعيد تشغيله تلقائيًا عند فشل العملية.
+ثبّت PostgreSQL وشغّله قبل الترحيل:
+
+```bash
+sudo apt install postgresql-16
+sudo systemctl enable --now postgresql
+sudo -u postgres psql
+```
+
+أنشئ دور التطبيق وقاعدة البيانات من جلسة `psql`، واضبط كلمة المرور باستخدام
+`\password englizeka`، ثم اخرج بـ`\q`. بعد ضبط الأسرار في ملف بيئة خارج مجلد
+المستودع، نفّذ `npm ci` و`npm run db:migrate`. ابنِ التطبيق بالأمر `npm run build`
+وشغّله بالأمر `npm run start` عبر systemd أو مدير عمليات يعيد تشغيله تلقائيًا.
 
 ## متغيرات التشغيل الأساسية
 

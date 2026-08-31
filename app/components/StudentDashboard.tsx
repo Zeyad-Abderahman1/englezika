@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle,
@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ClipboardCheck,
   Clock3,
+  Download,
   FileText,
   GraduationCap,
   Home,
@@ -25,6 +26,7 @@ import {
   Medal,
   Play,
   ShieldCheck,
+  Upload,
   UserRound,
   Trophy,
   X,
@@ -122,6 +124,323 @@ type View =
 const LEADERBOARD_GRADES = ['أولى ثانوي', 'تانية ثانوي', 'تالتة ثانوي'];
 function percent(score: number, maxScore: number) {
   return maxScore > 0 ? Math.round((score * 100) / maxScore) : 0;
+}
+
+type AssignmentRow = DashboardData['assignments'][number];
+
+type AssignmentDetail = {
+  assignment: {
+    id: string;
+    type: string;
+    hasTeacherFile: number;
+    maxScore: number;
+  };
+  questions: Array<{
+    id: string;
+    question: string;
+    options: string[];
+    points: number;
+    sortOrder: number;
+  }>;
+  submission: {
+    id: string;
+    status: string;
+    score: number | null;
+    maxScore: number | null;
+    feedback: string;
+    submittedAt: number;
+    hasPdf: number;
+  } | null;
+};
+
+function StudentAssignmentCard({ assignment }: { assignment: AssignmentRow }) {
+  const [detail, setDetail] = useState<AssignmentDetail | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [msgType, setMsgType] = useState<'ok' | 'err'>('ok');
+  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const loadDetail = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/student/assignments/${assignment.id}`);
+      if (res.ok) {
+        const d = (await res.json()) as AssignmentDetail;
+        setDetail(d);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [assignment.id]);
+
+  const handleToggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && !detail) void loadDetail();
+  };
+
+  const handlePdfSubmit = async () => {
+    const file = fileRef.current?.files?.[0];
+    if (!file) {
+      setMsg('اختر ملف PDF أولاً');
+      setMsgType('err');
+      return;
+    }
+    if (!file.type.includes('pdf')) {
+      setMsg('يجب رفع ملف PDF فقط');
+      setMsgType('err');
+      return;
+    }
+    setBusy(true);
+    setMsg('');
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const res = await fetch(`/api/student/assignments/${assignment.id}/submit`, {
+        method: 'POST',
+        body: fd,
+      });
+      if (res.ok) {
+        setMsg('تم إرسال إجابتك بنجاح! سيتم مراجعتها وتصحيحها.');
+        setMsgType('ok');
+        void loadDetail();
+      } else {
+        const err = (await res.json()) as { error?: string };
+        setMsg(err.error || 'تعذر إرسال الإجابة');
+        setMsgType('err');
+      }
+    } catch {
+      setMsg('خطأ في الاتصال بالخادم');
+      setMsgType('err');
+    }
+    setBusy(false);
+  };
+
+  const handleMcqSubmit = async () => {
+    if (!detail) return;
+    const unanswered = detail.questions.filter((q) => answers[q.id] === undefined);
+    if (unanswered.length > 0) {
+      setMsg(`يرجى الإجابة على جميع الأسئلة (متبقي ${unanswered.length} سؤال)`);
+      setMsgType('err');
+      return;
+    }
+    setBusy(true);
+    setMsg('');
+    const ansArray = Object.entries(answers).map(([questionId, answer]) => ({
+      questionId,
+      answer,
+    }));
+    try {
+      const res = await fetch(`/api/student/assignments/${assignment.id}/submit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ answers: ansArray }),
+      });
+      if (res.ok) {
+        const result = (await res.json()) as {
+          score: number;
+          maxScore: number;
+          percentage: number;
+        };
+        setMsg(`تم التسليم بنجاح! درجتك: ${result.score} من ${result.maxScore} (${result.percentage}%)`);
+        setMsgType('ok');
+        void loadDetail();
+      } else {
+        const err = (await res.json()) as { error?: string };
+        setMsg(err.error || 'تعذر إرسال الإجابات');
+        setMsgType('err');
+      }
+    } catch {
+      setMsg('خطأ في الاتصال بالخادم');
+      setMsgType('err');
+    }
+    setBusy(false);
+  };
+
+  const sub = detail?.submission;
+  const type = detail?.assignment?.type || 'pdf';
+
+  return (
+    <article className="exam-row detailed" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'stretch' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', width: '100%', gap: '1rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+          <span className="exam-date">
+            <FileText />
+            <small>{type === 'mcq' ? 'MCQ' : type === 'generic' ? 'عام' : 'PDF'}</small>
+          </span>
+          <div className="exam-copy">
+            <strong>{assignment.title}</strong>
+            <small>
+              {assignment.courseTitle} ·{' '}
+              {assignment.dueAt
+                ? `موعد التسليم: ${new Date(assignment.dueAt).toLocaleString('ar-EG')}`
+                : 'بدون موعد تسليم'}
+              {assignment.maxScore > 0 ? ` · ${assignment.maxScore} درجة` : ''}
+            </small>
+            {assignment.description && <p style={{ margin: '0.35rem 0 0', color: 'var(--text-secondary)' }}>{assignment.description}</p>}
+            {sub && (
+              <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                {sub.status === 'graded' ? (
+                  <span className="status-pill status-approved" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <CheckCircle2 size={12} /> تم التصحيح: {sub.score} / {sub.maxScore || assignment.maxScore}
+                    {sub.feedback ? ` — ${sub.feedback}` : ''}
+                  </span>
+                ) : (
+                  <span className="status-pill status-pending" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <Clock3 size={12} /> تم التسليم — بانتظار المراجعة والتصحيح
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem', flexShrink: 0 }}>
+          {!assignment.isRead && <span className="status-pill status-pending">جديد</span>}
+          <button
+            type="button"
+            className="btn btn-outline"
+            style={{ fontSize: '0.85rem', padding: '0.35rem 0.75rem' }}
+            onClick={handleToggle}
+            aria-expanded={expanded}
+          >
+            {expanded ? 'إخفاء التفاصيل' : 'فتح الواجب'}
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div
+          style={{
+            borderTop: '1px solid var(--border)',
+            paddingTop: '0.75rem',
+            marginTop: '0.25rem',
+            width: '100%',
+          }}
+        >
+          {loading && <p style={{ color: 'var(--text-dim)', fontSize: '0.875rem' }}>جاري تحميل تفاصيل الواجب...</p>}
+          {msg && (
+            <p
+              style={{
+                color: msgType === 'ok' ? '#10b981' : '#ef4444',
+                fontSize: '0.875rem',
+                margin: '0.5rem 0',
+                padding: '0.5rem',
+                borderRadius: '6px',
+                background: msgType === 'ok' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+              }}
+            >
+              {msg}
+            </p>
+          )}
+
+          {detail && !sub && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {detail.assignment.hasTeacherFile === 1 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <a
+                    href={`/api/student/assignments/${assignment.id}/teacher-file`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn-outline"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.85rem' }}
+                  >
+                    <Download size={14} /> تحميل ملف أسئلة الواجب (PDF)
+                  </a>
+                </div>
+              )}
+
+              {type === 'pdf' && (
+                <div style={{ background: 'var(--surface)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <span style={{ fontSize: '0.875rem', fontWeight: 600, display: 'block', marginBottom: '0.5rem' }}>
+                    رفع إجابتك (ملف PDF، بحد أقصى 15 ميجابايت):
+                  </span>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <label className="btn btn-outline" style={{ cursor: 'pointer', fontSize: '0.85rem' }}>
+                      <Upload size={14} /> اختيار ملف PDF
+                      <input
+                        ref={fileRef}
+                        type="file"
+                        accept=".pdf,application/pdf"
+                        style={{ display: 'none' }}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ fontSize: '0.85rem' }}
+                      onClick={() => void handlePdfSubmit()}
+                      disabled={busy}
+                    >
+                      {busy ? 'جاري الإرسال...' : 'إرسال الإجابة الآن'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {type === 'mcq' && detail.questions.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {detail.questions.map((q, idx) => (
+                    <div
+                      key={q.id}
+                      style={{
+                        padding: '0.75rem',
+                        background: 'var(--surface)',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border)',
+                      }}
+                    >
+                      <p style={{ margin: '0 0 0.5rem', fontWeight: 600, fontSize: '0.9rem' }}>
+                        س{idx + 1}: {q.question}
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginInlineStart: '0.5rem', fontWeight: 400 }}>
+                          ({q.points} درجة)
+                        </span>
+                      </p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                        {q.options.map((opt, i) => (
+                          <button
+                            type="button"
+                            key={i}
+                            className={`btn ${answers[q.id] === i ? 'btn-primary' : 'btn-outline'}`}
+                            style={{
+                              textAlign: 'start',
+                              justifyContent: 'flex-start',
+                              fontSize: '0.85rem',
+                              padding: '0.4rem 0.75rem',
+                            }}
+                            onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: i }))}
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ alignSelf: 'flex-start' }}
+                    onClick={() => void handleMcqSubmit()}
+                    disabled={busy}
+                  >
+                    {busy ? 'جاري التسليم...' : 'تسليم إجابات الواجب'}
+                  </button>
+                </div>
+              )}
+
+              {type === 'generic' && (
+                <p style={{ color: 'var(--text-dim)', fontSize: '0.85rem', margin: 0 }}>
+                  هذا واجب متابعة عام — يرجى اتباع تعليمات المدرس للتسليم.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </article>
+  );
 }
 
 export default function StudentDashboard() {
@@ -779,24 +1098,7 @@ export default function StudentDashboard() {
             {visibleAssignments.length ? (
               <div className="full-list">
                 {visibleAssignments.map((assignment) => (
-                  <article className="exam-row detailed" key={assignment.id}>
-                    <span className="exam-date">
-                      <FileText />
-                      <small>واجب</small>
-                    </span>
-                    <div className="exam-copy">
-                      <strong>{assignment.title}</strong>
-                      <small>
-                        {assignment.courseTitle} ·{' '}
-                        {assignment.dueAt
-                          ? `التسليم ${new Date(assignment.dueAt).toLocaleString('ar-EG')}`
-                          : 'بدون موعد تسليم'}
-                        {assignment.maxScore > 0 ? ` · ${assignment.maxScore} درجة` : ''}
-                      </small>
-                      {assignment.description && <p>{assignment.description}</p>}
-                    </div>
-                    {!assignment.isRead && <span className="status-pill status-pending">جديد</span>}
-                  </article>
+                  <StudentAssignmentCard key={assignment.id} assignment={assignment} />
                 ))}
               </div>
             ) : (

@@ -20,7 +20,13 @@ import { apiUser, getCurrentStudentUser, isResponse } from '../../../lib/api-aut
 import { verifyStudentPassword } from '../../../lib/native-auth';
 import { getDatabase, getPrivateStorage } from '../../../lib/platform';
 import { clearStudentSessionCookie } from '../../../lib/student-session';
-import { jsonError, requireSameOrigin, safeText } from '../../../lib/security';
+import {
+  isSecureRequest,
+  jsonError,
+  readBoundedJson,
+  requireSameOrigin,
+  safeText,
+} from '../../../lib/security';
 import { deleteStudentAccountData } from '../../../lib/account-deletion';
 
 export async function GET() {
@@ -42,10 +48,13 @@ export async function DELETE(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
 
+  const parsed = await readBoundedJson<Record<string, unknown>>(request, 32 * 1024);
+  if (!parsed.ok) return parsed.response;
+
   const user = await apiUser();
   if (isResponse(user)) return user;
 
-  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  const body = parsed.data;
   const password = safeText(body.password, 200);
 
   if (!password) {
@@ -63,7 +72,7 @@ export async function DELETE(request: Request) {
   if (!deleted) return jsonError('الحساب غير موجود أو تم حذفه من قبل', 404);
 
   // Clear the session cookie in the response.
-  const isSecure = request.url.startsWith('https://');
+  const isSecure = isSecureRequest(request);
   return new Response(JSON.stringify({ message: 'Account deleted' }), {
     status: 200,
     headers: {

@@ -3,14 +3,14 @@ import {
   deleteStudentSession,
   STUDENT_SESSION_COOKIE,
 } from '../../../lib/student-session';
-import { requireSameOrigin } from '../../../lib/security';
+import { isSecureRequest, requireSameOrigin } from '../../../lib/security';
 import { cookies } from 'next/headers';
 
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
 
-  const secure = new URL(request.url).protocol === 'https:';
+  const secure = isSecureRequest(request);
 
   try {
     const jar = await cookies();

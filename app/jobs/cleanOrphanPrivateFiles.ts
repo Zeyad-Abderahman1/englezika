@@ -4,17 +4,38 @@
  */
 import { getDatabase, getPrivateStorage } from '../lib/platform';
 
-export async function cleanOrphanPrivateFiles(dryRun = false): Promise<void> {
+export async function cleanOrphanPrivateFiles(dryRun = false): Promise<{ orphanCount: number; deletedCount: number }> {
   const db = getDatabase();
   const storage = getPrivateStorage();
-  const certificates = await db
-    .prepare(
-      `SELECT birth_certificate_key AS key
-       FROM users
-       WHERE birth_certificate_key IS NOT NULL AND birth_certificate_key != ''`
-    )
-    .all<{ key: string }>();
-  const knownKeys = new Set(certificates.results.map((row) => row.key));
+  const [certificates, teacherFiles, submissions] = await Promise.all([
+    db
+      .prepare(
+        `SELECT birth_certificate_key AS key
+         FROM users
+         WHERE birth_certificate_key IS NOT NULL AND birth_certificate_key != ''`
+      )
+      .all<{ key: string }>(),
+    db
+      .prepare(
+        `SELECT teacher_file_key AS key
+         FROM assignments
+         WHERE teacher_file_key IS NOT NULL AND teacher_file_key != ''`
+      )
+      .all<{ key: string }>(),
+    db
+      .prepare(
+        `SELECT file_key AS key
+         FROM assignment_submissions
+         WHERE file_key IS NOT NULL AND file_key != ''`
+      )
+      .all<{ key: string }>(),
+  ]);
+
+  const knownKeys = new Set([
+    ...certificates.results.map((row) => row.key),
+    ...teacherFiles.results.map((row) => row.key),
+    ...submissions.results.map((row) => row.key),
+  ]);
 
   const orphans: string[] = [];
   let cursor: string | undefined;
@@ -26,7 +47,7 @@ export async function cleanOrphanPrivateFiles(dryRun = false): Promise<void> {
     cursor = listed.truncated ? listed.cursor : undefined;
   } while (cursor);
 
-  for (const key of orphans) {
+    for (const key of orphans) {
     if (dryRun) {
       console.log(`[cleanOrphanPrivateFiles] [DRY-RUN] Would delete: ${key}`);
     } else {
@@ -34,4 +55,9 @@ export async function cleanOrphanPrivateFiles(dryRun = false): Promise<void> {
       console.log(`[cleanOrphanPrivateFiles] Deleted: ${key}`);
     }
   }
+
+  return {
+    orphanCount: orphans.length,
+    deletedCount: dryRun ? 0 : orphans.length,
+  };
 }

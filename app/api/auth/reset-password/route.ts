@@ -3,8 +3,7 @@ import { updateStudentPassword } from '../../../lib/native-auth';
 import { checkRateLimit, getClientIp, rateLimitResponse } from '../../../lib/rate-limit';
 import {
   isStrongPassword,
-  jsonError,
-  requestBodyWithinLimit,
+  readBoundedJson,
   requireSameOrigin,
   safeText,
 } from '../../../lib/security';
@@ -20,15 +19,17 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const originError = requireSameOrigin(request);
     if (originError) return originError;
-    if (!requestBodyWithinLimit(request, 32 * 1024)) return jsonError('حجم الطلب غير صالح', 413);
-    const ipLimit = await checkRateLimit('password-reset-submit-ip', getClientIp(request), 20, 60);
-    if (!ipLimit.allowed) return rateLimitResponse(ipLimit.resetAfterSeconds);
 
-    const body = (await request.json().catch(() => ({}))) as {
+    const parsed = await readBoundedJson<{
       email?: string;
       code?: string;
       new_password?: string;
-    };
+    }>(request, 32 * 1024);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
+
+    const ipLimit = await checkRateLimit('password-reset-submit-ip', getClientIp(request), 20, 60);
+    if (!ipLimit.allowed) return rateLimitResponse(ipLimit.resetAfterSeconds);
 
     const email = safeText(body.email, 200).toLowerCase();
     const code = safeText(body.code, 6);
