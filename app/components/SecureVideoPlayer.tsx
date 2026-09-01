@@ -2,19 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { EnglizekaPlayer } from './VideoPlayer';
 import {
   Award,
   CheckCircle2,
   ClipboardCheck,
   LoaderCircle,
   LockKeyhole,
-  Maximize2,
-  Minimize2,
-  PauseCircle,
   PlayCircle,
   RefreshCw,
   ShieldCheck,
-  UserRound,
 } from 'lucide-react';
 
 export type PrerequisiteExam = {
@@ -43,15 +40,6 @@ type ResolvedSource = {
   error?: string;
 };
 
-function formatTime(seconds: number): string {
-  if (!isFinite(seconds) || seconds < 0) return '0:00';
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
-
 export default function SecureVideoPlayer({
   videos,
   viewerEmail,
@@ -73,50 +61,8 @@ export default function SecureVideoPlayer({
   const [resolved, setResolved] = useState<ResolvedSource | null>(null);
   const [resolveAttempt, setResolveAttempt] = useState(0);
   const [completionMessage, setCompletionMessage] = useState('');
-  const [securityMessage, setSecurityMessage] = useState('');
-  const [youtubePlaying, setYoutubePlaying] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [isScrubbing, setIsScrubbing] = useState(false);
-  const [scrubPosition, setScrubPosition] = useState(0);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const videoFrameRef = useRef<HTMLDivElement>(null);
-  const controlsHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const completionInFlight = useRef(new Set<string>());
-  const scrubbingRef = useRef(false);
-  const sliderRef = useRef<HTMLDivElement>(null);
   const active = lessons.find((video) => video.id === activeId);
-
-  const [controlsVisible, setControlsVisible] = useState(true);
-
-  const revealControls = useCallback((autoHide: boolean) => {
-    if (controlsHideTimer.current) clearTimeout(controlsHideTimer.current);
-    setControlsVisible(true);
-    if (autoHide) {
-      controlsHideTimer.current = setTimeout(() => setControlsVisible(false), 3000);
-    }
-  }, []);
-
-  const sendYouTubeCommand = useCallback((command: string, value?: string) => {
-    iframeRef.current?.contentWindow?.postMessage(
-      { type: 'englizeka-player-command', command, value },
-      window.location.origin
-    );
-  }, []);
-
-  const toggleFullscreen = useCallback(async () => {
-    if (document.fullscreenElement) {
-      await document.exitFullscreen();
-      return;
-    }
-    await videoFrameRef.current?.requestFullscreen();
-  }, []);
-
-  const showSecurityOverlay = useCallback(() => {
-    sendYouTubeCommand('pause');
-    setSecurityMessage('تم إيقاف الفيديو بسبب مغادرة صفحة المشاهدة');
-  }, [sendYouTubeCommand]);
 
   const completeLesson = useCallback(
     async (videoId: string) => {
@@ -194,120 +140,6 @@ export default function SecureVideoPlayer({
     return () => controller.abort();
   }, [active?.unlocked, activeId, resolveAttempt]);
 
-  useEffect(() => {
-    const receivePlayerEvent = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.source !== iframeRef.current?.contentWindow) return;
-      const data = event.data as {
-        type?: string;
-        videoId?: string;
-        state?: string;
-        currentTime?: number;
-        duration?: number;
-      } | null;
-      if (!data) return;
-      if (data.videoId !== activeId) return;
-
-      if (data.type === 'englizeka-video-ended') {
-        setYoutubePlaying(false);
-        void completeLesson(activeId);
-      }
-      if (data.type === 'englizeka-video-state') {
-        const playing = data.state === 'playing';
-        setYoutubePlaying(playing);
-        revealControls(playing);
-      }
-      if (data.type === 'englizeka-video-progress') {
-        if (!scrubbingRef.current) {
-          setCurrentTime(typeof data.currentTime === 'number' ? data.currentTime : 0);
-          setDuration(typeof data.duration === 'number' ? data.duration : 0);
-        }
-      }
-    };
-    window.addEventListener('message', receivePlayerEvent);
-    return () => window.removeEventListener('message', receivePlayerEvent);
-  }, [activeId, completeLesson, revealControls]);
-
-  useEffect(
-    () => () => {
-      if (controlsHideTimer.current) clearTimeout(controlsHideTimer.current);
-    },
-    []
-  );
-
-  useEffect(() => {
-    const syncFullscreen = () =>
-      setIsFullscreen(document.fullscreenElement === videoFrameRef.current);
-    document.addEventListener('fullscreenchange', syncFullscreen);
-    return () => document.removeEventListener('fullscreenchange', syncFullscreen);
-  }, []);
-
-  useEffect(() => {
-    const protectOnVisibilityChange = () => {
-      if (document.hidden && resolved?.videoId === activeId && resolved.kind === 'youtube') {
-        showSecurityOverlay();
-      }
-    };
-    document.addEventListener('visibilitychange', protectOnVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', protectOnVisibilityChange);
-    };
-  }, [activeId, resolved, showSecurityOverlay]);
-
-  const seekTo = useCallback(
-    (seconds: number) => {
-      const clamped = Math.max(0, Math.min(seconds, duration || 0));
-      sendYouTubeCommand('seek', String(clamped));
-      setCurrentTime(clamped);
-    },
-    [duration, sendYouTubeCommand]
-  );
-
-  const handleSliderInteraction = useCallback(
-    (clientX: number) => {
-      if (!sliderRef.current || duration <= 0) return;
-      const rect = sliderRef.current.getBoundingClientRect();
-      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      return ratio * duration;
-    },
-    [duration]
-  );
-
-  const handleSliderPointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      if (duration <= 0) return;
-      scrubbingRef.current = true;
-      setIsScrubbing(true);
-      const seconds = handleSliderInteraction(e.clientX);
-      if (seconds !== undefined) setScrubPosition(seconds);
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    },
-    [duration, handleSliderInteraction]
-  );
-
-  const handleSliderPointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!scrubbingRef.current) return;
-      const seconds = handleSliderInteraction(e.clientX);
-      if (seconds !== undefined) setScrubPosition(seconds);
-    },
-    [handleSliderInteraction]
-  );
-
-  const handleSliderPointerUp = useCallback(
-    (e: React.PointerEvent) => {
-      if (!scrubbingRef.current) return;
-      scrubbingRef.current = false;
-      setIsScrubbing(false);
-      const seconds = handleSliderInteraction(e.clientX);
-      if (seconds !== undefined) seekTo(seconds);
-    },
-    [handleSliderInteraction, seekTo]
-  );
-
-  const displayTime = isScrubbing ? scrubPosition : currentTime;
-  const progressPercent = duration > 0 ? (displayTime / duration) * 100 : 0;
-
   if (!lessons.length) {
     return (
       <div className="empty-course">
@@ -324,25 +156,16 @@ export default function SecureVideoPlayer({
     <div className="learning-layout">
       <section className="secure-player-card">
         {active?.unlocked ? (
-          <div
-            ref={videoFrameRef}
-            className={`video-frame ${controlsVisible ? 'controls-visible' : 'controls-hidden'}`}
-            onMouseMove={() => revealControls(youtubePlaying)}
-            onMouseEnter={() => revealControls(youtubePlaying)}
-            onMouseLeave={() => {
-              if (youtubePlaying) revealControls(true);
-            }}
-            onTouchStart={() => revealControls(youtubePlaying)}
-            onContextMenu={(event) => event.preventDefault()}
-          >
+          !activeSource ? (
             <div className="video-stage">
-              {!activeSource ? (
                 <div className="video-source-state" role="status">
                   <LoaderCircle className="spin" />
                   <strong>جاري تجهيز الفيديو الآمن...</strong>
                   <small>يتم التحقق من اشتراكك قبل تشغيل كل محاضرة.</small>
                 </div>
-              ) : activeSource.error ? (
+            </div>
+          ) : activeSource.error ? (
+            <div className="video-stage">
                 <div className="video-source-state" role="alert">
                   <LockKeyhole />
                   <strong>{activeSource.error}</strong>
@@ -353,111 +176,17 @@ export default function SecureVideoPlayer({
                     <RefreshCw /> إعادة المحاولة
                   </button>
                 </div>
-              ) : (
-                <iframe
-                  key={activeSource.sourceUrl}
-                  ref={iframeRef}
-                  className="youtube-player-host"
-                  src={activeSource.sourceUrl}
-                  title={active.title}
-                  allow="autoplay; encrypted-media"
-                  referrerPolicy="strict-origin-when-cross-origin"
-                  sandbox="allow-scripts allow-same-origin allow-presentation"
-                />
-              )}
-              <div
-                className="video-watermark video-watermark-top"
-                aria-label={`المشاهد ${viewerEmail}`}
-              >
-                <UserRound /> {viewerEmail}
-              </div>
-              <div className="video-watermark video-watermark-trace" aria-hidden="true">
-                {viewerEmail}
-              </div>
-              {securityMessage && (
-                <div className="video-protection-overlay" role="alert" aria-live="assertive">
-                  <ShieldCheck />
-                  <h2>نظام المشاهدة الآمن</h2>
-                  <p>{securityMessage}</p>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => {
-                      setSecurityMessage('');
-                      sendYouTubeCommand('play');
-                    }}
-                  >
-                    <PlayCircle /> العودة للمشاهدة
-                  </button>
-                </div>
-              )}
             </div>
-            {activeSource?.kind === 'youtube' && !activeSource.error && (
-              <div
-                className={`englizeka-video-controls ${controlsVisible ? 'is-visible' : ''}`}
-                onFocus={() => revealControls(false)}
-                onBlur={() => revealControls(youtubePlaying)}
-                onContextMenu={(event) => event.preventDefault()}
-              >
-                <button
-                  type="button"
-                  className="video-ctrl-btn"
-                  aria-label="رجوع 10 ثوانٍ"
-                  onClick={() => seekTo(currentTime - 10)}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 17a1 1 0 0 1-1-1v-4l-5 3V9l5 3V8a1 1 0 0 1 1.5-.86l6 4a1 1 0 0 1 0 1.72l-6 4A1 1 0 0 1 11 17z" transform="scale(-1,1) translate(-24,0)"/><text x="5" y="16" fontSize="7" fill="currentColor" stroke="none" fontWeight="700">10</text></svg>
-                </button>
-                <button
-                  type="button"
-                  className="video-ctrl-btn video-ctrl-play"
-                  aria-label={youtubePlaying ? 'إيقاف الفيديو مؤقتًا' : 'تشغيل الفيديو'}
-                  onClick={() => sendYouTubeCommand(youtubePlaying ? 'pause' : 'play')}
-                >
-                  {youtubePlaying ? <PauseCircle /> : <PlayCircle />}
-                </button>
-                <button
-                  type="button"
-                  className="video-ctrl-btn"
-                  aria-label="تقديم 10 ثوانٍ"
-                  onClick={() => seekTo(currentTime + 10)}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 17a1 1 0 0 0 1-1v-4l5 3V9l-5 3V8a1 1 0 0 0-1.5-.86l-6 4a1 1 0 0 0 0 1.72l6 4A1 1 0 0 0 13 17z"/><text x="10" y="16" fontSize="7" fill="currentColor" stroke="none" fontWeight="700">10</text></svg>
-                </button>
-                <span className="video-time-label">{formatTime(displayTime)}</span>
-                <div
-                  ref={sliderRef}
-                  className={`video-seek-slider ${isScrubbing ? 'scrubbing' : ''}`}
-                  role="slider"
-                  aria-label="تقديم أو رجوع الفيديو"
-                  aria-valuemin={0}
-                  aria-valuemax={Math.floor(duration)}
-                  aria-valuenow={Math.floor(displayTime)}
-                  tabIndex={0}
-                  onPointerDown={handleSliderPointerDown}
-                  onPointerMove={handleSliderPointerMove}
-                  onPointerUp={handleSliderPointerUp}
-                  onKeyDown={(e) => {
-                    if (e.key === 'ArrowRight') seekTo(currentTime + 5);
-                    if (e.key === 'ArrowLeft') seekTo(currentTime - 5);
-                  }}
-                >
-                  <div className="video-seek-track">
-                    <div className="video-seek-filled" style={{ width: `${progressPercent}%` }} />
-                    <div className="video-seek-thumb" style={{ left: `${progressPercent}%` }} />
-                  </div>
-                </div>
-                <span className="video-time-label">{formatTime(duration)}</span>
-                <button
-                  type="button"
-                  className="video-ctrl-btn video-ctrl-fullscreen"
-                  aria-label={isFullscreen ? 'الخروج من ملء الشاشة' : 'ملء الشاشة'}
-                  onClick={() => void toggleFullscreen()}
-                >
-                  {isFullscreen ? <Minimize2 /> : <Maximize2 />}
-                </button>
-              </div>
-            )}
-          </div>
+          ) : (
+            <EnglizekaPlayer
+              key={activeSource.sourceUrl}
+              videoId={activeId}
+              title={active.title}
+              sourceUrl={activeSource.sourceUrl}
+              viewerEmail={viewerEmail}
+              onEnded={() => void completeLesson(activeId)}
+            />
+          )
         ) : active?.lockReason === 'prerequisite_exam' && active?.prerequisiteExam ? (
           <div className="locked-lesson" style={{ padding: '2.5rem 1.5rem', textAlign: 'center' }}>
             <Award size={48} style={{ color: 'var(--primary, #e11d48)', margin: '0 auto 1rem' }} />
@@ -589,10 +318,6 @@ export default function SecureVideoPlayer({
                 onClick={() => {
                   setActiveId(video.id);
                   setCompletionMessage('');
-                  setSecurityMessage('');
-                  setYoutubePlaying(false);
-                  setCurrentTime(0);
-                  setDuration(0);
                 }}
               >
                 <span>{index + 1}</span>

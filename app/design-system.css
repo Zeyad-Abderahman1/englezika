@@ -198,9 +198,9 @@ html[data-theme='light'] .portal-page {
 .student-main, .student-card, .learning-layout, .learning-content, .learning-sidebar,
 .quiz-shell, .quiz-layout, .quiz-question, .quiz-sidebar, .admin-layout, .admin-main,
 .admin-topbar, .management-list, .form-row, .modal-backdrop, .student-modal,
-.student-modal-card, .video-frame, .video-stage, .video-info { min-width: 0; max-width: 100%; }
+.student-modal-card, .video-stage, .video-info { min-width: 0; max-width: 100%; }
 
-.video-frame, .video-stage { width: 100%; }
+.video-stage { width: 100%; }
 .video-stage { aspect-ratio: 16 / 9; height: auto; }
 .video-stage :where(video, iframe) { width: 100%; height: 100%; object-fit: contain; }
 .student-modal-card { max-height: min(88dvh, 760px); overflow-y: auto; overscroll-behavior: contain; }
@@ -238,9 +238,6 @@ html[data-theme='light'] .portal-page {
   .nav-menu { max-height: calc(100dvh - 94px - env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; }
   .auth-page, .inner-page, .student-portal-page, .admin-page, .quiz-page { padding-bottom: max(32px, env(safe-area-inset-bottom)); }
   .learning-layout, .quiz-layout, .admin-split, .admin-overview-grid, .exam-admin-grid { grid-template-columns: minmax(0, 1fr); }
-  .englizeka-video-controls { flex-wrap: wrap; gap: 8px; padding: 8px; }
-  .englizeka-video-controls button { min-width: 44px; min-height: 44px; }
-
   /* Mobile drawer auth actions */
   .nav-menu-auth { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--line); }
   .nav-menu-auth .btn { width: 100%; min-height: 48px; justify-content: center; font-size: 15px; font-weight: 700; border-radius: 10px; }
@@ -309,19 +306,15 @@ html[data-theme='light'] .portal-page {
   .hero-copy { text-align: start; }
   .hero h1 { font-size: clamp(38px, 7vw, 54px); }
   .learning-layout, .quiz-layout { min-height: auto; }
-  .video-frame { max-height: calc(100dvh - 24px); }
   .student-modal-card { max-height: calc(100dvh - 20px); }
   .theme-toggle { min-height: 44px; }
   .question-nav button { width: 44px; height: 44px; }
-  .englizeka-video-controls button { width: 44px; height: 44px; }
-  .englizeka-video-controls select { min-height: 44px; }
   .icon-button, .icon-link { width: 44px; height: 44px; }
 }
 
 @media (pointer: coarse) {
   .theme-toggle { min-height: 44px; }
-  .icon-button, .icon-link, .englizeka-video-controls button { min-width: 44px; min-height: 44px; }
-  .englizeka-video-controls select { min-height: 44px; }
+  .icon-button, .icon-link { min-width: 44px; min-height: 44px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
