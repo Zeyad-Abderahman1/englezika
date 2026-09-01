@@ -1,0 +1,431 @@
+/* Scoped, deterministic styling for Englizeka main Navbar and responsive mobile drawer */
+
+.siteHeader {
+  position: fixed;
+  z-index: 100;
+  top: 0;
+  right: 0;
+  left: 0;
+  padding: 12px 20px;
+  pointer-events: none;
+  transition: padding 0.3s ease;
+}
+
+.navShell {
+  direction: rtl;
+  width: min(1320px, 100%);
+  min-height: 68px;
+  margin: auto;
+  padding: 8px 14px 8px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  background: var(--nav);
+  color: var(--nav-text);
+  border: 1px solid var(--nav-border);
+  border-radius: 14px;
+  box-shadow: 0 6px 24px rgba(24, 24, 27, 0.08);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  pointer-events: auto;
+  position: relative;
+}
+
+/* Brand */
+.brand {
+  direction: rtl;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.brandIcon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--brand);
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.brand strong {
+  display: block;
+  color: var(--brand);
+  font-family: 'Cairo', 'Montserrat', sans-serif;
+  font-weight: 900;
+  font-size: 20px;
+  line-height: 1.1;
+  letter-spacing: -0.7px;
+}
+
+.brand small {
+  display: block;
+  margin-top: 2px;
+  color: var(--nav-brand-small);
+  font-size: 11px;
+  line-height: 1;
+  text-align: right;
+}
+
+/* Desktop navigation links */
+.navMenu {
+  display: flex;
+  direction: rtl;
+  align-items: center;
+  gap: 24px;
+}
+
+.navLink {
+  position: relative;
+  padding: 8px 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--nav-menu-color);
+  text-decoration: none;
+  transition: color 160ms ease;
+}
+
+.navLink:hover {
+  color: var(--nav-menu-hover-color);
+}
+
+.navLinkActive {
+  color: var(--nav-menu-hover-color);
+}
+
+.navLink::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 0;
+  height: 2px;
+  background: var(--brand);
+  border-radius: 2px;
+  transition: width 0.2s ease;
+}
+
+.navLink:hover::after,
+.navLinkActive::after {
+  width: 100%;
+}
+
+.navLeaderboard {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+}
+
+.navLeaderboard svg {
+  flex-shrink: 0;
+}
+
+/* Mobile drawer auth actions container - hidden on desktop */
+.navMenuAuth {
+  display: none;
+}
+
+/* Nav right-side actions */
+.navActions {
+  direction: rtl;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* Theme toggle */
+.themeToggle {
+  position: relative;
+  width: 60px;
+  height: 36px;
+  padding: 3px 5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+  outline: none;
+  transition: background 180ms ease, border-color 180ms ease;
+  flex-shrink: 0;
+}
+
+.themeToggle.isLight {
+  background: var(--brand-soft);
+  border-color: #f5bcc9;
+}
+
+.themeThumb {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 28px;
+  height: 28px;
+  background: var(--brand);
+  border-radius: 50%;
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.themeToggle.isLight .themeThumb {
+  transform: translateX(-24px);
+}
+
+.themeIcon {
+  position: relative;
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.themeMoon {
+  color: #fff;
+}
+
+.themeSun {
+  color: var(--muted);
+}
+
+.themeToggle.isLight .themeMoon {
+  color: var(--muted);
+}
+
+.themeToggle.isLight .themeSun {
+  color: var(--brand-strong);
+}
+
+/* Desktop action buttons */
+.desktopAuthBtn {
+  display: inline-flex;
+}
+
+/* Mobile hamburger button */
+.menuToggle {
+  display: none;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.menuToggle:hover {
+  background: var(--surface);
+  border-color: var(--brand);
+}
+
+/* ==========================================================================
+   Mobile Viewport Styles (<= 800px)
+   ========================================================================== */
+@media (max-width: 800px) {
+  .siteHeader {
+    padding: 8px;
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-inline: max(8px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-right));
+  }
+
+  .navShell {
+    min-height: 58px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    gap: 8px;
+  }
+
+  .brand {
+    gap: 8px;
+  }
+
+  .brandIcon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+  }
+
+  .brand strong {
+    font-size: 17px;
+  }
+
+  .desktopAuthBtn {
+    display: none !important;
+  }
+
+  .menuToggle {
+    display: grid;
+  }
+
+  /* Mobile Drawer Container */
+  .navMenu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    left: 0;
+    padding: 16px;
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    background: var(--nav);
+    color: var(--nav-text);
+    border: 1px solid var(--nav-border);
+    border-radius: 16px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    max-height: calc(100dvh - 84px - env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    z-index: 101;
+  }
+
+  .navMenuOpen {
+    display: flex;
+  }
+
+  /* Mobile Drawer Links */
+  .navLink {
+    display: flex;
+    align-items: center;
+    padding: 12px 14px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--nav-text);
+    border-radius: 10px;
+    text-decoration: none;
+    transition: background 150ms ease, color 150ms ease;
+  }
+
+  .navLink:hover {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+
+  .navLinkActive {
+    color: #ffffff !important;
+    background: var(--brand) !important;
+  }
+
+  .navLink::after {
+    display: none !important;
+  }
+
+  .navLeaderboard {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--accent);
+  }
+
+  .navLinkActive.navLeaderboard {
+    color: #ffffff !important;
+  }
+
+  /* Mobile Drawer Auth Actions */
+  .navMenuAuth {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+
+  .authBtn {
+    width: 100%;
+    min-height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    font-weight: 700;
+    border-radius: 10px;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+  }
+
+  .authBtnPrimary {
+    background: var(--brand);
+    color: #ffffff;
+    border: none;
+  }
+
+  .authBtnPrimary:hover {
+    background: var(--brand-strong);
+    color: #ffffff;
+  }
+
+  .authBtnGhost {
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+  }
+
+  .authBtnGhost:hover {
+    border-color: var(--brand);
+    color: var(--brand);
+  }
+
+  .authBtnLogout {
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--line);
+  }
+
+  .authBtnLogout:hover {
+    border-color: var(--brand);
+    color: var(--brand);
+  }
+}
+
+/* Very narrow devices (<= 360px) */
+@media (max-width: 360px) {
+  .siteHeader {
+    padding-inline: 6px;
+  }
+
+  .navShell {
+    gap: 6px;
+    padding-inline: 8px;
+  }
+
+  .brand strong {
+    font-size: 15px;
+  }
+
+  .brandIcon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .themeToggle {
+    width: 52px;
+  }
+}
+
+/* Landscape compact mobile */
+@media (max-height: 500px) and (orientation: landscape) {
+  .siteHeader {
+    position: absolute;
+  }
+
+  .navMenu {
+    max-height: 80vh;
+  }
+}
