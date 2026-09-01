@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { cookies } from 'next/headers';
 import './globals.css';
 import './design-system.css';
 import Navbar from './components/Navbar';
@@ -7,8 +6,6 @@ import Footer from './components/Footer';
 import ScrollEffects from './components/ScrollEffects';
 import CookieConsent from './components/CookieConsent';
 import { SITE_CONFIG } from './lib/site-config';
-import { LanguageProvider } from './lib/i18n/language-context';
-import type { Locale } from './lib/i18n/translations';
 
 const publicBaseUrl = new URL(process.env.APP_URL || 'http://localhost:3000');
 
@@ -50,24 +47,13 @@ const jsonLd = {
   sameAs: [SITE_CONFIG.teacher.youtube, SITE_CONFIG.teacher.tiktok],
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const cookieStore = await cookies();
-  const langCookie = cookieStore.get('englizeka-lang')?.value;
-  const initialLang: Locale = langCookie === 'en' ? 'en' : 'ar';
-  const initialDir = initialLang === 'en' ? 'ltr' : 'rtl';
-
   return (
-    <html
-      lang={initialLang}
-      dir={initialDir}
-      data-theme="dark"
-      data-scroll-behavior="smooth"
-      suppressHydrationWarning
-    >
+    <html lang="ar" dir="rtl" data-theme="light" data-scroll-behavior="smooth">
       <head>
         <script
           type="application/ld+json"
@@ -75,16 +61,14 @@ export default async function RootLayout({
         />
       </head>
       <body>
-        <LanguageProvider initialLanguage={initialLang}>
-          <a className="skip-link" href="#main-content">
-            تخطَّ إلى المحتوى الرئيسي
-          </a>
-          <ScrollEffects />
-          <Navbar />
-          <div id="main-content">{children}</div>
-          <Footer />
-          <CookieConsent />
-        </LanguageProvider>
+        <a className="skip-link" href="#main-content">
+          تخطَّ إلى المحتوى الرئيسي
+        </a>
+        <ScrollEffects />
+        <Navbar />
+        <div id="main-content">{children}</div>
+        <Footer />
+        <CookieConsent />
       </body>
     </html>
   );

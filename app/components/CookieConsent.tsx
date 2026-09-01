@@ -1,9 +1,21 @@
 'use client';
 
+/**
+ * app/components/CookieConsent.tsx
+ *
+ * Cookie consent banner displayed on the first visit.
+ * Checks localStorage key 'cookie_consent' to decide whether to show.
+ *
+ * Actions:
+ *  - Accept All → sets cookie_consent = 'accepted'
+ *  - Reject Non-Essential → sets cookie_consent = 'rejected'
+ *
+ * Fully keyboard-accessible and ARIA-labelled.
+ */
+
 import { useState, useSyncExternalStore } from 'react';
 import { Cookie, X } from 'lucide-react';
 import Link from 'next/link';
-import { useTranslation } from '../lib/i18n/use-translation';
 
 const STORAGE_KEY = 'cookie_consent';
 const CONSENT_CHANGE_EVENT = 'cookie-consent-change';
@@ -29,7 +41,6 @@ function getConsentSnapshot() {
 }
 
 export default function CookieConsent() {
-  const { language } = useTranslation();
   const consent = useSyncExternalStore(
     subscribeToConsent,
     getConsentSnapshot,
@@ -54,7 +65,7 @@ export default function CookieConsent() {
     <div
       role="dialog"
       aria-live="polite"
-      aria-label={language === 'en' ? 'Cookie Notice' : 'إشعار الكوكيز'}
+      aria-label="إشعار الكوكيز"
       className="cookie-consent"
       style={{
         position: 'fixed',
@@ -74,52 +85,37 @@ export default function CookieConsent() {
     >
       <Cookie size={22} style={{ flexShrink: 0, color: 'var(--brand, #d7193f)' }} />
       <p style={{ flex: 1, margin: 0, fontSize: '0.875rem', lineHeight: 1.6 }}>
-        {language === 'en' ? (
-          <>
-            We use essential cookies to improve your experience on the Englizeka platform. Read our{' '}
-            <Link
-              href="/privacy-policy"
-              style={{ color: 'var(--brand, #d7193f)', textDecoration: 'underline' }}
-            >
-              Privacy Policy
-            </Link>{' '}
-            for more details.
-          </>
-        ) : (
-          <>
-            نستخدم ملفات تعريف الارتباط (كوكيز) لتحسين تجربتك على منصة إنجليزيكا. يمكنك قراءة{' '}
-            <Link
-              href="/privacy-policy"
-              style={{ color: 'var(--brand, #d7193f)', textDecoration: 'underline' }}
-            >
-              سياسة الخصوصية
-            </Link>{' '}
-            لمعرفة المزيد.
-          </>
-        )}
+        نستخدم ملفات تعريف الارتباط (كوكيز) لتحسين تجربتك على منصة إنجليزيكا. يمكنك قراءة{' '}
+        <Link
+          href="/privacy-policy"
+          style={{ color: 'var(--brand, #d7193f)', textDecoration: 'underline' }}
+        >
+          سياسة الخصوصية
+        </Link>{' '}
+        لمعرفة المزيد.
       </p>
       <div className="cookie-consent-actions" style={{ display: 'flex', gap: '0.75rem', flexShrink: 0 }}>
         <button
           className="btn btn-ghost"
           style={{ minHeight: '44px', fontSize: '0.85rem' }}
           onClick={() => respond('rejected')}
-          aria-label={language === 'en' ? 'Essential Only' : 'الأساسية فقط'}
+          aria-label="رفض الكوكيز غير الأساسية"
         >
-          {language === 'en' ? 'Essential Only' : 'الأساسية فقط'}
+          الأساسية فقط
         </button>
         <button
           className="btn btn-primary"
           style={{ minHeight: '44px', fontSize: '0.85rem' }}
           onClick={() => respond('accepted')}
-          aria-label={language === 'en' ? 'Accept All' : 'قبول الكل'}
+          aria-label="قبول جميع الكوكيز"
         >
-          {language === 'en' ? 'Accept All' : 'قبول الكل'}
+          قبول الكل
         </button>
         <button
           className="icon-button"
           style={{ minHeight: '44px', minWidth: '44px' }}
           onClick={() => respond('rejected')}
-          aria-label={language === 'en' ? 'Close' : 'إغلاق الإشعار'}
+          aria-label="إغلاق الإشعار"
         >
           <X size={16} />
         </button>

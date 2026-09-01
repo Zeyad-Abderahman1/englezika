@@ -4,20 +4,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { BookOpen, LoaderCircle } from 'lucide-react';
 import type { Course } from '../data/content';
 import CourseCard from './CourseCard';
-import { useTranslation } from '../lib/i18n/use-translation';
+
+const filters = ['الكل', 'أولى ثانوي', 'تانية ثانوي', 'تالتة ثانوي'];
 
 export default function CoursesExplorer() {
-  const { t } = useTranslation();
-  const [active, setActive] = useState<'all' | 'g1' | 'g2' | 'g3'>('all');
+  const [active, setActive] = useState('الكل');
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
-
-  const filters = [
-    { key: 'all' as const, label: t('courses.filter_all') },
-    { key: 'g1' as const, label: t('courses.filter_g1'), arabicGrade: 'أولى ثانوي' },
-    { key: 'g2' as const, label: t('courses.filter_g2'), arabicGrade: 'تانية ثانوي' },
-    { key: 'g3' as const, label: t('courses.filter_g3'), arabicGrade: 'تالتة ثانوي' },
-  ];
 
   useEffect(() => {
     let isMounted = true;
@@ -51,30 +44,23 @@ export default function CoursesExplorer() {
     };
   }, []);
 
-  const visible = useMemo(() => {
-    if (active === 'all') return courses;
-    const selectedFilter = filters.find((f) => f.key === active);
-    if (!selectedFilter || !selectedFilter.arabicGrade) return courses;
-    return courses.filter((course) =>
-      course.grade.includes(selectedFilter.arabicGrade) ||
-      (active === 'g1' && course.grade.includes('الأول')) ||
-      (active === 'g2' && course.grade.includes('الثاني')) ||
-      (active === 'g3' && course.grade.includes('الثالث'))
-    );
-  }, [active, courses, filters]);
+  const visible = useMemo(
+    () => (active === 'الكل' ? courses : courses.filter((course) => course.grade === active)),
+    [active, courses]
+  );
 
   return (
     <>
-      <div className="filter-tabs" role="tablist" aria-label={t('courses.hero_title')}>
+      <div className="filter-tabs" role="tablist" aria-label="تصفية الكورسات">
         {filters.map((filter) => (
           <button
-            key={filter.key}
+            key={filter}
             role="tab"
-            aria-selected={active === filter.key}
-            className={active === filter.key ? 'active' : ''}
-            onClick={() => setActive(filter.key)}
+            aria-selected={active === filter}
+            className={active === filter ? 'active' : ''}
+            onClick={() => setActive(filter)}
           >
-            {filter.label}
+            {filter}
           </button>
         ))}
       </div>
@@ -82,23 +68,23 @@ export default function CoursesExplorer() {
       {loading ? (
         <div className="courses-loading-state" role="status" aria-live="polite">
           <LoaderCircle className="spin" size={32} />
-          <span>{t('courses.loading')}</span>
+          <span>جاري تحميل الكورسات...</span>
         </div>
       ) : courses.length === 0 ? (
         <div className="empty-state-card" role="status">
           <div className="empty-state-icon">
             <BookOpen size={36} />
           </div>
-          <h3>{t('courses.empty_title')}</h3>
-          <p>{t('courses.empty_desc')}</p>
+          <h3>لا توجد كورسات متاحة حالياً</h3>
+          <p>سيتم إضافة الكورسات الجديدة قريباً.</p>
         </div>
       ) : visible.length === 0 ? (
         <div className="empty-state-card" role="status">
           <div className="empty-state-icon">
             <BookOpen size={36} />
           </div>
-          <h3>{t('courses.empty_filter_title')}</h3>
-          <p>{t('courses.empty_filter_desc')}</p>
+          <h3>لا توجد كورسات متاحة لهذا الصف حالياً</h3>
+          <p>جرب اختيار صف دراسي آخر أو تصفح كل الكورسات.</p>
         </div>
       ) : (
         <div className="course-grid">
@@ -110,3 +96,4 @@ export default function CoursesExplorer() {
     </>
   );
 }
+

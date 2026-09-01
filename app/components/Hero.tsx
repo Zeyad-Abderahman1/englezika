@@ -1,21 +1,14 @@
-'use client';
-
 import Image from 'next/image';
 import Link from 'next/link';
-import { ArrowLeft, ArrowRight, BookOpenCheck, PlayCircle } from 'lucide-react';
-import { useTranslation } from '../lib/i18n/use-translation';
+import { ArrowLeft, BookOpenCheck, PlayCircle } from 'lucide-react';
+
+const strengths = [
+  'شرح بسيط ومنظم',
+  'تدريب على نظام الامتحان',
+  'متابعة مستمرة',
+];
 
 export default function Hero() {
-  const { t, isRTL } = useTranslation();
-
-  const strengths = [
-    t('hero.strength_1'),
-    t('hero.strength_2'),
-    t('hero.strength_3'),
-  ];
-
-  const ArrowIcon = isRTL ? ArrowLeft : ArrowRight;
-
   return (
     <section className="hero">
       <div className="hero-background" aria-hidden="true" />
@@ -23,42 +16,43 @@ export default function Hero() {
       <div className="container hero-grid">
         <div className="hero-copy">
           <div className="eyebrow">
-            {t('hero.badge')}
+            منصة إنجليزي للمرحلة الثانوية
           </div>
           <h1>
-            <span>{t('hero.title_prefix')}</span>
+            <span>مستر</span>
             <br />
-            {t('hero.title_name')}
+            أحمد حسن
           </h1>
           <div className="hero-promise">
-            <i>◆</i> {t('hero.promise')}
+            <i>◆</i> الإنجليزي ببساطة، من غير حفظ ولا تعقيد
           </div>
           <p>
-            {t('hero.description')}
+            مدرس اللغة الإنجليزية للمرحلة الثانوية ومؤسس إنجليزيكا. بيحوّل أصعب القواعد والخطوات
+            لأفكار واضحة، ويدرّبك على شكل الامتحان لحد ما تدخل واثق.
           </p>
 
           <div className="hero-highlights">
             <span>
-              <BookOpenCheck size={18} /> {t('hero.highlight_1')}
+              <BookOpenCheck /> شرح من الأساس
             </span>
             <span>
-              <BookOpenCheck size={18} /> {t('hero.highlight_2')}
+              <BookOpenCheck /> تطبيق بعد كل حصة
             </span>
           </div>
 
           <div className="hero-actions">
             <Link href="/register" className="btn btn-primary btn-large">
-              {t('hero.cta_start')} <ArrowIcon size={18} />
+              ابدأ رحلتك <ArrowLeft />
             </Link>
             <Link href="/courses" className="btn btn-outline btn-large">
-              <PlayCircle size={18} /> {t('hero.cta_courses')}
+              <PlayCircle /> شوف الكورسات
             </Link>
           </div>
 
-          <p className="hero-assurance">{t('hero.assurance')}</p>
+          <p className="hero-assurance">شرح منظم · تطبيق مستمر · تقدّم واضح</p>
         </div>
 
-        <div className="hero-visual" aria-label={t('hero.teacher_alt')}>
+        <div className="hero-visual" aria-label="مستر أحمد حسن">
           <div className="teacher-stage">
             <span className="teacher-orbit" aria-hidden="true">
               <i />
@@ -66,10 +60,10 @@ export default function Hero() {
             <div className="teacher-circle">
               <Image
                 src="/teacher-hero-v2.webp"
-                alt={t('hero.teacher_alt')}
+                alt="مستر أحمد حسن"
                 fill
                 priority
-                sizes="(max-width: 800px) 70vw, 520px"
+                sizes="(max-width: 800px) 86vw, 520px"
               />
               <span className="teacher-circle-shade" aria-hidden="true" />
             </div>

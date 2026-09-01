@@ -1,18 +1,17 @@
-'use client';
-
+import type { Metadata } from 'next';
 import CoursesExplorer from '../components/CoursesExplorer';
-import { useTranslation } from '../lib/i18n/use-translation';
+
+export const metadata: Metadata = { title: 'الكورسات' };
+export const dynamic = 'force-static';
 
 export default function CoursesPage() {
-  const { t } = useTranslation();
-
   return (
     <main className="inner-page">
       <section className="page-hero">
         <div className="container">
-          <span className="section-label">{t('courses.hero_badge')}</span>
-          <h1>{t('courses.hero_title')}</h1>
-          <p>{t('courses.hero_subtitle')}</p>
+          <span className="section-label">اختار خطتك</span>
+          <h1>كل كورسات إنجليزيكا</h1>
+          <p>محتوى مرتب لكل صف، من الشرح للتدريب والمراجعة.</p>
         </div>
       </section>
       <section className="section">

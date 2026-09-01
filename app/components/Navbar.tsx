@@ -2,15 +2,21 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookOpen, Globe, Menu, MoonStar, Sun, Trophy, X } from 'lucide-react';
+import { BookOpen, Menu, MoonStar, Sun, Trophy, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
   drawerPathAfterNavigation,
   drawerPathAfterToggle,
   isDrawerOpenForPathname,
 } from '../lib/mobile-navigation-state';
-import { useTranslation } from '../lib/i18n/use-translation';
 import styles from './Navbar.module.css';
+
+const publicLinks = [
+  { href: '/', label: 'الرئيسية' },
+  { href: '/courses', label: 'الكورسات' },
+  { href: '/about', label: 'عن المستر' },
+  { href: '/contact', label: 'تواصل معنا' },
+];
 
 type NavbarViewer = {
   displayName: string;
@@ -23,18 +29,10 @@ async function logout() {
 
 export default function Navbar() {
   const pathname = usePathname();
-  const { language, toggleLanguage, t } = useTranslation();
   const [drawerPathname, setDrawerPathname] = useState<string | null>(null);
   const [light, setLight] = useState(false);
   const [viewer, setViewer] = useState<NavbarViewer>(null);
   const open = isDrawerOpenForPathname(drawerPathname, pathname);
-
-  const publicLinks = [
-    { href: '/', label: t('nav.home') },
-    { href: '/courses', label: t('nav.courses') },
-    { href: '/about', label: t('nav.about') },
-    { href: '/contact', label: t('nav.contact') },
-  ];
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem('englizeka-theme');
@@ -93,14 +91,14 @@ export default function Navbar() {
 
   return (
     <header className={`${styles.siteHeader} site-header`}>
-      <nav className={`${styles.navShell} nav-shell`} aria-label={t('nav.brand_title')}>
-        <Link href="/" className={`${styles.brand} brand`} onClick={closeMenu} aria-label={`${t('nav.brand_title')} - ${t('nav.home')}`}>
+      <nav className={`${styles.navShell} nav-shell`} aria-label="التنقل الرئيسي">
+        <Link href="/" className={`${styles.brand} brand`} onClick={closeMenu} aria-label="إنجليزيكا - الرئيسية">
           <span className={`${styles.brandIcon} brand-icon`}>
-            <BookOpen size={22} />
+            <BookOpen size={24} />
           </span>
           <span>
             <strong>Englizeka</strong>
-            <small>{t('nav.brand_subtitle')}</small>
+            <small>إنجليزيكا</small>
           </span>
         </Link>
 
@@ -125,7 +123,7 @@ export default function Navbar() {
                 className={`${styles.navLink} ${pathname === '/account' ? `${styles.navLinkActive} active` : ''}`}
                 onClick={closeMenu}
               >
-                {t('nav.student_portal')}
+                مساحتي التعليمية
               </Link>
               <Link
                 href="/account?view=leaderboard"
@@ -133,46 +131,33 @@ export default function Navbar() {
                 onClick={closeMenu}
               >
                 <Trophy size={16} />
-                <span>{t('nav.leaderboard')}</span>
+                <span>أوائل كل صف</span>
               </Link>
             </>
           )}
 
-          {/* Mobile drawer language switch */}
-          <div className={styles.navMenuLang}>
-            <span>{t('nav.lang_label')}</span>
-            <button
-              type="button"
-              className={styles.langToggleBtn}
-              onClick={toggleLanguage}
-              aria-label={t('nav.lang_switch')}
-            >
-              {language === 'ar' ? 'English' : 'العربية'}
-            </button>
-          </div>
-
-          {/* Mobile drawer auth actions */}
+          {/* Mobile drawer auth actions — visible only inside hamburger drawer on mobile */}
           <div className={`${styles.navMenuAuth} nav-menu-auth`}>
             {viewer ? (
               <>
                 <Link href="/account" className={`${styles.authBtn} ${styles.authBtnGhost} btn btn-ghost`} onClick={closeMenu}>
-                  {t('nav.my_account')}
+                  حسابي
                 </Link>
                 <button
                   type="button"
                   onClick={() => { closeMenu(); void logout(); }}
                   className={`${styles.authBtn} ${styles.authBtnLogout} btn nav-menu-logout`}
                 >
-                  {t('nav.logout')}
+                  تسجيل الخروج
                 </button>
               </>
             ) : (
               <>
                 <Link href="/register" className={`${styles.authBtn} ${styles.authBtnPrimary} btn btn-primary`} onClick={closeMenu}>
-                  {t('nav.create_account')}
+                  إنشاء حساب
                 </Link>
                 <Link href="/login" className={`${styles.authBtn} ${styles.authBtnGhost} btn btn-ghost`} onClick={closeMenu}>
-                  {t('nav.login')}
+                  تسجيل الدخول
                 </Link>
               </>
             )}
@@ -180,66 +165,49 @@ export default function Navbar() {
         </div>
 
         <div className={`${styles.navActions} nav-actions`}>
-          {/* Desktop Language Switcher */}
-          <button
-            type="button"
-            className={styles.langBtn}
-            onClick={toggleLanguage}
-            title={t('nav.lang_switch')}
-            aria-label={t('nav.lang_switch')}
-          >
-            <Globe size={15} />
-            <span>{language === 'ar' ? 'EN' : 'عربي'}</span>
-          </button>
-
-          {/* Dark / Light Mode Toggle */}
           <button
             type="button"
             className={`${styles.themeToggle} theme-toggle ${light ? `${styles.isLight} is-light` : 'is-dark'}`}
             onClick={toggleTheme}
             aria-pressed={light}
-            aria-label={light ? t('nav.theme_dark') : t('nav.theme_light')}
+            aria-label={light ? 'تفعيل الوضع الداكن' : 'تفعيل الوضع الفاتح'}
           >
             <span className={`${styles.themeThumb} theme-thumb`} aria-hidden="true" />
             <span className={`${styles.themeIcon} ${styles.themeMoon} theme-icon theme-moon`} aria-hidden="true">
-              <MoonStar size={15} />
+              <MoonStar size={16} />
             </span>
             <span className={`${styles.themeIcon} ${styles.themeSun} theme-icon theme-sun`} aria-hidden="true">
-              <Sun size={15} />
+              <Sun size={17} />
             </span>
           </button>
-
-          {/* Desktop Auth Links */}
           {viewer ? (
             <>
               <Link href="/account" className={`${styles.desktopAuthBtn} btn btn-ghost nav-login`}>
-                {t('nav.my_account')}
+                حسابي
               </Link>
               <button type="button" onClick={() => void logout()} className={`${styles.desktopAuthBtn} btn btn-primary nav-register`}>
-                {t('nav.logout')}
+                تسجيل الخروج
               </button>
             </>
           ) : (
             <>
               <Link href="/login" className={`${styles.desktopAuthBtn} btn btn-ghost nav-login`}>
-                {t('nav.login')}
+                تسجيل الدخول
               </Link>
               <Link href="/register" className={`${styles.desktopAuthBtn} btn btn-primary nav-register`}>
-                {t('nav.register')}
+                حساب جديد
               </Link>
             </>
           )}
-
-          {/* Mobile Menu Toggle */}
           <button
             type="button"
             className={`${styles.menuToggle} menu-toggle`}
             onClick={() => setDrawerPathname(drawerPathAfterToggle(drawerPathname, pathname))}
             aria-expanded={open}
             aria-controls="primary-navigation"
-            aria-label={open ? t('nav.menu_close') : t('nav.menu_open')}
+            aria-label={open ? 'إغلاق القائمة' : 'فتح القائمة'}
           >
-            {open ? <X size={22} /> : <Menu size={22} />}
+            {open ? <X /> : <Menu />}
           </button>
         </div>
       </nav>

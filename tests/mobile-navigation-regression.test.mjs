@@ -8,7 +8,6 @@ import {
   drawerPathAfterToggle,
   isDrawerOpenForPathname,
 } from '../app/lib/mobile-navigation-state.ts';
-import { translations } from '../app/lib/i18n/translations.ts';
 
 test('drawer closes when navigation leaves the pathname where it was opened', () => {
   const openedOnHome = drawerPathAfterToggle(null, '/');
@@ -61,25 +60,3 @@ test('Navbar uses isolated CSS module with deterministic mobile drawer tokens', 
   assert.doesNotMatch(globalsCss, /\.nav-menu\s*\{[^}]*background:\s*#fff/);
 });
 
-test('Theme toggle has directional animation supporting both RTL and LTR', () => {
-  const navbarModuleCss = readFileSync(path.resolve('app/components/Navbar.module.css'), 'utf8');
-
-  // Verify RTL and LTR directional translations
-  assert.match(navbarModuleCss, /html\[dir='rtl'\][\s\S]*\.themeThumb\s*\{[\s\S]*translateX\(-24px\)/);
-  assert.match(navbarModuleCss, /html\[dir='ltr'\][\s\S]*\.themeThumb\s*\{[\s\S]*translateX\(24px\)/);
-  assert.match(navbarModuleCss, /transition:\s*transform 250ms/);
-});
-
-test('Bilingual translation dictionary has complete key coverage for Arabic and English', () => {
-  const arKeys = Object.keys(translations.ar);
-  const enKeys = Object.keys(translations.en);
-
-  assert.equal(arKeys.length > 40, true, 'Arabic dictionary should have over 40 keys');
-  assert.deepEqual(arKeys.sort(), enKeys.sort(), 'Arabic and English dictionaries must have identical keys');
-
-  // Verify key essential translations
-  assert.equal(translations.ar['nav.home'], 'الرئيسية');
-  assert.equal(translations.en['nav.home'], 'Home');
-  assert.equal(translations.ar['hero.badge'], 'منصة إنجليزي للمرحلة الثانوية');
-  assert.equal(translations.en['hero.badge'], 'Secondary Stage English Platform');
-});

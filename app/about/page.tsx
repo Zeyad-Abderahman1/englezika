@@ -1,14 +1,18 @@
-'use client';
-
+import type { Metadata } from 'next';
 import Image from 'next/image';
 import { Award, BookOpenCheck, Phone, Users } from 'lucide-react';
 import { SITE_CONFIG } from '../lib/site-config';
 import { TikTokIcon, WhatsAppIcon, YouTubeIcon } from '../components/ui/SocialIcons';
-import { useTranslation } from '../lib/i18n/use-translation';
+import { teacher } from '../data/content';
+
+export const metadata: Metadata = {
+  title: `عن ${SITE_CONFIG.teacher.nameArabic}`,
+  description: `تعرف على ${SITE_CONFIG.teacher.nameArabic} (${SITE_CONFIG.teacher.name})، ${SITE_CONFIG.teacher.roleArabic} ومؤسس منصة إنجليزيكا.`,
+};
+
+export const dynamic = 'force-static';
 
 export default function AboutPage() {
-  const { t, language } = useTranslation();
-
   return (
     <main className="inner-page">
       <section className="about-hero">
@@ -16,7 +20,7 @@ export default function AboutPage() {
           <div className="about-portrait">
             <Image
               src="/teacher-hero-v2.webp"
-              alt={language === 'en' ? SITE_CONFIG.teacher.name : SITE_CONFIG.teacher.nameArabic}
+              alt={SITE_CONFIG.teacher.nameArabic}
               fill
               priority
               unoptimized
@@ -24,33 +28,32 @@ export default function AboutPage() {
             />
           </div>
           <div className="about-copy">
-            <span className="section-label">{t('about.hero_badge')}</span>
-            <h1>{language === 'en' ? SITE_CONFIG.teacher.name : SITE_CONFIG.teacher.nameArabic}</h1>
-            <h2>{t('about.hero_subtitle')}</h2>
-            <p>{t('about.bio_p1')}</p>
-            <p style={{ marginTop: '12px' }}>{t('about.bio_p2')}</p>
+            <span className="section-label">عن المستر</span>
+            <h1>{SITE_CONFIG.teacher.nameArabic}</h1>
+            <h2>{SITE_CONFIG.teacher.roleArabic}</h2>
+            <p>{teacher.bio}</p>
 
             <div className="about-stats">
               <div>
-                <Users size={20} />
+                <Users />
                 <strong>+5000</strong>
-                <span>{language === 'en' ? 'Students' : 'طالب'}</span>
+                <span>طالب</span>
               </div>
               <div>
-                <BookOpenCheck size={20} />
-                <strong>+100</strong>
-                <span>{language === 'en' ? 'Lectures' : 'حصة'}</span>
+                <BookOpenCheck />
+                <strong>+50</strong>
+                <span>حصة</span>
               </div>
               <div>
-                <Award size={20} />
+                <Award />
                 <strong>3</strong>
-                <span>{language === 'en' ? 'Grades' : 'صفوف دراسية'}</span>
+                <span>صفوف دراسية</span>
               </div>
             </div>
 
             <div className="about-channels" style={{ marginTop: '28px' }}>
               <span className="section-label" style={{ fontSize: '13px' }}>
-                {t('about.social_title')}
+                تواصل وتابع الشروحات
               </span>
               <div
                 style={{
@@ -66,10 +69,10 @@ export default function AboutPage() {
                   rel="noopener noreferrer"
                   className="btn btn-primary"
                   style={{ gap: '8px', display: 'inline-flex', alignItems: 'center' }}
-                  aria-label="WhatsApp"
+                  aria-label="تواصل مع مستر أحمد حسن عبر واتساب"
                 >
                   <WhatsAppIcon width={18} height={18} />
-                  <span>{language === 'en' ? 'WhatsApp' : 'واتساب'}</span>
+                  <span>واتساب</span>
                 </a>
 
                 <a
@@ -78,10 +81,10 @@ export default function AboutPage() {
                   rel="noopener noreferrer"
                   className="btn btn-outline"
                   style={{ gap: '8px', display: 'inline-flex', alignItems: 'center' }}
-                  aria-label="YouTube"
+                  aria-label="قناة مستر أحمد حسن على يوتيوب"
                 >
                   <YouTubeIcon width={18} height={18} />
-                  <span>{language === 'en' ? 'YouTube' : 'يوتيوب'}</span>
+                  <span>يوتيوب</span>
                 </a>
 
                 <a
@@ -90,17 +93,17 @@ export default function AboutPage() {
                   rel="noopener noreferrer"
                   className="btn btn-outline"
                   style={{ gap: '8px', display: 'inline-flex', alignItems: 'center' }}
-                  aria-label="TikTok"
+                  aria-label="حساب مستر أحمد حسن على تيك توك"
                 >
                   <TikTokIcon width={18} height={18} />
-                  <span>{language === 'en' ? 'TikTok' : 'تيك توك'}</span>
+                  <span>تيك توك</span>
                 </a>
 
                 <a
                   href={SITE_CONFIG.teacher.phoneHref}
                   className="btn btn-ghost"
                   style={{ gap: '8px', display: 'inline-flex', alignItems: 'center' }}
-                  aria-label={`Phone: ${SITE_CONFIG.teacher.phoneDisplay}`}
+                  aria-label={`اتصال هاتفياً: ${SITE_CONFIG.teacher.phoneDisplay}`}
                 >
                   <Phone size={17} />
                   <bdi dir="ltr">{SITE_CONFIG.teacher.phoneDisplay}</bdi>
