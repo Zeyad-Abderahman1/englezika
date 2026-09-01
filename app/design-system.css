@@ -212,30 +212,34 @@ html[data-theme='light'] .portal-page {
 .auth-forgot-button { min-height: 44px; padding: 8px 4px !important; }
 
 @media (max-width: 800px) {
-  .container { width: min(calc(100% - 28px), 1180px); }
-  .site-header { padding: 8px; }
-  .nav-shell { min-height: 58px; padding: 8px 10px; border-radius: 11px; }
+  .container { width: min(calc(100% - 24px), 1180px); }
+  .site-header { padding: 8px 12px; }
+  .nav-shell { min-height: 54px; padding: 6px 10px; border-radius: 12px; }
   .menu-toggle { width: 44px; height: 44px; flex: 0 0 44px; }
   .student-menu-button, .notification-button { width: 44px; height: 44px; }
   .admin-main select { min-height: 44px; }
-  .brand-icon { width: 36px; height: 36px; }
-  .brand strong { font-size: 17px; }
+  .brand-icon { width: 34px; height: 34px; border-radius: 8px; }
+  .brand strong { font-size: 16px; }
   .nav-register, .nav-login { display: none; }
-  .hero { min-height: auto; padding-top: 86px; }
-  .hero-grid { min-height: auto; grid-template-columns: 1fr; gap: 24px; padding-block: 34px 56px; }
-  .hero-copy { padding: 0; }
-  .hero h1 { font-size: clamp(46px, 15vw, 64px); letter-spacing: -1px; }
-  .hero-copy > p { font-size: 15px; line-height: 1.85; }
-  .hero-actions { display: grid; grid-template-columns: 1fr; }
-  .hero-actions .btn { width: 100%; }
-  .hero-visual { order: -1; max-width: 280px; margin-inline: auto; }
+  .hero { min-height: auto; padding-top: max(68px, calc(54px + env(safe-area-inset-top) + 12px)); padding-bottom: 24px; }
+  .hero-grid { min-height: auto; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 16px; padding-block: 8px 24px; }
+  .hero-copy { padding: 0; display: flex; flex-direction: column; align-items: center; }
+  .hero h1 { margin-block: 6px 10px; font-size: clamp(34px, 10vw, 52px); line-height: 1.1; letter-spacing: -1px; }
+  .hero-promise { margin-bottom: 8px; font-size: 14.5px; }
+  .hero-copy > p { font-size: 14px; line-height: 1.65; max-width: 440px; margin-bottom: 16px; }
+  .hero-highlights { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-bottom: 18px; font-size: 13px; }
+  .hero-actions { display: grid; grid-template-columns: 1fr; width: 100%; max-width: 320px; gap: 10px; }
+  .hero-actions .btn { width: 100%; min-height: 48px; }
+  .hero-visual { order: -1; width: min(200px, 52vw); max-width: 220px; margin-inline: auto; margin-bottom: 0; }
   .hero-visual .teacher-stage { width: 100%; }
+  .teacher-stage { padding: 0; }
+  .teacher-circle { width: 100%; height: auto; aspect-ratio: 1 / 1; }
   .teacher-badge { display: none; }
   .inner-page { padding-top: 0; }
-  .page-hero, .about-hero, .course-detail-hero { padding-block-start: clamp(100px, 14vw, 132px); }
+  .page-hero, .about-hero, .course-detail-hero { padding-block-start: clamp(88px, 12vw, 120px); }
   .section-heading { align-items: flex-start; }
   .site-header { padding-top: max(8px, env(safe-area-inset-top)); padding-inline: max(8px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-right)); }
-  .nav-menu { max-height: calc(100dvh - 94px - env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; }
+  .nav-menu { max-height: calc(100dvh - 80px - env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; }
   .auth-page, .inner-page, .student-portal-page, .admin-page, .quiz-page { padding-bottom: max(32px, env(safe-area-inset-bottom)); }
   .learning-layout, .quiz-layout, .admin-split, .admin-overview-grid, .exam-admin-grid { grid-template-columns: minmax(0, 1fr); }
   .englizeka-video-controls { flex-wrap: wrap; gap: 8px; padding: 8px; }

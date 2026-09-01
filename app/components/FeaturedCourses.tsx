@@ -4,8 +4,10 @@ import { useEffect, useState } from 'react';
 import { BookOpen, LoaderCircle } from 'lucide-react';
 import CourseCard from './CourseCard';
 import type { Course } from '../data/content';
+import { useTranslation } from '../lib/i18n/use-translation';
 
 export default function FeaturedCourses() {
+  const { t } = useTranslation();
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -41,7 +43,7 @@ export default function FeaturedCourses() {
     return (
       <div className="courses-loading-state" role="status" aria-live="polite">
         <LoaderCircle className="spin" size={32} />
-        <span>جاري تحميل الكورسات...</span>
+        <span>{t('courses.loading')}</span>
       </div>
     );
   }
@@ -52,8 +54,8 @@ export default function FeaturedCourses() {
         <div className="empty-state-icon">
           <BookOpen size={36} />
         </div>
-        <h3>لا توجد كورسات متاحة حالياً</h3>
-        <p>سيتم إضافة الكورسات الجديدة قريباً.</p>
+        <h3>{t('courses.empty_title')}</h3>
+        <p>{t('courses.empty_desc')}</p>
       </div>
     );
   }
@@ -66,4 +68,3 @@ export default function FeaturedCourses() {
     </div>
   );
 }
-

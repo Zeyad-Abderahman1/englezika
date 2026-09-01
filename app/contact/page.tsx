@@ -1,53 +1,54 @@
-import type { Metadata } from 'next';
+'use client';
+
 import { Mail, Phone } from 'lucide-react';
 import ContactForm from '../components/ContactForm';
 import { SITE_CONFIG } from '../lib/site-config';
 import { TikTokIcon, WhatsAppIcon, YouTubeIcon } from '../components/ui/SocialIcons';
-
-export const metadata: Metadata = {
-  title: 'تواصل معنا',
-  description: 'تواصل مع مستر أحمد حسن وفريق إنجليزيكا عبر واتساب، الهاتف، وقنوات التواصل الرسمية.',
-};
-
-export const dynamic = 'force-static';
+import { useTranslation } from '../lib/i18n/use-translation';
 
 export default function ContactPage() {
+  const { t, language } = useTranslation();
+
   return (
     <main className="inner-page">
       <section className="page-hero compact">
         <div className="container">
-          <span className="section-label">إحنا هنا عشانك</span>
-          <h1>تواصل مع {SITE_CONFIG.teacher.nameArabic}</h1>
-          <p>عندك سؤال عن الكورس أو محتاج مساعدة؟ تواصل معنا مباشرة عبر قنواتنا الرسمية.</p>
+          <span className="section-label">{t('contact.hero_badge')}</span>
+          <h1>{t('contact.hero_title')}</h1>
+          <p>{t('contact.hero_subtitle')}</p>
         </div>
       </section>
 
       <section className="section">
         <div className="container contact-grid">
           <div className="contact-info">
-            <h2>قنوات التواصل المباشر</h2>
-            <p>اختار الطريقة الأسهل ليك، وفريق إنجليزيكا ومستر أحمد حسن هيتابعوا معاك.</p>
+            <h2>{language === 'en' ? 'Direct Contact Channels' : 'قنوات التواصل المباشر'}</h2>
+            <p>
+              {language === 'en'
+                ? 'Choose the most convenient way for you, and the Englizeka team will follow up.'
+                : 'اختار الطريقة الأسهل ليك، وفريق إنجليزيكا ومستر أحمد حسن هيتابعوا معاك.'}
+            </p>
 
             <a
               href={SITE_CONFIG.teacher.whatsapp}
               target="_blank"
               rel="noopener noreferrer"
-              aria-label="تواصل عبر واتساب"
+              aria-label="WhatsApp"
             >
               <WhatsAppIcon />
               <span>
-                <small>واتساب</small>
-                ابدأ محادثة مباشرة
+                <small>{language === 'en' ? 'WhatsApp' : 'واتساب'}</small>
+                {t('contact.whatsapp_desc')}
               </span>
             </a>
 
             <a
               href={SITE_CONFIG.teacher.phoneHref}
-              aria-label={`اتصل هاتفياً: ${SITE_CONFIG.teacher.phoneDisplay}`}
+              aria-label={`Phone: ${SITE_CONFIG.teacher.phoneDisplay}`}
             >
               <Phone />
               <span>
-                <small>اتصل بنا</small>
+                <small>{t('contact.phone_title')}</small>
                 <bdi dir="ltr">{SITE_CONFIG.teacher.phoneDisplay}</bdi>
               </span>
             </a>
@@ -56,12 +57,12 @@ export default function ContactPage() {
               href={SITE_CONFIG.teacher.youtube}
               target="_blank"
               rel="noopener noreferrer"
-              aria-label="قناة مستر أحمد حسن على يوتيوب"
+              aria-label="YouTube"
             >
               <YouTubeIcon />
               <span>
-                <small>يوتيوب</small>
-                قناة الشروحات والمراجعات
+                <small>YouTube</small>
+                {language === 'en' ? 'Explanations & Revisions Channel' : 'قناة الشروحات والمراجعات'}
               </span>
             </a>
 
@@ -69,22 +70,22 @@ export default function ContactPage() {
               href={SITE_CONFIG.teacher.tiktok}
               target="_blank"
               rel="noopener noreferrer"
-              aria-label="حساب مستر أحمد حسن على تيك توك"
+              aria-label="TikTok"
             >
               <TikTokIcon />
               <span>
-                <small>تيك توك</small>
-                فيديوهات وتريكات سريعة
+                <small>TikTok</small>
+                {language === 'en' ? 'Quick Tips & Video Shorts' : 'فيديوهات وتريكات سريعة'}
               </span>
             </a>
 
             <a
               href={`mailto:${SITE_CONFIG.email}`}
-              aria-label={`البريد الإلكتروني: ${SITE_CONFIG.email}`}
+              aria-label={`Email: ${SITE_CONFIG.email}`}
             >
               <Mail />
               <span>
-                <small>البريد الإلكتروني</small>
+                <small>{t('contact.email_title')}</small>
                 <bdi dir="ltr">{SITE_CONFIG.email}</bdi>
               </span>
             </a>
