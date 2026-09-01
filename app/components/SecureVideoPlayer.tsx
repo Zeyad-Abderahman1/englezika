@@ -43,17 +43,14 @@ type ResolvedSource = {
   error?: string;
 };
 
-const QUALITY_LABELS: Record<string, string> = {
-  highres: '4K+',
-  hd2160: '2160p',
-  hd1440: '1440p',
-  hd1080: '1080p',
-  hd720: '720p',
-  large: '480p',
-  medium: '360p',
-  small: '240p',
-  tiny: '144p',
-};
+function formatTime(seconds: number): string {
+  if (!isFinite(seconds) || seconds < 0) return '0:00';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
 
 export default function SecureVideoPlayer({
   videos,
@@ -78,13 +75,17 @@ export default function SecureVideoPlayer({
   const [completionMessage, setCompletionMessage] = useState('');
   const [securityMessage, setSecurityMessage] = useState('');
   const [youtubePlaying, setYoutubePlaying] = useState(false);
-  const [qualityLevels, setQualityLevels] = useState<string[]>([]);
-  const [selectedQuality, setSelectedQuality] = useState('default');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [scrubPosition, setScrubPosition] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const videoFrameRef = useRef<HTMLDivElement>(null);
   const controlsHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const completionInFlight = useRef(new Set<string>());
+  const scrubbingRef = useRef(false);
+  const sliderRef = useRef<HTMLDivElement>(null);
   const active = lessons.find((video) => video.id === activeId);
 
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -93,7 +94,7 @@ export default function SecureVideoPlayer({
     if (controlsHideTimer.current) clearTimeout(controlsHideTimer.current);
     setControlsVisible(true);
     if (autoHide) {
-      controlsHideTimer.current = setTimeout(() => setControlsVisible(false), 1800);
+      controlsHideTimer.current = setTimeout(() => setControlsVisible(false), 3000);
     }
   }, []);
 
@@ -201,24 +202,26 @@ export default function SecureVideoPlayer({
         type?: string;
         videoId?: string;
         state?: string;
-        qualities?: string[];
-        quality?: string;
+        currentTime?: number;
+        duration?: number;
       } | null;
-      if (data?.type === 'englizeka-video-ended' && data.videoId === activeId) {
+      if (!data) return;
+      if (data.videoId !== activeId) return;
+
+      if (data.type === 'englizeka-video-ended') {
         setYoutubePlaying(false);
         void completeLesson(activeId);
       }
-      if (data?.type === 'englizeka-video-state' && data.videoId === activeId) {
+      if (data.type === 'englizeka-video-state') {
         const playing = data.state === 'playing';
         setYoutubePlaying(playing);
         revealControls(playing);
       }
-      if (data?.type === 'englizeka-video-ready' && data.videoId === activeId) {
-        setQualityLevels(Array.isArray(data.qualities) ? data.qualities : []);
-        setSelectedQuality(data.quality || 'default');
-      }
-      if (data?.type === 'englizeka-video-quality' && data.videoId === activeId) {
-        setSelectedQuality(data.quality || 'default');
+      if (data.type === 'englizeka-video-progress') {
+        if (!scrubbingRef.current) {
+          setCurrentTime(typeof data.currentTime === 'number' ? data.currentTime : 0);
+          setDuration(typeof data.duration === 'number' ? data.duration : 0);
+        }
       }
     };
     window.addEventListener('message', receivePlayerEvent);
@@ -250,6 +253,60 @@ export default function SecureVideoPlayer({
       document.removeEventListener('visibilitychange', protectOnVisibilityChange);
     };
   }, [activeId, resolved, showSecurityOverlay]);
+
+  const seekTo = useCallback(
+    (seconds: number) => {
+      const clamped = Math.max(0, Math.min(seconds, duration || 0));
+      sendYouTubeCommand('seek', String(clamped));
+      setCurrentTime(clamped);
+    },
+    [duration, sendYouTubeCommand]
+  );
+
+  const handleSliderInteraction = useCallback(
+    (clientX: number) => {
+      if (!sliderRef.current || duration <= 0) return;
+      const rect = sliderRef.current.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      return ratio * duration;
+    },
+    [duration]
+  );
+
+  const handleSliderPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (duration <= 0) return;
+      scrubbingRef.current = true;
+      setIsScrubbing(true);
+      const seconds = handleSliderInteraction(e.clientX);
+      if (seconds !== undefined) setScrubPosition(seconds);
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [duration, handleSliderInteraction]
+  );
+
+  const handleSliderPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!scrubbingRef.current) return;
+      const seconds = handleSliderInteraction(e.clientX);
+      if (seconds !== undefined) setScrubPosition(seconds);
+    },
+    [handleSliderInteraction]
+  );
+
+  const handleSliderPointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (!scrubbingRef.current) return;
+      scrubbingRef.current = false;
+      setIsScrubbing(false);
+      const seconds = handleSliderInteraction(e.clientX);
+      if (seconds !== undefined) seekTo(seconds);
+    },
+    [handleSliderInteraction, seekTo]
+  );
+
+  const displayTime = isScrubbing ? scrubPosition : currentTime;
+  const progressPercent = duration > 0 ? (displayTime / duration) * 100 : 0;
 
   if (!lessons.length) {
     return (
@@ -306,10 +363,8 @@ export default function SecureVideoPlayer({
                   allow="autoplay; encrypted-media"
                   referrerPolicy="strict-origin-when-cross-origin"
                   sandbox="allow-scripts allow-same-origin allow-presentation"
-                  onLoad={() => sendYouTubeCommand('get-state')}
                 />
               )}
-              {activeSource?.kind === 'youtube' && !activeSource.error}
               <div
                 className="video-watermark video-watermark-top"
                 aria-label={`المشاهد ${viewerEmail}`}
@@ -346,31 +401,55 @@ export default function SecureVideoPlayer({
               >
                 <button
                   type="button"
-                  aria-label={youtubePlaying ? 'إيقاف الفيديو مؤقتاً' : 'تشغيل الفيديو'}
+                  className="video-ctrl-btn"
+                  aria-label="رجوع 10 ثوانٍ"
+                  onClick={() => seekTo(currentTime - 10)}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 17a1 1 0 0 1-1-1v-4l-5 3V9l5 3V8a1 1 0 0 1 1.5-.86l6 4a1 1 0 0 1 0 1.72l-6 4A1 1 0 0 1 11 17z" transform="scale(-1,1) translate(-24,0)"/><text x="5" y="16" fontSize="7" fill="currentColor" stroke="none" fontWeight="700">10</text></svg>
+                </button>
+                <button
+                  type="button"
+                  className="video-ctrl-btn video-ctrl-play"
+                  aria-label={youtubePlaying ? 'إيقاف الفيديو مؤقتًا' : 'تشغيل الفيديو'}
                   onClick={() => sendYouTubeCommand(youtubePlaying ? 'pause' : 'play')}
                 >
                   {youtubePlaying ? <PauseCircle /> : <PlayCircle />}
                 </button>
-                <label>
-                  <span>الجودة</span>
-                  <select
-                    aria-label="جودة الفيديو"
-                    value={selectedQuality}
-                    onChange={(event) => {
-                      setSelectedQuality(event.target.value);
-                      sendYouTubeCommand('quality', event.target.value);
-                    }}
-                  >
-                    <option value="default">تلقائي</option>
-                    {qualityLevels.map((quality) => (
-                      <option key={quality} value={quality}>
-                        {QUALITY_LABELS[quality] || quality}
-                      </option>
-                    ))}
-                  </select>
-                </label>
                 <button
                   type="button"
+                  className="video-ctrl-btn"
+                  aria-label="تقديم 10 ثوانٍ"
+                  onClick={() => seekTo(currentTime + 10)}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 17a1 1 0 0 0 1-1v-4l5 3V9l-5 3V8a1 1 0 0 0-1.5-.86l-6 4a1 1 0 0 0 0 1.72l6 4A1 1 0 0 0 13 17z"/><text x="10" y="16" fontSize="7" fill="currentColor" stroke="none" fontWeight="700">10</text></svg>
+                </button>
+                <span className="video-time-label">{formatTime(displayTime)}</span>
+                <div
+                  ref={sliderRef}
+                  className={`video-seek-slider ${isScrubbing ? 'scrubbing' : ''}`}
+                  role="slider"
+                  aria-label="تقديم أو رجوع الفيديو"
+                  aria-valuemin={0}
+                  aria-valuemax={Math.floor(duration)}
+                  aria-valuenow={Math.floor(displayTime)}
+                  tabIndex={0}
+                  onPointerDown={handleSliderPointerDown}
+                  onPointerMove={handleSliderPointerMove}
+                  onPointerUp={handleSliderPointerUp}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowRight') seekTo(currentTime + 5);
+                    if (e.key === 'ArrowLeft') seekTo(currentTime - 5);
+                  }}
+                >
+                  <div className="video-seek-track">
+                    <div className="video-seek-filled" style={{ width: `${progressPercent}%` }} />
+                    <div className="video-seek-thumb" style={{ left: `${progressPercent}%` }} />
+                  </div>
+                </div>
+                <span className="video-time-label">{formatTime(duration)}</span>
+                <button
+                  type="button"
+                  className="video-ctrl-btn video-ctrl-fullscreen"
                   aria-label={isFullscreen ? 'الخروج من ملء الشاشة' : 'ملء الشاشة'}
                   onClick={() => void toggleFullscreen()}
                 >
@@ -512,8 +591,8 @@ export default function SecureVideoPlayer({
                   setCompletionMessage('');
                   setSecurityMessage('');
                   setYoutubePlaying(false);
-                  setQualityLevels([]);
-                  setSelectedQuality('default');
+                  setCurrentTime(0);
+                  setDuration(0);
                 }}
               >
                 <span>{index + 1}</span>

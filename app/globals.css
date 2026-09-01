@@ -4676,6 +4676,135 @@ html[data-theme='light'] .feature-number {
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
 }
+
+/* ── Custom video player controls ─────────────────────────── */
+
+.video-ctrl-btn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background 120ms ease;
+}
+.video-ctrl-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.video-ctrl-btn svg {
+  width: 20px;
+  height: 20px;
+}
+.video-ctrl-play {
+  width: 42px;
+  height: 42px;
+  background: rgba(207, 11, 39, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.video-ctrl-play:hover {
+  background: rgba(207, 11, 39, 1);
+}
+.video-ctrl-play svg {
+  width: 22px;
+  height: 22px;
+}
+
+.video-time-label {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.75);
+  flex-shrink: 0;
+  user-select: none;
+  padding: 0 2px;
+}
+
+/* ── Seek slider ──────────────────────────────────────────── */
+
+.video-seek-slider {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+.video-seek-track {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  overflow: visible;
+}
+.video-seek-filled {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  height: 100%;
+  background: #cf0b27;
+  border-radius: 2px;
+  transition: none;
+}
+.video-seek-thumb {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+.video-seek-slider:hover .video-seek-thumb,
+.video-seek-slider.scrubbing .video-seek-thumb {
+  opacity: 1;
+}
+.video-seek-slider:hover .video-seek-track,
+.video-seek-slider.scrubbing .video-seek-track {
+  height: 6px;
+}
+.video-seek-slider.scrubbing .video-seek-filled {
+  background: #ff3050;
+}
+
+/* ── Mobile overrides ─────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .englizeka-video-controls {
+    height: 48px;
+    min-height: 48px;
+    padding: 6px 10px;
+    gap: 6px;
+  }
+  .englizeka-video-controls.is-visible {
+    height: 48px;
+    min-height: 48px;
+  }
+  .video-ctrl-btn {
+    width: 32px;
+    height: 32px;
+  }
+  .video-ctrl-play {
+    width: 38px;
+    height: 38px;
+  }
+  .video-time-label {
+    font-size: 10px;
+  }
+}
+
 .video-frame:fullscreen {
   width: 100vw;
   height: 100vh;

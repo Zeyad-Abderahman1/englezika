@@ -28,7 +28,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <style>html,body,#player{width:100%;height:100%;margin:0;background:#000;overflow:hidden}</style>
+  <style>html,body,#player{width:100%;height:100%;margin:0;background:#000;overflow:hidden}#player{pointer-events:none}</style>
 </head>
 <body oncontextmenu="return false">
   <div id="player"></div>
@@ -37,29 +37,29 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     window.onYouTubeIframeAPIReady = function () {
       var playerReady = false;
       var pendingCommand = null;
+      var progressTimer = null;
       var player = new YT.Player('player', {
         videoId: ${youtubeId},
-        playerVars: { controls: 1, cc_load_policy: 0, disablekb: 0, fs: 1, modestbranding: 1, origin: ${embedOrigin}, playsinline: 1, rel: 0 },
+        playerVars: { controls: 0, cc_load_policy: 0, disablekb: 1, fs: 0, modestbranding: 1, origin: ${embedOrigin}, playsinline: 1, rel: 0, iv_load_policy: 3, playsinline: 1 },
         events: {
           onReady: function () {
             playerReady = true;
-            window.parent.postMessage({ type: 'englizeka-video-ready', videoId: ${lessonId}, qualities: player.getAvailableQualityLevels(), quality: player.getPlaybackQuality() || 'default' }, window.location.origin);
             if (pendingCommand === 'play') player.playVideo();
             if (pendingCommand === 'pause') player.pauseVideo();
             pendingCommand = null;
+            progressTimer = setInterval(function () {
+              if (typeof player.getCurrentTime === 'function' && typeof player.getDuration === 'function') {
+                window.parent.postMessage({ type: 'englizeka-video-progress', videoId: ${lessonId}, currentTime: player.getCurrentTime(), duration: player.getDuration() }, window.location.origin);
+              }
+            }, 500);
           },
           onStateChange: function (event) {
             var state = event.data === YT.PlayerState.PLAYING ? 'playing' : event.data === YT.PlayerState.PAUSED ? 'paused' : event.data === YT.PlayerState.ENDED ? 'ended' : 'other';
             window.parent.postMessage({ type: 'englizeka-video-state', videoId: ${lessonId}, state: state }, window.location.origin);
-            if (event.data === YT.PlayerState.PLAYING) {
-              window.parent.postMessage({ type: 'englizeka-video-ready', videoId: ${lessonId}, qualities: player.getAvailableQualityLevels(), quality: player.getPlaybackQuality() || 'default' }, window.location.origin);
-            }
             if (event.data === YT.PlayerState.ENDED) {
+              if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
               window.parent.postMessage({ type: 'englizeka-video-ended', videoId: ${lessonId} }, window.location.origin);
             }
-          },
-          onPlaybackQualityChange: function (event) {
-            window.parent.postMessage({ type: 'englizeka-video-quality', videoId: ${lessonId}, quality: event.data || 'default' }, window.location.origin);
           }
         }
       });
@@ -71,8 +71,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         }
         if (event.data.command === 'play') player.playVideo();
         if (event.data.command === 'pause') player.pauseVideo();
-        if (event.data.command === 'quality' && typeof event.data.value === 'string') player.setPlaybackQuality(event.data.value);
-        if (event.data.command === 'get-state') window.parent.postMessage({ type: 'englizeka-video-ready', videoId: ${lessonId}, qualities: player.getAvailableQualityLevels(), quality: player.getPlaybackQuality() || 'default' }, window.location.origin);
+        if (event.data.command === 'seek' && typeof event.data.value === 'string') {
+          var seconds = Number(event.data.value);
+          if (isFinite(seconds) && seconds >= 0) {
+            var dur = player.getDuration() || 0;
+            player.seekTo(Math.min(seconds, dur), true);
+          }
+        }
       });
     };
   </script>
