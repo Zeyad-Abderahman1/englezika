@@ -12,7 +12,7 @@
     "start": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/start-cluster.mjs",
     "start:single": "node --env-file-if-exists=.env --env-file-if-exists=.env.local .next/standalone/server.js",
     "start:cluster": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/start-cluster.mjs",
-    "test": "npm run test:security && node --test tests/unit.test.mjs && npm run build",
+    "test": "npm run test:security && node --test tests/unit.test.mjs tests/mobile-navigation-regression.test.mjs tests/recoverable-loading-regression.test.mjs && npm run build",
     "test:security": "node --import ./tests/register-typescript-loader.mjs --test tests/*-security.test.mjs",
     "test:e2e": "node --env-file-if-exists=.env --env-file-if-exists=.env.local tests/run-live-platform-e2e.mjs",
     "test:lecture-code:postgres": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --import ./tests/register-typescript-loader.mjs --test tests/lecture-access-code-postgres.test.mjs",

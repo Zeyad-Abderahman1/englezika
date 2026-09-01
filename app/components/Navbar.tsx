@@ -4,6 +4,11 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { BookOpen, Menu, MoonStar, Sun, Trophy, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import {
+  drawerPathAfterNavigation,
+  drawerPathAfterToggle,
+  isDrawerOpenForPathname,
+} from '../lib/mobile-navigation-state';
 
 const publicLinks = [
   { href: '/', label: 'الرئيسية' },
@@ -23,9 +28,10 @@ async function logout() {
 
 export default function Navbar() {
   const pathname = usePathname();
-  const [open, setOpen] = useState(false);
+  const [drawerPathname, setDrawerPathname] = useState<string | null>(null);
   const [light, setLight] = useState(false);
   const [viewer, setViewer] = useState<NavbarViewer>(null);
+  const open = isDrawerOpenForPathname(drawerPathname, pathname);
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem('englizeka-theme');
@@ -56,9 +62,15 @@ export default function Navbar() {
   }, [pathname]);
 
   useEffect(() => {
+    // A route transition permanently clears the path that owned the open drawer.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDrawerPathname((current) => drawerPathAfterNavigation(current, pathname));
+  }, [pathname]);
+
+  useEffect(() => {
     if (!open) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
+      if (event.key === 'Escape') setDrawerPathname(null);
     };
     document.addEventListener('keydown', closeOnEscape);
     return () => document.removeEventListener('keydown', closeOnEscape);
@@ -74,7 +86,7 @@ export default function Navbar() {
     window.localStorage.setItem('englizeka-theme', nextTheme ? 'light' : 'dark');
   };
 
-  const closeMenu = () => setOpen(false);
+  const closeMenu = () => setDrawerPathname(null);
 
   return (
     <header className="site-header">
@@ -186,7 +198,7 @@ export default function Navbar() {
           <button
             type="button"
             className="menu-toggle"
-            onClick={() => setOpen(!open)}
+            onClick={() => setDrawerPathname(drawerPathAfterToggle(drawerPathname, pathname))}
             aria-expanded={open}
             aria-controls="primary-navigation"
             aria-label={open ? 'إغلاق القائمة' : 'فتح القائمة'}

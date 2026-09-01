@@ -38,6 +38,7 @@ async function logout() {
 }
 import EmailVerification from './EmailVerification';
 import LectureCodeRedemption from './LectureCodeRedemption';
+import { replaceAbortController, runRecoverableLoad } from '../lib/recoverable-load';
 
 type DashboardData = {
   verificationRequired: boolean;
@@ -459,18 +460,42 @@ export default function StudentDashboard() {
   const [deleteErr, setDeleteErr] = useState('');
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [leaderboardGrade, setLeaderboardGrade] = useState('');
+  const loadControllerRef = useRef<AbortController | null>(null);
 
-  const load = useCallback(async () => {
-    const response = await fetch('/api/dashboard', { cache: 'no-store' });
-    const result = (await response.json().catch(() => ({}))) as DashboardData & { error?: string };
-    if (!response.ok) return setError(result.error || 'تعذر تحميل حسابك');
-    setData(result);
+  const load = useCallback(async (signal?: AbortSignal) => {
+    setError('');
+    await runRecoverableLoad(
+      async () => {
+        const response = await fetch('/api/dashboard', { cache: 'no-store', signal });
+        const result = (await response.json().catch(() => ({}))) as DashboardData & {
+          error?: string;
+        };
+        if (!response.ok) throw new Error(result.error || 'تعذر تحميل حسابك');
+        return result;
+      },
+      {
+        signal,
+        fallbackMessage: 'تعذر تحميل مساحتك التعليمية. تحقق من اتصالك ثم حاول مرة أخرى.',
+        onSuccess: setData,
+        onError: setError,
+      }
+    );
   }, []);
+
+  const beginLoad = useCallback(() => {
+    const controller = replaceAbortController(loadControllerRef.current);
+    loadControllerRef.current = controller;
+    void load(controller.signal);
+  }, [load]);
+
   useEffect(() => {
     // Initial remote dashboard synchronization.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-  }, [load]);
+    beginLoad();
+    return () => {
+      loadControllerRef.current?.abort();
+      loadControllerRef.current = null;
+    };
+  }, [beginLoad]);
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('view') === 'leaderboard') {
       // Open the requested dashboard section when linked from the main navbar.
@@ -544,7 +569,16 @@ export default function StudentDashboard() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  if (error) return <div className="dashboard-state error-toast">{error}</div>;
+  if (error)
+    return (
+      <div className="dashboard-state error-toast" role="alert">
+        <AlertTriangle />
+        <p>{error}</p>
+        <button type="button" className="btn btn-primary" onClick={beginLoad}>
+          إعادة المحاولة
+        </button>
+      </div>
+    );
   if (!data)
     return (
       <div className="dashboard-state">

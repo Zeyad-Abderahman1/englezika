@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, LoaderCircle, Send } from 'lucide-react';
+import { replaceAbortController, runRecoverableLoad } from '../lib/recoverable-load';
 
 type Question = {
   id: string;
@@ -45,41 +46,72 @@ export default function QuizRunner({ examId }: { examId: string }) {
   const [result, setResult] = useState<Result | null>(null);
   const [focusWarning, setFocusWarning] = useState(false);
   const visibilityViolations = useRef(0);
+  const loadControllerRef = useRef<AbortController | null>(null);
   const draftKey = `englizeka-exam-${examId}`;
 
+  const loadExam = useCallback(
+    async (signal?: AbortSignal) => {
+      await runRecoverableLoad(
+        async () => {
+          const startResponse = await fetch(`/api/exams/${examId}/start`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+            cache: 'no-store',
+            signal,
+          });
+          const startData = (await startResponse.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          if (!startResponse.ok) {
+            throw new Error(startData.error || 'تعذر بدء الامتحان');
+          }
+          const response = await fetch(`/api/exams/${examId}`, {
+            cache: 'no-store',
+            signal,
+          });
+          const data = (await response.json().catch(() => ({}))) as ExamPayload & {
+            error?: string;
+          };
+          if (!response.ok) throw new Error(data.error || 'تعذر فتح الامتحان');
+          return data;
+        },
+        {
+          signal,
+          fallbackMessage: 'تعذر تجهيز الامتحان. تحقق من اتصالك ثم حاول مرة أخرى.',
+          onSuccess(data) {
+            setPayload(data);
+            setRemaining(
+              Math.max(0, Math.floor((Number(data.session.expiresAt) - Date.now()) / 1000))
+            );
+            try {
+              const draft = localStorage.getItem(draftKey);
+              if (draft) setAnswers(JSON.parse(draft));
+            } catch {
+              /* Ignore an invalid device-local draft. */
+            }
+          },
+          onError: setError,
+          onSettled: () => setLoading(false),
+        }
+      );
+    },
+    [draftKey, examId]
+  );
+
+  const beginExamLoad = useCallback(() => {
+    const controller = replaceAbortController(loadControllerRef.current);
+    loadControllerRef.current = controller;
+    void loadExam(controller.signal);
+  }, [loadExam]);
+
   useEffect(() => {
-    const load = async () => {
-      const startResponse = await fetch(`/api/exams/${examId}/start`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: '{}',
-        cache: 'no-store',
-      });
-      const startData = (await startResponse.json().catch(() => ({}))) as { error?: string };
-      if (!startResponse.ok) {
-        setError(startData.error || 'تعذر بدء الامتحان');
-        setLoading(false);
-        return;
-      }
-      const response = await fetch(`/api/exams/${examId}`, { cache: 'no-store' });
-      const data = (await response.json().catch(() => ({}))) as ExamPayload & { error?: string };
-      if (!response.ok) {
-        setError(data.error || 'تعذر فتح الامتحان');
-        setLoading(false);
-        return;
-      }
-      setPayload(data);
-      setRemaining(Math.max(0, Math.floor((Number(data.session.expiresAt) - Date.now()) / 1000)));
-      try {
-        const draft = localStorage.getItem(draftKey);
-        if (draft) setAnswers(JSON.parse(draft));
-      } catch {
-        /* Ignore an invalid device-local draft. */
-      }
-      setLoading(false);
+    beginExamLoad();
+    return () => {
+      loadControllerRef.current?.abort();
+      loadControllerRef.current = null;
     };
-    void load();
-  }, [draftKey, examId]);
+  }, [beginExamLoad]);
 
   useEffect(() => {
     if (!payload || result) return;
@@ -151,6 +183,17 @@ export default function QuizRunner({ examId }: { examId: string }) {
       <div className="quiz-state">
         <AlertTriangle />
         <p>{error}</p>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => {
+            setLoading(true);
+            setError('');
+            beginExamLoad();
+          }}
+        >
+          إعادة المحاولة
+        </button>
         <Link href="/account" className="btn btn-primary">
           العودة إلى حسابي
         </Link>
