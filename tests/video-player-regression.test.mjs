@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import vm from 'node:vm';
 
 import {
   parsePlayerCommand,
   parsePlayerEvent,
+  parseTrustedPlayerEvent,
+  shouldRequestPlayerStatus,
 } from '../app/components/VideoPlayer/playerProtocol.ts';
 import {
   clampSeekTime,
@@ -64,6 +67,36 @@ test('player event validation accepts known states and rejects malformed telemet
   assert.equal(parsePlayerEvent({ type: 'englizeka-player-event', videoId: 'v1', event: 'progress', currentTime: -1, duration: 100 }), null);
   assert.equal(parsePlayerEvent({ type: 'englizeka-player-event', videoId: 'v1', event: 'volume', volume: Number.NaN, muted: false }), null);
   assert.equal(parsePlayerEvent({ type: 'englizeka-player-event', videoId: '', event: 'ready' }), null);
+});
+
+test('production-origin READY handshake accepts only the bound iframe and video', () => {
+  const ready = { type: 'englizeka-player-event', videoId: 'lesson-1', event: 'ready' };
+  const expected = { type: 'englizeka-player-event', videoId: 'lesson-1', event: 'ready' };
+  assert.deepEqual(parseTrustedPlayerEvent({
+    data: ready,
+    eventOrigin: 'https://englezika.com',
+    expectedOrigin: 'https://englezika.com',
+    sourceMatches: true,
+    videoId: 'lesson-1',
+  }), expected);
+  assert.equal(parseTrustedPlayerEvent({ data: ready, eventOrigin: 'https://evil.test', expectedOrigin: 'https://englezika.com', sourceMatches: true, videoId: 'lesson-1' }), null);
+  assert.equal(parseTrustedPlayerEvent({ data: ready, eventOrigin: 'https://englezika.com', expectedOrigin: 'https://englezika.com', sourceMatches: false, videoId: 'lesson-1' }), null);
+  assert.equal(parseTrustedPlayerEvent({ data: ready, eventOrigin: 'https://englezika.com', expectedOrigin: 'https://englezika.com', sourceMatches: true, videoId: 'lesson-2' }), null);
+  assert.equal(parseTrustedPlayerEvent({ data: { ...ready, type: 'wrong' }, eventOrigin: 'https://englezika.com', expectedOrigin: 'https://englezika.com', sourceMatches: true, videoId: 'lesson-1' }), null);
+});
+
+test('status handshake command is validated without weakening playback commands', () => {
+  assert.deepEqual(parsePlayerCommand({ type: 'englizeka-player-command', videoId: 'lesson-1', command: 'request-status' }), {
+    type: 'englizeka-player-command',
+    videoId: 'lesson-1',
+    command: 'request-status',
+  });
+});
+
+test('late parent listener requests status after the iframe READY event was missed', () => {
+  assert.equal(shouldRequestPlayerStatus(false, true), false);
+  assert.equal(shouldRequestPlayerStatus(true, true), true);
+  assert.equal(shouldRequestPlayerStatus(true, false), false);
 });
 
 test('video utility behavior clamps seeks and formats long durations', () => {
@@ -168,7 +201,7 @@ test('protected embed disables native YouTube UI and exposes one validated proto
   assert.match(html, /event\.source !== window\.parent/);
   assert.match(html, /event\.origin !== allowedOrigin/);
   assert.match(html, /data\.videoId !== lessonId/);
-  assert.match(html, /\['play', 'pause', 'seek', 'set-volume', 'mute', 'unmute'\]/);
+  assert.match(html, /\['play', 'pause', 'seek', 'set-volume', 'mute', 'unmute', 'request-status'\]/);
   assert.match(html, /Number\.isFinite\(data\.value\)/);
   assert.match(html, /data\.value >= 0 && data\.value <= 100/);
 });
@@ -188,6 +221,49 @@ test('protected embed uses one playback-only progress interval with complete cle
   assert.match(html, /send\('ready'\)/);
   assert.match(html, /send\('volume'/);
   assert.match(html, /send\('error'/);
+  assert.match(html, /data\.command === 'request-status'/);
+  assert.match(html, /sendReadySnapshot/);
+});
+
+test('protected embed resends READY after a missed production-origin initialization event', () => {
+  const html = buildProtectedYouTubeEmbed({ youtubeId: 'dQw4w9WgXcQ', lessonId: 'lesson-1', origin: 'https://englezika.com' });
+  const script = html.match(/<script>\s*([\s\S]*?)<\/script>/)?.[1];
+  assert.ok(script);
+  const messages = [];
+  const listeners = {};
+  const parent = { postMessage: (data, targetOrigin) => messages.push({ data, targetOrigin }) };
+  let playerEvents;
+  const player = {
+    getCurrentTime: () => 0,
+    getDuration: () => 120,
+    getVolume: () => 100,
+    isMuted: () => false,
+  };
+  const window = { parent, addEventListener: (type, listener) => { listeners[type] = listener; } };
+  const YT = {
+    PlayerState: { PLAYING: 1, PAUSED: 2, BUFFERING: 3, ENDED: 0 },
+    Player: function (_id, options) { playerEvents = options.events; return player; },
+  };
+  vm.runInNewContext(script, { window, YT, Number, Object, setInterval, clearInterval });
+  window.onYouTubeIframeAPIReady();
+  playerEvents.onReady();
+  messages.length = 0;
+
+  listeners.message({
+    source: parent,
+    origin: 'https://englezika.com',
+    data: { type: 'englizeka-player-command', videoId: 'lesson-1', command: 'request-status' },
+  });
+  assert.equal(messages[0].data.event, 'ready');
+  assert.equal(messages[0].targetOrigin, 'https://englezika.com');
+
+  messages.length = 0;
+  listeners.message({
+    source: parent,
+    origin: 'https://evil.test',
+    data: { type: 'englizeka-player-command', videoId: 'lesson-1', command: 'request-status' },
+  });
+  assert.equal(messages.length, 0);
 });
 
 test('secure lesson orchestrator delegates playback to the isolated player subsystem', async () => {
@@ -196,4 +272,13 @@ test('secure lesson orchestrator delegates playback to the isolated player subsy
   assert.match(source, /<EnglizekaPlayer/);
   assert.doesNotMatch(source, /<iframe/);
   assert.doesNotMatch(source, /englizeka-video-controls/);
+});
+
+test('parent player retries a missed READY handshake and has a bounded failure state', async () => {
+  const source = await readFile(new URL('../app/components/VideoPlayer/EnglizekaPlayer.tsx', import.meta.url), 'utf8');
+  assert.match(source, /onLoad=\{\(\) => \{[\s\S]*requestStatus\(\)/);
+  assert.match(source, /request-status/);
+  assert.match(source, /INITIALIZATION_TIMEOUT_MS/);
+  assert.match(source, /تعذر تجهيز مشغل الفيديو/);
+  assert.match(source, /إعادة المحاولة/);
 });

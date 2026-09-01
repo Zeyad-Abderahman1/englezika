@@ -31,7 +31,7 @@ export function buildProtectedYouTubeEmbed({
       var player = null;
       var playerReady = false;
       var progressTimer = null;
-      var allowedCommands = ['play', 'pause', 'seek', 'set-volume', 'mute', 'unmute'];
+      var allowedCommands = ['play', 'pause', 'seek', 'set-volume', 'mute', 'unmute', 'request-status'];
 
       function send(event, payload) {
         window.parent.postMessage(Object.assign({
@@ -56,6 +56,13 @@ export function buildProtectedYouTubeEmbed({
         if (Number.isFinite(volume) && volume >= 0 && volume <= 100) {
           send('volume', { volume: volume, muted: player.isMuted() === true });
         }
+      }
+
+      function sendReadySnapshot() {
+        if (!playerReady || !player) return;
+        send('ready');
+        reportProgress();
+        reportVolume();
       }
 
       function stopProgress() {
@@ -95,9 +102,7 @@ export function buildProtectedYouTubeEmbed({
           events: {
             onReady: function () {
               playerReady = true;
-              send('ready');
-              reportProgress();
-              reportVolume();
+              sendReadySnapshot();
             },
             onStateChange: function (event) {
               var state = stateName(event.data);
@@ -118,7 +123,12 @@ export function buildProtectedYouTubeEmbed({
         if (event.source !== window.parent || event.origin !== allowedOrigin) return;
         var data = event.data;
         if (!data || data.type !== 'englizeka-player-command' || data.videoId !== lessonId) return;
-        if (allowedCommands.indexOf(data.command) === -1 || !playerReady || !player) return;
+        if (allowedCommands.indexOf(data.command) === -1) return;
+        if (data.command === 'request-status') {
+          sendReadySnapshot();
+          return;
+        }
+        if (!playerReady || !player) return;
         if (data.command === 'play') player.playVideo();
         else if (data.command === 'pause') player.pauseVideo();
         else if (data.command === 'mute') { player.mute(); reportVolume(); }

@@ -151,6 +151,7 @@
 
 .iconButton,
 .replayButton,
+.errorState button,
 .protectionState button {
   min-width: 44px;
   min-height: 44px;
@@ -178,6 +179,7 @@
 
 .iconButton:focus-visible,
 .replayButton:focus-visible,
+.errorState button:focus-visible,
 .protectionState button:focus-visible,
 .seekBar:focus-visible,
 .volumeSlider:focus-visible {
@@ -334,6 +336,7 @@
   line-height: 1.7;
 }
 
+.errorState button,
 .protectionState button {
   min-width: 160px;
   padding-inline: 16px;

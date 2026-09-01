@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, LoaderCircle, Play, ShieldCheck, UserRound } from 'lucide-react';
 import VideoControls from './VideoControls';
 import VideoGestureLayer from './VideoGestureLayer';
-import { PLAYER_MESSAGE_TYPE, parsePlayerEvent, type PlayerCommand, type PlayerState } from './playerProtocol';
+import { PLAYER_MESSAGE_TYPE, parseTrustedPlayerEvent, shouldRequestPlayerStatus, type PlayerCommand, type PlayerState } from './playerProtocol';
 import {
   clampSeekTime,
   isEditableTarget,
@@ -14,6 +14,8 @@ import {
   shouldReportEnded,
 } from './playerUtils';
 import styles from './VideoPlayer.module.css';
+
+const INITIALIZATION_TIMEOUT_MS = 12_000;
 
 export default function EnglizekaPlayer({
   videoId,
@@ -30,6 +32,8 @@ export default function EnglizekaPlayer({
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const iframeLoadedRef = useRef(false);
+  const listenerReadyRef = useRef(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousStateRef = useRef<PlayerState>('unstarted');
   const interactionRef = useRef(false);
@@ -43,6 +47,8 @@ export default function EnglizekaPlayer({
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [error, setError] = useState(false);
+  const [initializationTimedOut, setInitializationTimedOut] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const [protectionMessage, setProtectionMessage] = useState('');
 
   const clearHideTimer = useCallback(() => {
@@ -66,6 +72,8 @@ export default function EnglizekaPlayer({
       : { type: PLAYER_MESSAGE_TYPE, videoId, command, value };
     iframeRef.current?.contentWindow?.postMessage(message, window.location.origin);
   }, [videoId]);
+
+  const requestStatus = useCallback(() => sendCommand('request-status'), [sendCommand]);
 
   const togglePlayback = useCallback(() => {
     sendCommand(playerState === 'playing' ? 'pause' : 'play');
@@ -110,12 +118,18 @@ export default function EnglizekaPlayer({
 
   useEffect(() => {
     const receivePlayerEvent = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin || event.source !== iframeRef.current?.contentWindow) return;
-      const message = parsePlayerEvent(event.data);
-      if (!message || message.videoId !== videoId) return;
+      const message = parseTrustedPlayerEvent({
+        data: event.data,
+        eventOrigin: event.origin,
+        expectedOrigin: window.location.origin,
+        sourceMatches: event.source === iframeRef.current?.contentWindow,
+        videoId,
+      });
+      if (!message) return;
       if (message.event === 'ready') {
         setReady(true);
         setError(false);
+        setInitializationTimedOut(false);
       } else if (message.event === 'state') {
         setPlayerState(message.state);
         scheduleAutoHide(message.state);
@@ -134,8 +148,19 @@ export default function EnglizekaPlayer({
       }
     };
     window.addEventListener('message', receivePlayerEvent);
-    return () => window.removeEventListener('message', receivePlayerEvent);
-  }, [onEnded, scheduleAutoHide, videoId]);
+    listenerReadyRef.current = true;
+    if (shouldRequestPlayerStatus(listenerReadyRef.current, iframeLoadedRef.current)) requestStatus();
+    return () => {
+      listenerReadyRef.current = false;
+      window.removeEventListener('message', receivePlayerEvent);
+    };
+  }, [onEnded, requestStatus, scheduleAutoHide, videoId]);
+
+  useEffect(() => {
+    if (ready || error) return;
+    const timeout = setTimeout(() => setInitializationTimedOut(true), INITIALIZATION_TIMEOUT_MS);
+    return () => clearTimeout(timeout);
+  }, [error, ready, retryKey]);
 
   useEffect(() => {
     const syncFullscreen = () => setIsFullscreen(document.fullscreenElement === rootRef.current);
@@ -192,7 +217,7 @@ export default function EnglizekaPlayer({
       }}
     >
       <iframe
-        key={sourceUrl}
+        key={`${sourceUrl}:${retryKey}`}
         ref={iframeRef}
         className={styles.engine}
         src={sourceUrl}
@@ -200,6 +225,10 @@ export default function EnglizekaPlayer({
         allow="autoplay; encrypted-media"
         referrerPolicy="strict-origin-when-cross-origin"
         sandbox="allow-scripts allow-same-origin allow-presentation"
+        onLoad={() => {
+          iframeLoadedRef.current = true;
+          if (shouldRequestPlayerStatus(listenerReadyRef.current, iframeLoadedRef.current)) requestStatus();
+        }}
       />
       <VideoGestureLayer
         isPlaying={isPlaying}
@@ -213,7 +242,7 @@ export default function EnglizekaPlayer({
       <div className={`${styles.watermark} ${styles.watermarkTrace}`} aria-hidden="true">
         <bdi>{viewerEmail}</bdi>
       </div>
-      {!ready && !error && (
+      {!ready && !error && !initializationTimedOut && (
         <div className={styles.loadingState} role="status">
           <LoaderCircle className={styles.spinner} />
           <strong>جاري تجهيز مشغل إنجليزيكا...</strong>
@@ -229,11 +258,27 @@ export default function EnglizekaPlayer({
           <Play fill="currentColor" />
         </button>
       )}
-      {error && (
+      {(error || initializationTimedOut) && (
         <div className={styles.errorState} role="alert">
           <AlertTriangle />
-          <strong>تعذر تشغيل الفيديو الآن</strong>
-          <p>أعد تحميل الصفحة أو حاول مرة أخرى بعد قليل.</p>
+          <strong>تعذر تجهيز مشغل الفيديو</strong>
+          <p>حاول مرة أخرى.</p>
+          <button
+            type="button"
+            onClick={() => {
+              iframeLoadedRef.current = false;
+              previousStateRef.current = 'unstarted';
+              setReady(false);
+              setError(false);
+              setInitializationTimedOut(false);
+              setPlayerState('unstarted');
+              setCurrentTime(0);
+              setDuration(0);
+              setRetryKey((value) => value + 1);
+            }}
+          >
+            إعادة المحاولة
+          </button>
         </div>
       )}
       {protectionMessage && (
@@ -246,7 +291,7 @@ export default function EnglizekaPlayer({
           </button>
         </div>
       )}
-      {ready && !error && !protectionMessage && (
+      {ready && !error && !initializationTimedOut && !protectionMessage && (
         <VideoControls
           visible={controlsVisible}
           isPlaying={isPlaying}

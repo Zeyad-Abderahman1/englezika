@@ -4,7 +4,7 @@ export const PLAYER_EVENT_TYPE = 'englizeka-player-event' as const;
 export type PlayerState = 'unstarted' | 'playing' | 'paused' | 'buffering' | 'ended';
 
 export type PlayerCommand =
-  | { type: typeof PLAYER_MESSAGE_TYPE; videoId: string; command: 'play' | 'pause' | 'mute' | 'unmute' }
+  | { type: typeof PLAYER_MESSAGE_TYPE; videoId: string; command: 'play' | 'pause' | 'mute' | 'unmute' | 'request-status' }
   | { type: typeof PLAYER_MESSAGE_TYPE; videoId: string; command: 'seek' | 'set-volume'; value: number };
 
 export type PlayerEvent =
@@ -25,7 +25,7 @@ function hasVideoId(value: Record<string, unknown>): value is Record<string, unk
 export function parsePlayerCommand(value: unknown, duration = Number.POSITIVE_INFINITY): PlayerCommand | null {
   const data = recordOf(value);
   if (!data || data.type !== PLAYER_MESSAGE_TYPE || !hasVideoId(data)) return null;
-  if (data.command === 'play' || data.command === 'pause' || data.command === 'mute' || data.command === 'unmute') {
+  if (data.command === 'play' || data.command === 'pause' || data.command === 'mute' || data.command === 'unmute' || data.command === 'request-status') {
     return { type: PLAYER_MESSAGE_TYPE, videoId: data.videoId, command: data.command };
   }
   if (data.command !== 'seek' && data.command !== 'set-volume') return null;
@@ -33,6 +33,28 @@ export function parsePlayerCommand(value: unknown, duration = Number.POSITIVE_IN
   const maximum = data.command === 'seek' ? duration : 100;
   if (data.value < 0 || data.value > maximum) return null;
   return { type: PLAYER_MESSAGE_TYPE, videoId: data.videoId, command: data.command, value: data.value };
+}
+
+export function parseTrustedPlayerEvent({
+  data,
+  eventOrigin,
+  expectedOrigin,
+  sourceMatches,
+  videoId,
+}: {
+  data: unknown;
+  eventOrigin: string;
+  expectedOrigin: string;
+  sourceMatches: boolean;
+  videoId: string;
+}): PlayerEvent | null {
+  if (!sourceMatches || eventOrigin !== expectedOrigin) return null;
+  const message = parsePlayerEvent(data);
+  return message?.videoId === videoId ? message : null;
+}
+
+export function shouldRequestPlayerStatus(listenerReady: boolean, iframeLoaded: boolean): boolean {
+  return listenerReady && iframeLoaded;
 }
 
 export function parsePlayerEvent(value: unknown): PlayerEvent | null {
