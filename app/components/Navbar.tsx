@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookOpen, Menu, MoonStar, Sun, Trophy, X } from 'lucide-react';
+import { BookOpen, Menu, Trophy, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
   drawerPathAfterNavigation,
   drawerPathAfterToggle,
   isDrawerOpenForPathname,
 } from '../lib/mobile-navigation-state';
+import ThemeToggle from './ThemeToggle';
 import styles from './Navbar.module.css';
 
 const publicLinks = [
@@ -165,21 +166,7 @@ export default function Navbar() {
         </div>
 
         <div className={`${styles.navActions} nav-actions`}>
-          <button
-            type="button"
-            className={`${styles.themeToggle} theme-toggle ${light ? `${styles.isLight} is-light` : 'is-dark'}`}
-            onClick={toggleTheme}
-            aria-pressed={light}
-            aria-label={light ? 'تفعيل الوضع الداكن' : 'تفعيل الوضع الفاتح'}
-          >
-            <span className={`${styles.themeThumb} theme-thumb`} aria-hidden="true" />
-            <span className={`${styles.themeIcon} ${styles.themeMoon} theme-icon theme-moon`} aria-hidden="true">
-              <MoonStar size={16} />
-            </span>
-            <span className={`${styles.themeIcon} ${styles.themeSun} theme-icon theme-sun`} aria-hidden="true">
-              <Sun size={17} />
-            </span>
-          </button>
+          <ThemeToggle isDark={!light} onToggle={toggleTheme} />
           {viewer ? (
             <>
               <Link href="/account" className={`${styles.desktopAuthBtn} btn btn-ghost nav-login`}>
