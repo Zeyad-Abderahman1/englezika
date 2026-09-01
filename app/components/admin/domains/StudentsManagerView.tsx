@@ -22,6 +22,7 @@ import {
   ChevronRight,
   X,
   BookOpen,
+  Trash2,
 } from 'lucide-react';
 import { useAdmin, adminApiRequest, type Student } from '../../../lib/admin-context';
 import { AdminPageHeader } from '../shell/AdminPageHeader';
@@ -30,7 +31,7 @@ import { AdminEmptyState } from '../shell/AdminEmptyState';
 import { AdminLoadingSkeleton } from '../shell/AdminLoadingSkeleton';
 
 export function StudentsManagerView() {
-  const { counts } = useAdmin();
+  const { counts, can, mutate, openConfirm } = useAdmin();
   const [students, setStudents] = useState<Student[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -81,6 +82,32 @@ export function StudentsManagerView() {
   const handleGradeChange = (newGrade: string) => {
     setGrade(newGrade);
     void fetchStudents(1, search, newGrade);
+  };
+
+  const handleDeleteStudent = (student: Student) => {
+    const displayName = student.name || student.email;
+    openConfirm({
+      title: `حذف حساب «${displayName}»`,
+      message: `هل أنت متأكد من حذف الطالب ${displayName} (${student.email})؟ سيتم إلغاء جلساته وحذف ملفاته الخاصة مع الاحتفاظ بالسجلات الأكاديمية بعد إخفاء هويته.`,
+      confirmLabel: 'تأكيد حذف الطالب',
+      isDestructive: true,
+      onConfirm: async () => {
+        const ok = await mutate(
+          () =>
+            adminApiRequest('/api/admin/students', {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ email: student.email }),
+            }),
+          'تم حذف حساب الطالب بأمان'
+        );
+        if (!ok) return;
+        setSelectedStudent(null);
+        setStudents((current) => current.filter((item) => item.email !== student.email));
+        setTotal((current) => Math.max(0, current - 1));
+        await fetchStudents(page, search, grade);
+      },
+    });
   };
 
   return (
@@ -402,6 +429,15 @@ export function StudentsManagerView() {
             </div>
 
             <footer className="admin-modal-footer">
+              {can('manage_staff') && (
+                <button
+                  type="button"
+                  className="btn btn-outline btn-danger"
+                  onClick={() => handleDeleteStudent(selectedStudent)}
+                >
+                  <Trash2 size={16} /> حذف الطالب
+                </button>
+              )}
               <button
                 type="button"
                 className="btn btn-outline"

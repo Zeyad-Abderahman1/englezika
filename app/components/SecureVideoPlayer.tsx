@@ -309,16 +309,7 @@ export default function SecureVideoPlayer({
                   onLoad={() => sendYouTubeCommand('get-state')}
                 />
               )}
-              {activeSource?.kind === 'youtube' && !activeSource.error && (
-                <>
-                  <div
-                    className="youtube-click-shield"
-                    aria-label="تشغيل أو إيقاف الفيديو"
-                    onClick={() => sendYouTubeCommand(youtubePlaying ? 'pause' : 'play')}
-                    onContextMenu={(event) => event.preventDefault()}
-                  />
-                </>
-              )}
+              {activeSource?.kind === 'youtube' && !activeSource.error}
               <div
                 className="video-watermark video-watermark-top"
                 aria-label={`المشاهد ${viewerEmail}`}

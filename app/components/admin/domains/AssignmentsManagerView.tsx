@@ -34,6 +34,10 @@ import {
   BookOpen,
 } from 'lucide-react';
 import { useAdmin, adminApiRequest, type Assignment } from '../../../lib/admin-context';
+import {
+  AssignmentFileUploadError,
+  createAssignmentWithOptionalPdf,
+} from '../../../lib/assignment-creation';
 import { AdminPageHeader } from '../shell/AdminPageHeader';
 import { AdminFilterBar } from '../shell/AdminFilterBar';
 import { AdminEmptyState } from '../shell/AdminEmptyState';
@@ -85,9 +89,11 @@ type MCQQuestion = {
 function AssignmentFormFields({
   defaults,
   courses,
+  includePdfUpload = false,
 }: {
   defaults?: Assignment;
   courses: Array<{ id: string; title: string }>;
+  includePdfUpload?: boolean;
 }) {
   return (
     <>
@@ -184,6 +190,21 @@ function AssignmentFormFields({
           </select>
         </div>
       </div>
+      {includePdfUpload && (
+        <div className="form-group assignment-create-file-field">
+          <label className="form-label" htmlFor="assign-teacher-pdf">
+            <FileText size={14} /> ملف الواجب PDF (اختياري)
+          </label>
+          <input
+            id="assign-teacher-pdf"
+            name="teacherPdf"
+            type="file"
+            className="form-control"
+            accept=".pdf,application/pdf"
+          />
+          <small>PDF فقط، بحد أقصى 15 ميجابايت. سيُحفظ في التخزين الخاص.</small>
+        </div>
+      )}
     </>
   );
 }
@@ -666,26 +687,39 @@ export function AssignmentsManagerView() {
     const form = e.currentTarget;
     const fd = new FormData(form);
     const dueAtStr = fd.get('dueAt') as string;
+    const selectedFile = fd.get('teacherPdf');
+    const teacherPdf = selectedFile instanceof File && selectedFile.size > 0 ? selectedFile : null;
+    let partiallyCreatedId: string | null = null;
 
     const ok = await mutate(
-      () =>
-        adminApiRequest('/api/admin/assignments', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            courseId: fd.get('courseId'),
-            title: fd.get('title'),
-            description: fd.get('description') || '',
-            dueAt: dueAtStr ? new Date(dueAtStr).getTime() : null,
-            maxScore: Number(fd.get('maxScore')) || 0,
-            type: fd.get('type') || 'pdf',
-            status: fd.get('status') || 'published',
-          }),
-        }),
+      async () => {
+        try {
+          return await createAssignmentWithOptionalPdf(
+            adminApiRequest,
+            {
+              courseId: fd.get('courseId'),
+              title: fd.get('title'),
+              description: fd.get('description') || '',
+              dueAt: dueAtStr ? new Date(dueAtStr).getTime() : null,
+              maxScore: Number(fd.get('maxScore')) || 0,
+              type: fd.get('type') || 'pdf',
+              status: fd.get('status') || 'published',
+            },
+            teacherPdf
+          );
+        } catch (error) {
+          if (error instanceof AssignmentFileUploadError) partiallyCreatedId = error.assignmentId;
+          throw error;
+        }
+      },
       'تم إنشاء الواجب بنجاح'
     );
 
     if (ok) {
+      form.reset();
+      setIsAddOpen(false);
+    } else if (partiallyCreatedId) {
+      await refreshData();
       form.reset();
       setIsAddOpen(false);
     }
@@ -807,11 +841,12 @@ export function AssignmentsManagerView() {
               <button className="modal-close" onClick={() => setIsAddOpen(false)} aria-label="إغلاق"><X /></button>
             </div>
             <form onSubmit={(e) => void handleAddAssignment(e)} className="modal-form">
-              <AssignmentFormFields courses={courses} />
-              <div className="modal-footer">
+              <AssignmentFormFields courses={courses} includePdfUpload />
+              <div className="modal-footer assignment-create-actions">
                 <button className="btn btn-ghost" type="button" onClick={() => setIsAddOpen(false)}>إلغاء</button>
-                <button className="btn btn-primary" type="submit" disabled={ctxBusy}>
-                  {ctxBusy ? <Loader2 className="spin" /> : <Save />} إنشاء الواجب
+                <button className="btn btn-primary assignment-create-submit" type="submit" disabled={ctxBusy}>
+                  {ctxBusy ? <Loader2 className="spin" size={18} /> : <Save size={18} />}
+                  <span>إنشاء الواجب</span>
                 </button>
               </div>
             </form>

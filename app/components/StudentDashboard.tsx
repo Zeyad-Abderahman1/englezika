@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { openNotificationHome, visibleUnreadAnnouncementIds } from '../lib/announcement-display';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -532,9 +533,7 @@ export default function StudentDashboard() {
       )
     : 0;
   const markNotificationsRead = useCallback(
-    async (
-      types: Array<'announcement' | 'exam' | 'assignment'> = ['announcement', 'exam', 'assignment']
-    ) => {
+    async (types: Array<'announcement' | 'exam' | 'assignment'>) => {
       const response = await fetch('/api/notifications/read', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -560,6 +559,32 @@ export default function StudentDashboard() {
     },
     []
   );
+  useEffect(() => {
+    const shownIds = visibleUnreadAnnouncementIds(data?.announcements ?? [], view === 'home', 3);
+    if (!shownIds.length) return;
+    let cancelled = false;
+    void fetch('/api/notifications/read', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ announcementIds: shownIds }),
+    }).then((response) => {
+      if (!response.ok || cancelled) return;
+      const shown = new Set(shownIds);
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              announcements: current.announcements.map((item) =>
+                shown.has(item.id) ? { ...item, isRead: 1 } : item
+              ),
+            }
+          : current
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [data?.announcements, view]);
   const navigate = (next: View, courseId?: string) => {
     if (courseId !== undefined) setActiveCourseId(courseId);
     if (next === 'exams') void markNotificationsRead(['exam']);
@@ -767,10 +792,12 @@ export default function StudentDashboard() {
             className="notification-button"
             aria-label="الإشعارات"
             title={unreadCount ? `${unreadCount} إشعارات جديدة` : 'لا توجد إشعارات جديدة'}
-            onClick={() => {
-              navigate('home');
-              void markNotificationsRead();
-            }}
+            onClick={() =>
+              openNotificationHome(
+                () => navigate('home'),
+                (types) => void markNotificationsRead(types)
+              )
+            }
           >
             <Bell />
             {unreadCount > 0 && <i />}

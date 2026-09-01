@@ -8,21 +8,54 @@ type NotificationType = (typeof ALLOWED_TYPES)[number];
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
-  const user = await apiUser();
+  const user = await apiUser(request);
   if (isResponse(user)) return user;
-  const body = (await request.json().catch(() => ({}))) as { types?: unknown };
+  const body = (await request.json().catch(() => ({}))) as {
+    types?: unknown;
+    announcementIds?: unknown;
+  };
+  const rawAnnouncementIds: unknown[] | null = Array.isArray(body.announcementIds)
+    ? body.announcementIds
+    : null;
+  const hasAnnouncementIds = rawAnnouncementIds !== null;
+  const announcementIds = hasAnnouncementIds
+    ? [
+        ...new Set(
+          rawAnnouncementIds
+            .filter((value: unknown): value is string => typeof value === 'string')
+            .map((value) => value.trim())
+            .filter((value) => value.length > 0 && value.length <= 100)
+            .slice(0, 100)
+        ),
+      ]
+    : [];
   const requested = Array.isArray(body.types)
     ? body.types.filter((value): value is NotificationType =>
         ALLOWED_TYPES.includes(value as NotificationType)
       )
-    : [...ALLOWED_TYPES];
+    : hasAnnouncementIds
+      ? []
+      : [...ALLOWED_TYPES];
   const types = [...new Set(requested)];
-  if (!types.length) return Response.json({ ok: true });
+  if (!types.length && !announcementIds.length) return Response.json({ ok: true });
 
   const db = getDatabase();
   const email = user.email.toLowerCase();
   const now = Date.now();
   const statements = [];
+  for (const id of announcementIds) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO notification_reads
+           (user_email, notification_type, notification_id, read_at)
+           SELECT ?, 'announcement', id, ?::BIGINT
+           FROM announcements WHERE status = 'published' AND id = ?
+           ON CONFLICT DO NOTHING`
+        )
+        .bind(email, now, id)
+    );
+  }
   if (types.includes('announcement')) {
     statements.push(
       db

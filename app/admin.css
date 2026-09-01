@@ -1606,6 +1606,47 @@
   border-top: 1px solid var(--line);
 }
 
+/* Assignment create dialog actions only. */
+.assignment-create-actions {
+  gap: 12px;
+}
+
+.assignment-create-actions > .btn {
+  min-height: 44px;
+  min-width: 124px;
+}
+
+.assignment-create-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  line-height: 1.25;
+}
+
+.assignment-create-submit svg {
+  flex: 0 0 auto;
+}
+
+.assignment-create-file-field small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+@media (max-width: 480px) {
+  .assignment-create-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .assignment-create-actions > .btn {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
 @keyframes adminScaleUp {
   from { opacity: 0; transform: scale(0.96); }
   to { opacity: 1; transform: scale(1); }
