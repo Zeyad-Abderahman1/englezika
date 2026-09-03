@@ -11,6 +11,7 @@ import {
   MAX_UPLOAD_BODY_SIZE,
   stableStorageIdentifier,
 } from '../../../../../lib/upload-validation';
+import { hasCourseItems, getCourseSequenceUnlockState } from '../../../../../lib/course-sequence';
 
 /**
  * POST /api/student/assignments/[id]/submit
@@ -43,16 +44,26 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // Fetch assignment + enrollment check
   const assignment = await db
     .prepare(
-      `SELECT a.id, COALESCE(a.type, 'pdf') AS type, a.max_score AS maxScore, a.status
+      `SELECT a.id, a.course_id AS courseId, COALESCE(a.type, 'pdf') AS type, a.max_score AS maxScore, a.status
        FROM assignments a
        JOIN enrollments e ON e.course_id = a.course_id
        WHERE a.id = ? AND e.user_email = ? AND e.status = 'approved'
          AND a.status = 'published' LIMIT 1`
     )
     .bind(id, email)
-    .first<{ id: string; type: string; maxScore: number; status: string }>();
+    .first<{ id: string; courseId: string; type: string; maxScore: number; status: string }>();
 
   if (!assignment) return jsonError('الواجب غير متاح', 404);
+
+  const courseHasSequence = await hasCourseItems(assignment.courseId);
+  if (courseHasSequence) {
+    const unlockState = await getCourseSequenceUnlockState(assignment.courseId, email);
+    const key = `assignment:${id}`;
+    const state = unlockState.get(key);
+    if (state && !state.unlocked) {
+      return jsonError('يجب إكمال العناصر السابقة في تسلسل التعلم أولاً', 403);
+    }
+  }
 
   // Check if submissions table exists
   const tableCheck = await db
@@ -94,15 +105,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const rawAnswers = body.answers;
     if (!Array.isArray(rawAnswers)) return jsonError('يجب إرسال مصفوفة الإجابات', 400);
 
-    // Load questions with correct answers
-    let questions: Array<{ id: string; correctIndex: number; points: number }>;
+    // Load questions with correct answers and options
+    let questions: Array<{ id: string; question: string; correctIndex: number; points: number; options: string; sortOrder: number; hasImage: boolean }>;
     try {
       const qResult = await db
         .prepare(
-          'SELECT id, correct_index AS correctIndex, points FROM assignment_questions WHERE assignment_id = ?'
+          'SELECT id, question, correct_index AS correctIndex, points, options, sort_order AS sortOrder, has_image AS hasImage FROM assignment_questions WHERE assignment_id = ? ORDER BY sort_order'
         )
         .bind(id)
-        .all<{ id: string; correctIndex: number; points: number }>();
+        .all<{ id: string; question: string; correctIndex: number; points: number; options: string; sortOrder: number; hasImage: boolean }>();
       questions = qResult.results;
     } catch {
       return jsonError('أسئلة الواجب غير موجودة', 500);
@@ -141,7 +152,28 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       .bind(subId, id, email, answersJson, score, maxScore, now)
       .run();
 
-    return Response.json({ ok: true, score, maxScore, percentage: maxScore > 0 ? Math.round((score * 100) / maxScore) : 0 });
+    const reviewQuestions = questions.map((q) => {
+      const chosenIndex = answerMap.get(q.id) ?? -1;
+      const isCorrect = chosenIndex === q.correctIndex;
+      const options = q.options ? JSON.parse(q.options) : [];
+      return {
+        id: q.id,
+        prompt: q.question,
+        sortOrder: q.sortOrder,
+        points: q.points,
+        studentAnswer: chosenIndex >= 0 && chosenIndex < options.length ? options[chosenIndex] : '',
+        correctAnswer: q.correctIndex >= 0 && q.correctIndex < options.length ? options[q.correctIndex] : '',
+        isCorrect,
+        hasImage: Boolean(q.hasImage),
+      };
+    });
+    return Response.json({
+      ok: true,
+      score,
+      maxScore,
+      percentage: maxScore > 0 ? Math.round((score * 100) / maxScore) : 0,
+      questions: reviewQuestions,
+    });
   } else {
     // ─── PDF submission path ───────────────────────────────────────────────────
     if (!contentType.toLowerCase().startsWith('multipart/form-data')) {

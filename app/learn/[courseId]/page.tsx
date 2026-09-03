@@ -3,7 +3,41 @@ import Link from 'next/link';
 import { getDatabase } from '../../lib/platform';
 import { isEmailVerified } from '../../lib/email-verification';
 import SecureVideoPlayer, { type Video } from '../../components/SecureVideoPlayer';
+import CourseSequenceTree from '../../components/CourseSequenceTree';
 import { requireStudentUser } from '../../lib/student-session';
+import { hasCourseItems, getCourseSequenceUnlockState } from '../../lib/course-sequence';
+
+async function LectureMaterials({ videoId }: { videoId: string }) {
+  const db = getDatabase();
+  const materials = await db
+    .prepare(
+      'SELECT id, file_name AS fileName, file_size AS fileSize FROM lecture_materials WHERE video_id = ? ORDER BY created_at'
+    )
+    .bind(videoId)
+    .all<{ id: string; fileName: string; fileSize: number }>();
+  if (!materials.results.length) return null;
+  return (
+    <div className="lecture-materials-bar">
+      {materials.results.map((material) => {
+        const sizeLabel =
+          material.fileSize > 1_048_576
+            ? `${Math.round(material.fileSize / 1_048_576)} ميجابايت`
+            : `${Math.round(material.fileSize / 1024)} كيلوبايت`;
+        return (
+          <a
+            key={material.id}
+            href={`/api/student/videos/${videoId}/materials?download=${material.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn btn-outline"
+          >
+            تحميل المحاضرة ({sizeLabel})
+          </a>
+        );
+      })}
+    </div>
+  );
+}
 
 export const metadata: Metadata = { title: 'مشاهدة الكورس' };
 export const dynamic = 'force-dynamic';
@@ -76,6 +110,30 @@ export default async function LearnPage({
     .prepare('SELECT title, grade FROM courses WHERE id = ?')
     .bind(courseId)
     .first<{ title: string; grade: string }>();
+
+  const courseHasSequence = await hasCourseItems(courseId);
+  let sequenceUnlockState = null;
+  let sequenceItems = null;
+
+  if (courseHasSequence && Boolean(enrollment)) {
+    sequenceUnlockState = await getCourseSequenceUnlockState(courseId, normalizedEmail);
+    const { getCourseItems } = await import('../../lib/course-sequence');
+    const rawItems = await getCourseItems(courseId);
+    sequenceItems = rawItems.map((item) => {
+      const key = `${item.itemType}:${item.videoId || item.examId || item.assignmentId}`;
+      const state = sequenceUnlockState!.get(key);
+      return {
+        key,
+        itemType: item.itemType,
+        itemId: item.videoId || item.examId || item.assignmentId || '',
+        title: item.title,
+        unlocked: state?.unlocked ?? false,
+        isCompleted: state?.isCompleted ?? false,
+        lockReason: state?.lockReason ?? null,
+        assessmentType: state?.assessmentType,
+      };
+    });
+  }
 
   // Fetch videos in sequential order with prerequisite exam data
   const result = await db
@@ -156,7 +214,12 @@ export default async function LearnPage({
     let unlocked = 0;
     let lockReason: 'previous_lesson' | 'prerequisite_exam' | null = null;
 
-    if (hasGrant) {
+    if (courseHasSequence && sequenceUnlockState) {
+      const seqKey = `video:${video.id}`;
+      const seqState = sequenceUnlockState.get(seqKey);
+      unlocked = seqState?.unlocked ? 1 : 0;
+      lockReason = seqState?.unlocked ? null : 'previous_lesson';
+    } else if (hasGrant) {
       unlocked = 1;
     } else if (Boolean(enrollment)) {
       if (!prevCompleted) {
@@ -188,12 +251,20 @@ export default async function LearnPage({
           <span className="section-label">{course?.grade || 'الكورس'}</span>
           <h1>{course?.title || 'محتوى الكورس'}</h1>
         </div>
+        {sequenceItems && sequenceItems.length > 0 && (
+          <CourseSequenceTree
+            items={sequenceItems}
+            courseId={courseId}
+            activeItemId={initialVideoId}
+          />
+        )}
         <SecureVideoPlayer
           videos={videos}
           viewerEmail={user.email}
           initialVideoId={initialVideoId}
           allowSequentialUnlock={Boolean(enrollment)}
         />
+        {initialVideoId && <LectureMaterials videoId={initialVideoId} />}
       </div>
     </main>
   );

@@ -12,7 +12,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     .prepare(
       `SELECT id, course_id AS courseId, title, description, instructions,
      duration_minutes AS durationMinutes, passing_score AS passingScore, max_attempts AS maxAttempts, status,
-     opens_at AS opensAt, closes_at AS closesAt FROM exams WHERE id = ?`
+     opens_at AS opensAt, closes_at AS closesAt,
+     COALESCE(assessment_type, 'exam') AS assessmentType,
+     COALESCE(mode, 'online') AS mode,
+     CASE WHEN teacher_file_key IS NOT NULL THEN 1 ELSE 0 END AS hasTeacherFile
+     FROM exams WHERE id = ?`
     )
     .bind(id)
     .first();
@@ -20,7 +24,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const questions = await db
     .prepare(
       `SELECT id, sort_order AS sortOrder, type, prompt, options,
-     correct_answer AS correctAnswer, rubric, points
+     correct_answer AS correctAnswer, rubric, explanation, points
      FROM questions WHERE exam_id = ? ORDER BY sort_order`
     )
     .bind(id)
@@ -45,13 +49,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const existing = await db
     .prepare(
       `SELECT course_id AS courseId, title, description, instructions, duration_minutes AS durationMinutes,
-     passing_score AS passingScore, max_attempts AS maxAttempts, status, opens_at AS opensAt, closes_at AS closesAt
+     passing_score AS passingScore, max_attempts AS maxAttempts, status, opens_at AS opensAt, closes_at AS closesAt,
+     COALESCE(assessment_type, 'exam') AS assessmentType,
+     COALESCE(mode, 'online') AS mode
      FROM exams WHERE id = ?`
     )
     .bind(id)
     .first<Record<string, unknown>>();
   if (!existing) return jsonError('الامتحان غير موجود', 404);
   const status = body.status === 'published' ? 'published' : 'draft';
+  const assessmentType = body.assessmentType === 'quiz' ? 'quiz' : 'exam';
+  const mode = body.mode === 'file' ? 'file' : 'online';
   const nullableTimestamp = (value: unknown, fallback: unknown) => {
     if (value === null) return null;
     const candidate = value === undefined ? fallback : value;
@@ -62,7 +70,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const updateStmt = db
     .prepare(
       `UPDATE exams SET title = ?, description = ?, instructions = ?, course_id = ?,
-     duration_minutes = ?, passing_score = ?, max_attempts = ?, status = ?, opens_at = ?, closes_at = ?, updated_at = ?
+     duration_minutes = ?, passing_score = ?, max_attempts = ?, status = ?, opens_at = ?, closes_at = ?,
+     assessment_type = ?, mode = ?, updated_at = ?
      WHERE id = ?`
     )
     .bind(
@@ -76,6 +85,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       status,
       nullableTimestamp(body.opensAt, existing.opensAt),
       nullableTimestamp(body.closesAt, existing.closesAt),
+      body.assessmentType ? assessmentType : (existing.assessmentType as string) || 'exam',
+      body.mode ? mode : (existing.mode as string) || 'online',
       Date.now(),
       id
     );
@@ -108,6 +119,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         options: JSON.stringify(options),
         correctAnswer: safeText(q.correctAnswer, 1000),
         rubric: safeText(q.rubric, 2000),
+        explanation: safeText(q.explanation, 5000),
         points: safeInteger(q.points, 1, 1, 100),
       };
     });
@@ -124,8 +136,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       ...newQuestions.map((q) =>
         db
           .prepare(
-            `INSERT INTO questions (id, exam_id, sort_order, type, prompt, options, correct_answer, rubric, points)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO questions (id, exam_id, sort_order, type, prompt, options, correct_answer, rubric, explanation, points)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .bind(
             q.id,
@@ -136,6 +148,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
             q.options,
             q.correctAnswer,
             q.rubric,
+            q.explanation,
             q.points
           )
       ),

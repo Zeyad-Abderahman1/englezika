@@ -77,6 +77,7 @@ export type Video = {
   prerequisiteExamId?: string;
   prerequisiteExamTitle?: string;
   minimumScore: number;
+  maxViews?: number;
   sourceType: string;
   sourceUrl?: string;
   youtubeId?: string;
@@ -208,7 +209,9 @@ export type QuestionDraft = {
   options: string;
   correctAnswer: string;
   rubric: string;
+  explanation: string;
   points: number;
+  imageFile?: File | null;
 };
 
 // ─── Modal Types ──────────────────────────────────────────────────────────────

@@ -39,6 +39,7 @@ async function logout() {
 }
 import EmailVerification from './EmailVerification';
 import LectureCodeRedemption from './LectureCodeRedemption';
+import AssessmentReview, { type ReviewQuestion } from './AssessmentReview';
 import { replaceAbortController, runRecoverableLoad } from '../lib/recoverable-load';
 
 type DashboardData = {
@@ -140,9 +141,12 @@ type AssignmentDetail = {
   questions: Array<{
     id: string;
     question: string;
+    explanation: string | null;
     options: string[];
+    correctIndex: number | null;
     points: number;
     sortOrder: number;
+    hasImage: boolean;
   }>;
   submission: {
     id: string;
@@ -152,6 +156,7 @@ type AssignmentDetail = {
     feedback: string;
     submittedAt: number;
     hasPdf: number;
+    mcqAnswers: Record<string, number> | null;
   } | null;
 };
 
@@ -163,6 +168,12 @@ function StudentAssignmentCard({ assignment }: { assignment: AssignmentRow }) {
   const [msg, setMsg] = useState('');
   const [msgType, setMsgType] = useState<'ok' | 'err'>('ok');
   const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [reviewData, setReviewData] = useState<{
+    score: number;
+    maxScore: number;
+    percentage: number;
+    questions: ReviewQuestion[];
+  } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const loadDetail = useCallback(async () => {
@@ -172,6 +183,9 @@ function StudentAssignmentCard({ assignment }: { assignment: AssignmentRow }) {
       if (res.ok) {
         const d = (await res.json()) as AssignmentDetail;
         setDetail(d);
+        if (d.submission?.mcqAnswers) {
+          setAnswers(d.submission.mcqAnswers);
+        }
       }
     } finally {
       setLoading(false);
@@ -246,9 +260,18 @@ function StudentAssignmentCard({ assignment }: { assignment: AssignmentRow }) {
           score: number;
           maxScore: number;
           percentage: number;
+          questions?: ReviewQuestion[];
         };
         setMsg(`تم التسليم بنجاح! درجتك: ${result.score} من ${result.maxScore} (${result.percentage}%)`);
         setMsgType('ok');
+        if (result.questions) {
+          setReviewData({
+            score: result.score,
+            maxScore: result.maxScore,
+            percentage: result.percentage,
+            questions: result.questions,
+          });
+        }
         void loadDetail();
       } else {
         const err = (await res.json()) as { error?: string };
@@ -338,6 +361,16 @@ function StudentAssignmentCard({ assignment }: { assignment: AssignmentRow }) {
             </p>
           )}
 
+          {reviewData && (
+            <AssessmentReview
+              title="نتيجة الواجب"
+              score={reviewData.score}
+              maxScore={reviewData.maxScore}
+              percentage={reviewData.percentage}
+              questions={reviewData.questions}
+            />
+          )}
+
           {detail && !sub && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {detail.assignment.hasTeacherFile === 1 && (
@@ -384,51 +417,102 @@ function StudentAssignmentCard({ assignment }: { assignment: AssignmentRow }) {
 
               {type === 'mcq' && detail.questions.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {detail.questions.map((q, idx) => (
-                    <div
-                      key={q.id}
-                      style={{
-                        padding: '0.75rem',
-                        background: 'var(--surface)',
-                        borderRadius: '8px',
-                        border: '1px solid var(--border)',
-                      }}
-                    >
-                      <p style={{ margin: '0 0 0.5rem', fontWeight: 600, fontSize: '0.9rem' }}>
-                        س{idx + 1}: {q.question}
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginInlineStart: '0.5rem', fontWeight: 400 }}>
-                          ({q.points} درجة)
-                        </span>
-                      </p>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                        {q.options.map((opt, i) => (
-                          <button
-                            type="button"
-                            key={i}
-                            className={`btn ${answers[q.id] === i ? 'btn-primary' : 'btn-outline'}`}
-                            style={{
-                              textAlign: 'start',
-                              justifyContent: 'flex-start',
-                              fontSize: '0.85rem',
-                              padding: '0.4rem 0.75rem',
-                            }}
-                            onClick={() => setAnswers((prev) => ({ ...prev, [q.id]: i }))}
-                          >
-                            {opt}
-                          </button>
-                        ))}
+                  {detail.questions.map((q, idx) => {
+                    const studentAnswer = answers[q.id];
+                    const isReview = sub != null && q.correctIndex != null;
+                    const isCorrect = isReview && studentAnswer === q.correctIndex;
+                    return (
+                      <div
+                        key={q.id}
+                        style={{
+                          padding: '0.75rem',
+                          background: 'var(--surface)',
+                          borderRadius: '8px',
+                          border: isReview
+                            ? isCorrect
+                              ? '2px solid #10b981'
+                              : '2px solid #ef4444'
+                            : '1px solid var(--border)',
+                        }}
+                      >
+                        <p style={{ margin: '0 0 0.5rem', fontWeight: 600, fontSize: '0.9rem' }}>
+                          س{idx + 1}: {q.question}
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginInlineStart: '0.5rem', fontWeight: 400 }}>
+                            ({q.points} درجة)
+                          </span>
+                          {isReview && (
+                            <span style={{
+                              fontSize: '0.75rem',
+                              marginInlineStart: '0.5rem',
+                              fontWeight: 600,
+                              color: isCorrect ? '#10b981' : '#ef4444',
+                            }}>
+                              {isCorrect ? '✓ صحيح' : '✗ خطأ'}
+                            </span>
+                          )}
+                        </p>
+                        {q.hasImage && (
+                          <img
+                            src={`/api/student/assignment-questions/${q.id}/image`}
+                            alt="صورة السؤال"
+                            style={{ maxWidth: '100%', borderRadius: '6px', margin: '0.5rem 0' }}
+                            loading="lazy"
+                          />
+                        )}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                          {q.options.map((opt, i) => {
+                            const isSelected = studentAnswer === i;
+                            const isCorrectOption = isReview && q.correctIndex === i;
+                            let btnClass = 'btn-outline';
+                            if (isReview) {
+                              if (isCorrectOption) btnClass = 'btn-success';
+                              else if (isSelected && !isCorrectOption) btnClass = 'btn-danger';
+                            } else if (isSelected) {
+                              btnClass = 'btn-primary';
+                            }
+                            return (
+                              <button
+                                type="button"
+                                key={i}
+                                className={`btn ${btnClass}`}
+                                style={{
+                                  textAlign: 'start',
+                                  justifyContent: 'flex-start',
+                                  fontSize: '0.85rem',
+                                  padding: '0.4rem 0.75rem',
+                                  opacity: isReview && !isSelected && !isCorrectOption ? 0.5 : 1,
+                                }}
+                                onClick={() => !isReview && setAnswers((prev) => ({ ...prev, [q.id]: i }))}
+                                disabled={isReview}
+                              >
+                                {isCorrectOption && <CheckCircle2 size={12} style={{ marginInlineEnd: '0.25rem' }} />}
+                                {opt}
+                                {isReview && isSelected && !isCorrectOption && (
+                                  <span style={{ marginInlineStart: '0.5rem', fontSize: '0.75rem', color: '#ef4444' }}>(إجابتك)</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {isReview && !isCorrect && q.explanation && (
+                          <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '6px', fontSize: '0.85rem', color: '#3b82f6' }}>
+                            <strong>شرح:</strong> {q.explanation}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{ alignSelf: 'flex-start' }}
-                    onClick={() => void handleMcqSubmit()}
-                    disabled={busy}
-                  >
-                    {busy ? 'جاري التسليم...' : 'تسليم إجابات الواجب'}
-                  </button>
+                    );
+                  })}
+                  {!sub && (
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ alignSelf: 'flex-start' }}
+                      onClick={() => void handleMcqSubmit()}
+                      disabled={busy}
+                    >
+                      {busy ? 'جاري التسليم...' : 'تسليم إجابات الواجب'}
+                    </button>
+                  )}
                 </div>
               )}
 

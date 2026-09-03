@@ -2,6 +2,7 @@ import { apiUser, isResponse } from '../../../../lib/api-auth';
 import { getDatabase } from '../../../../lib/platform';
 import { jsonError } from '../../../../lib/security';
 import { isEmailVerified } from '../../../../lib/email-verification';
+import { hasCourseItems, getCourseSequenceUnlockState } from '../../../../lib/course-sequence';
 
 /**
  * GET /api/student/assignments/[id]
@@ -51,23 +52,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   if (!assignment) return jsonError('الواجب غير متاح', 404);
 
-  // Fetch MCQ questions (without correct_index)
-  let questions: Array<{ id: string; question: string; options: string[]; points: number; sortOrder: number }> = [];
-  if (assignment.type === 'mcq') {
-    try {
-      const qResult = await db
-        .prepare(
-          `SELECT id, question, options, points, sort_order AS sortOrder
-           FROM assignment_questions WHERE assignment_id = ? ORDER BY sort_order ASC`
-        )
-        .bind(id)
-        .all<{ id: string; question: string; options: string; points: number; sortOrder: number }>();
-      questions = qResult.results.map((q) => ({
-        ...q,
-        options: JSON.parse(q.options) as string[],
-      }));
-    } catch {
-      // Table not created yet
+  const courseHasSequence = await hasCourseItems(assignment.courseId);
+  if (courseHasSequence) {
+    const unlockState = await getCourseSequenceUnlockState(assignment.courseId, email);
+    const key = `assignment:${id}`;
+    const state = unlockState.get(key);
+    if (state && !state.unlocked) {
+      return jsonError('يجب إكمال العناصر السابقة في تسلسل التعلم أولاً', 403);
     }
   }
 
@@ -81,15 +72,17 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     submittedAt: number;
     gradedAt: number | null;
     hasPdf: number;
+    mcqAnswers: Record<string, number> | null;
   } | null = null;
 
   try {
-    submission = await db
+    const subRow = await db
       .prepare(
         `SELECT id, status, score, max_score AS maxScore,
          COALESCE(feedback, '') AS feedback, submitted_at AS submittedAt,
          graded_at AS gradedAt,
-         CASE WHEN pdf_storage_key IS NOT NULL THEN 1 ELSE 0 END AS hasPdf
+         CASE WHEN pdf_storage_key IS NOT NULL THEN 1 ELSE 0 END AS hasPdf,
+         mcq_answers AS mcqAnswers
          FROM assignment_submissions
          WHERE assignment_id = ? AND student_email = ? LIMIT 1`
       )
@@ -103,9 +96,63 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         submittedAt: number;
         gradedAt: number | null;
         hasPdf: number;
+        mcqAnswers: string | null;
       }>();
+    if (subRow) {
+      let mcqAnswersMap: Record<string, number> | null = null;
+      if (subRow.mcqAnswers) {
+        try {
+          const parsed = JSON.parse(subRow.mcqAnswers) as Array<{ questionId: string; chosen: number }>;
+          mcqAnswersMap = {};
+          for (const item of parsed) {
+            mcqAnswersMap[item.questionId] = item.chosen;
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
+      submission = {
+        id: subRow.id,
+        status: subRow.status,
+        score: subRow.score,
+        maxScore: subRow.maxScore,
+        feedback: subRow.feedback,
+        submittedAt: subRow.submittedAt,
+        gradedAt: subRow.gradedAt,
+        hasPdf: subRow.hasPdf,
+        mcqAnswers: mcqAnswersMap,
+      };
+    }
   } catch {
     // Submissions table not yet created
+  }
+
+  // Fetch MCQ questions — include correctIndex and explanation only after submission
+  let questions: Array<{ id: string; question: string; explanation: string | null; options: string[]; correctIndex: number | null; points: number; sortOrder: number; hasImage: boolean }> = [];
+  if (assignment.type === 'mcq') {
+    try {
+      const qResult = await db
+        .prepare(
+          `SELECT id, question, explanation, options, correct_index AS correctIndex, points, sort_order AS sortOrder,
+                  image_file_key AS imageFileKey
+           FROM assignment_questions WHERE assignment_id = ? ORDER BY sort_order ASC`
+        )
+        .bind(id)
+        .all<{ id: string; question: string; explanation: string | null; options: string; correctIndex: number; points: number; sortOrder: number; imageFileKey: string | null }>();
+      const hasSubmission = submission != null;
+      questions = qResult.results.map((q) => ({
+        id: q.id,
+        question: q.question,
+        explanation: q.explanation || null,
+        options: JSON.parse(q.options) as string[],
+        correctIndex: hasSubmission ? q.correctIndex : null,
+        points: q.points,
+        sortOrder: q.sortOrder,
+        hasImage: q.imageFileKey != null,
+      }));
+    } catch {
+      // Table not created yet
+    }
   }
 
   return Response.json({

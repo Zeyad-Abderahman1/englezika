@@ -5,7 +5,7 @@ import { BookOpen, LoaderCircle } from 'lucide-react';
 import type { Course } from '../data/content';
 import CourseCard from './CourseCard';
 
-const filters = ['الكل', 'أولى ثانوي', 'تانية ثانوي', 'تالتة ثانوي'];
+const filters = ['الكل', 'أولى ثانوي', 'تانية ثانوي', 'تالتة ثانوي', 'أخرى'];
 
 export default function CoursesExplorer() {
   const [active, setActive] = useState('الكل');
@@ -44,8 +44,14 @@ export default function CoursesExplorer() {
     };
   }, []);
 
+  const standardGrades = ['أولى ثانوي', 'تانية ثانوي', 'تالتة ثانوي'];
   const visible = useMemo(
-    () => (active === 'الكل' ? courses : courses.filter((course) => course.grade === active)),
+    () =>
+      active === 'الكل'
+        ? courses
+        : active === 'أخرى'
+          ? courses.filter((course) => !standardGrades.includes(course.grade))
+          : courses.filter((course) => course.grade === active),
     [active, courses]
   );
 

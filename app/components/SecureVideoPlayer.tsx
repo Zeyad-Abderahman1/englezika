@@ -88,6 +88,11 @@ export default function SecureVideoPlayer({
   const sliderRef = useRef<HTMLDivElement>(null);
   const active = lessons.find((video) => video.id === activeId);
 
+  // ─── View Session State ──────────────────────────────────────────────────────
+  const viewSessionRef = useRef<{ sessionId: string; expiresAt: number } | null>(null);
+  const viewHeartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const viewStartedRef = useRef(false);
+
   const [controlsVisible, setControlsVisible] = useState(true);
 
   const revealControls = useCallback((autoHide: boolean) => {
@@ -156,6 +161,67 @@ export default function SecureVideoPlayer({
     [allowSequentialUnlock, resolved]
   );
 
+  // ─── View Session: Start ─────────────────────────────────────────────────────
+  const startViewSession = useCallback(async (videoId: string) => {
+    if (viewStartedRef.current) return;
+    viewStartedRef.current = true;
+    try {
+      const response = await fetch(`/api/student/videos/${encodeURIComponent(videoId)}/view-session/start`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+      if (!response.ok) return;
+      const data = (await response.json().catch(() => ({}))) as {
+        sessionId?: string;
+        expiresAt?: number;
+      };
+      if (data.sessionId && data.expiresAt) {
+        viewSessionRef.current = { sessionId: data.sessionId, expiresAt: data.expiresAt };
+      }
+    } catch {
+      // Non-critical — continue playing
+    }
+  }, []);
+
+  // ─── View Session: Heartbeat ─────────────────────────────────────────────────
+  const startHeartbeat = useCallback(() => {
+    if (viewHeartbeatRef.current) return;
+    viewHeartbeatRef.current = setInterval(async () => {
+      const session = viewSessionRef.current;
+      if (!session || Date.now() >= session.expiresAt) {
+        if (viewHeartbeatRef.current) clearInterval(viewHeartbeatRef.current);
+        viewHeartbeatRef.current = null;
+        return;
+      }
+      try {
+        await fetch(`/api/student/videos/${encodeURIComponent(activeId)}/view-session/heartbeat`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sessionId: session.sessionId }),
+        });
+      } catch {
+        // Non-critical
+      }
+    }, 30_000);
+  }, [activeId]);
+
+  const stopHeartbeat = useCallback(() => {
+    if (viewHeartbeatRef.current) {
+      clearInterval(viewHeartbeatRef.current);
+      viewHeartbeatRef.current = null;
+    }
+  }, []);
+
+  // Cleanup heartbeat on unmount or video change
+  useEffect(() => {
+    return () => {
+      stopHeartbeat();
+      viewStartedRef.current = false;
+      viewSessionRef.current = null;
+    };
+  }, [activeId, stopHeartbeat]);
+
   useEffect(() => {
     if (!activeId || !active?.unlocked) return;
     const controller = new AbortController();
@@ -210,12 +276,19 @@ export default function SecureVideoPlayer({
 
       if (data.type === 'englizeka-video-ended') {
         setYoutubePlaying(false);
+        stopHeartbeat();
         void completeLesson(activeId);
       }
       if (data.type === 'englizeka-video-state') {
         const playing = data.state === 'playing';
         setYoutubePlaying(playing);
         revealControls(playing);
+        if (playing) {
+          void startViewSession(activeId);
+          startHeartbeat();
+        } else {
+          stopHeartbeat();
+        }
       }
       if (data.type === 'englizeka-video-progress') {
         if (!scrubbingRef.current) {
@@ -226,7 +299,7 @@ export default function SecureVideoPlayer({
     };
     window.addEventListener('message', receivePlayerEvent);
     return () => window.removeEventListener('message', receivePlayerEvent);
-  }, [activeId, completeLesson, revealControls]);
+  }, [activeId, completeLesson, revealControls, startViewSession, startHeartbeat, stopHeartbeat]);
 
   useEffect(
     () => () => {
@@ -246,13 +319,14 @@ export default function SecureVideoPlayer({
     const protectOnVisibilityChange = () => {
       if (document.hidden && resolved?.videoId === activeId && resolved.kind === 'youtube') {
         showSecurityOverlay();
+        stopHeartbeat();
       }
     };
     document.addEventListener('visibilitychange', protectOnVisibilityChange);
     return () => {
       document.removeEventListener('visibilitychange', protectOnVisibilityChange);
     };
-  }, [activeId, resolved, showSecurityOverlay]);
+  }, [activeId, resolved, showSecurityOverlay, stopHeartbeat]);
 
   const seekTo = useCallback(
     (seconds: number) => {

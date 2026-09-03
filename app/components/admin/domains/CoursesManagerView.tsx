@@ -25,9 +25,11 @@ import {
   Save,
   Trash2,
   X,
+  ListOrdered,
 } from 'lucide-react';
 import { useAdmin, adminApiRequest, type Course } from '../../../lib/admin-context';
 import { AdminPageHeader } from '../shell/AdminPageHeader';
+import CourseSequenceManager from '../CourseSequenceManager';
 import { AdminFilterBar } from '../shell/AdminFilterBar';
 import { AdminEmptyState } from '../shell/AdminEmptyState';
 import { AdminStatusBadge } from '../shell/AdminStatusBadge';
@@ -43,6 +45,7 @@ export function CoursesManagerView() {
   const [gradeFilter, setGradeFilter] = useState('all');
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
+  const [sequenceCourse, setSequenceCourse] = useState<Course | null>(null);
 
   const courses = useMemo(() => data?.courses || [], [data?.courses]);
 
@@ -188,6 +191,7 @@ export function CoursesManagerView() {
               <option value="تانية ثانوي">تانية ثانوي</option>
               <option value="تالتة ثانوي">تالتة ثانوي</option>
               <option value="كل الصفوف">كل الصفوف</option>
+              <option value="أخرى">أخرى</option>
             </select>
           </>
         }
@@ -270,6 +274,16 @@ export function CoursesManagerView() {
                       <PlaySquare size={14} /> محاضرات
                     </button>
                   )}
+                  {can('manage_courses') && (
+                    <button
+                      type="button"
+                      className="shortcut-link"
+                      onClick={() => setSequenceCourse(course)}
+                      title="إدارة تسلسل محتوى الكورس"
+                    >
+                      <ListOrdered size={14} /> التسلسل
+                    </button>
+                  )}
                 </div>
 
                 {/* Primary Card Actions */}
@@ -344,6 +358,7 @@ export function CoursesManagerView() {
                     <option value="تانية ثانوي">تانية ثانوي</option>
                     <option value="تالتة ثانوي">تالتة ثانوي</option>
                     <option value="كل الصفوف">كل الصفوف</option>
+                    <option value="أخرى">أخرى</option>
                   </select>
                 </label>
 
@@ -448,6 +463,7 @@ export function CoursesManagerView() {
                     <option value="تانية ثانوي">تانية ثانوي</option>
                     <option value="تالتة ثانوي">تالتة ثانوي</option>
                     <option value="كل الصفوف">كل الصفوف</option>
+                    <option value="أخرى">أخرى</option>
                   </select>
                 </label>
 
@@ -501,6 +517,63 @@ export function CoursesManagerView() {
                 </button>
               </footer>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Sequence Manager Modal ─────────────────────────────────────────────── */}
+      {sequenceCourse && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="seq-manager-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSequenceCourse(null);
+          }}
+        >
+          <div className="admin-modal-card wide-modal">
+            <header className="admin-modal-header">
+              <h3 id="seq-manager-title" className="admin-modal-title">
+                تسلسل المحتوى
+              </h3>
+              <button
+                type="button"
+                className="admin-modal-close"
+                onClick={() => setSequenceCourse(null)}
+                aria-label="إغلاق"
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <CourseSequenceManager
+              courseId={sequenceCourse.id}
+              courseTitle={sequenceCourse.title}
+              initialItems={[]}
+              availableVideos={(data?.videos || [])
+                .filter((v) => v.courseId === sequenceCourse.id)
+                .map((v) => ({
+                  id: v.id,
+                  type: 'video' as const,
+                  title: v.title,
+                }))}
+              availableExams={(data?.exams || [])
+                .filter((e) => e.courseId === sequenceCourse.id)
+                .map((e) => ({
+                  id: e.id,
+                  type: 'exam' as const,
+                  title: e.title,
+                }))}
+              availableAssignments={(data?.assignments || [])
+                .filter((a) => a.courseId === sequenceCourse.id)
+                .map((a) => ({
+                  id: a.id,
+                  type: 'assignment' as const,
+                  title: a.title,
+                }))}
+              onSaved={() => { setSequenceCourse(null); }}
+              onClose={() => setSequenceCourse(null)}
+            />
           </div>
         </div>
       )}

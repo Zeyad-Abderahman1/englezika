@@ -48,6 +48,7 @@ export async function GET(request: Request) {
         .prepare(
           `SELECT DISTINCT x.id, x.course_id AS courseId, x.title, x.description, x.created_at AS createdAt, x.duration_minutes AS durationMinutes,
        x.passing_score AS passingScore, x.max_attempts AS maxAttempts, c.title AS courseTitle,
+       COALESCE(x.assessment_type, 'exam') AS assessmentType,
        CASE WHEN nr.notification_id IS NULL THEN 0 ELSE 1 END AS isRead,
        (SELECT COUNT(*) FROM attempts ax WHERE ax.exam_id = x.id AND ax.user_email = ?) AS attemptCount,
        (SELECT COALESCE(MAX(CASE WHEN ax2.max_score > 0 THEN ax2.score * 100.0 / ax2.max_score END), 0)

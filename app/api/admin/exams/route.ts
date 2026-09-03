@@ -10,6 +10,7 @@ function parseQuestion(question: RawQuestion, sortOrder: number) {
   const prompt = safeText(question.prompt, 2000);
   const correctAnswer = safeText(question.correctAnswer, 1000);
   const rubric = safeText(question.rubric, 2000);
+  const explanation = safeText(question.explanation, 5000);
   const points = safeInteger(question.points, 1, 1, 100);
   const options = Array.isArray(question.options)
     ? question.options
@@ -17,7 +18,7 @@ function parseQuestion(question: RawQuestion, sortOrder: number) {
         .filter(Boolean)
         .slice(0, 8)
     : [];
-  return { type, prompt, correctAnswer, rubric, points, options, sortOrder };
+  return { type, prompt, correctAnswer, rubric, explanation, points, options, sortOrder };
 }
 
 export async function POST(request: Request) {
@@ -34,6 +35,8 @@ export async function POST(request: Request) {
   const passingScore = safeInteger(body.passingScore, 50, 0, 100);
   const maxAttempts = safeInteger(body.maxAttempts, 3, 1, 10);
   const status = body.status === 'published' ? 'published' : 'draft';
+  const assessmentType = body.assessmentType === 'quiz' ? 'quiz' : 'exam';
+  const mode = body.mode === 'file' ? 'file' : 'online';
   const questions = Array.isArray(body.questions)
     ? body.questions
         .slice(0, 100)
@@ -61,13 +64,15 @@ export async function POST(request: Request) {
   }
   const id = crypto.randomUUID();
   const now = Date.now();
+  const questionIds = questions.map(() => crypto.randomUUID());
   await db.batch([
     db
       .prepare(
         `INSERT INTO exams
        (id, course_id, title, description, instructions, duration_minutes, passing_score, max_attempts,
-        status, opens_at, closes_at, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        status, opens_at, closes_at, created_by, created_at, updated_at,
+        assessment_type, mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         id,
@@ -83,17 +88,19 @@ export async function POST(request: Request) {
         body.closesAt ? Number(body.closesAt) : null,
         admin.email.toLowerCase(),
         now,
-        now
+        now,
+        assessmentType,
+        mode
       ),
-    ...questions.map((question) =>
+    ...questions.map((question, i) =>
       db
         .prepare(
           `INSERT INTO questions
-       (id, exam_id, sort_order, type, prompt, options, correct_answer, rubric, points)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (id, exam_id, sort_order, type, prompt, options, correct_answer, rubric, explanation, points)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
-          crypto.randomUUID(),
+          questionIds[i],
           id,
           question.sortOrder,
           question.type,
@@ -101,10 +108,11 @@ export async function POST(request: Request) {
           JSON.stringify(question.options),
           question.correctAnswer,
           question.rubric,
+          question.explanation,
           question.points
         )
     ),
   ]);
   invalidatePublicCourseCache();
-  return Response.json({ ok: true, id });
+  return Response.json({ ok: true, id, questionIds });
 }

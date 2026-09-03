@@ -80,6 +80,7 @@ type Submission = {
 type MCQQuestion = {
   id: string;
   question: string;
+  explanation: string | null;
   options: string[];
   correctIndex: number;
   points: number;
@@ -381,9 +382,11 @@ function MCQQuestionsPanel({ assignment }: { assignment: Assignment }) {
   const [questions, setQuestions] = useState<MCQQuestion[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [newQ, setNewQ] = useState('');
+  const [newExplanation, setNewExplanation] = useState('');
   const [newOptions, setNewOptions] = useState(['', '', '', '']);
   const [newCorrect, setNewCorrect] = useState(0);
   const [newPoints, setNewPoints] = useState(1);
+  const [newImage, setNewImage] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 
@@ -407,21 +410,36 @@ function MCQQuestionsPanel({ assignment }: { assignment: Assignment }) {
     setBusy(true);
     setMsg('');
     try {
-      await adminApiRequest(`/api/admin/assignments/${assignment.id}/questions`, {
+      const result = (await adminApiRequest(`/api/admin/assignments/${assignment.id}/questions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           question: newQ,
+          explanation: newExplanation,
           options: validOptions,
           correctIndex: newCorrect,
           points: newPoints,
           sortOrder: questions.length,
         }),
-      });
+      })) as { id: string };
+      if (newImage && result.id) {
+        const fd = new FormData();
+        fd.append('file', newImage);
+        try {
+          await adminApiRequest(`/api/admin/assignments/${assignment.id}/questions/${result.id}/image`, {
+            method: 'POST',
+            body: fd,
+          });
+        } catch {
+          // Image upload failed but question was created
+        }
+      }
       setNewQ('');
+      setNewExplanation('');
       setNewOptions(['', '', '', '']);
       setNewCorrect(0);
       setNewPoints(1);
+      setNewImage(null);
       setShowAdd(false);
       await loadQuestions();
     } catch (err) {
@@ -437,6 +455,23 @@ function MCQQuestionsPanel({ assignment }: { assignment: Assignment }) {
     });
     await loadQuestions();
     setBusy(false);
+  };
+
+  const handleReorder = async (fromIdx: number, toIdx: number) => {
+    if (toIdx < 0 || toIdx >= questions.length) return;
+    const reordered = [...questions];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    setQuestions(reordered);
+    try {
+      await adminApiRequest(`/api/admin/assignments/${assignment.id}/questions/reorder`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ order: reordered.map((q) => q.id) }),
+      });
+    } catch {
+      await loadQuestions();
+    }
   };
 
   if (!loaded) {
@@ -474,6 +509,26 @@ function MCQQuestionsPanel({ assignment }: { assignment: Assignment }) {
               onChange={(e) => setNewQ(e.target.value)}
               rows={2}
               placeholder="اكتب السؤال هنا..."
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">شرح الإجابة (اختياري)</label>
+            <textarea
+              className="form-control"
+              value={newExplanation}
+              onChange={(e) => setNewExplanation(e.target.value)}
+              rows={2}
+              placeholder="اشرح السبب أو التفصيل..."
+              maxLength={3000}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">صورة السؤال (اختياري)</label>
+            <input
+              type="file"
+              className="form-control"
+              accept="image/*"
+              onChange={(e) => setNewImage(e.target.files?.[0] || null)}
             />
           </div>
           <div className="form-group">
@@ -537,6 +592,22 @@ function MCQQuestionsPanel({ assignment }: { assignment: Assignment }) {
                 <span className="question-text">{q.question}</span>
                 <span className="question-points">{q.points} درجة</span>
                 <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => void handleReorder(idx, idx - 1)}
+                  disabled={idx === 0 || busy}
+                  aria-label="تحريك لأعلى"
+                >
+                  <ChevronUp size={14} />
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => void handleReorder(idx, idx + 1)}
+                  disabled={idx === questions.length - 1 || busy}
+                  aria-label="تحريك لأسفل"
+                >
+                  <ChevronDown size={14} />
+                </button>
+                <button
                   className="btn btn-ghost btn-sm btn-danger"
                   onClick={() => void handleDeleteQuestion(q.id)}
                   aria-label="حذف السؤال"
@@ -555,6 +626,11 @@ function MCQQuestionsPanel({ assignment }: { assignment: Assignment }) {
                   </span>
                 ))}
               </div>
+              {q.explanation && (
+                <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'var(--admin-bg-inset)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  <strong>الشرح:</strong> {q.explanation}
+                </div>
+              )}
             </div>
           ))
         )}

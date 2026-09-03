@@ -21,13 +21,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   try {
     const questions = await db
       .prepare(
-        `SELECT id, question, options, correct_index AS correctIndex, points, sort_order AS sortOrder
+        `SELECT id, question, explanation, options, correct_index AS correctIndex, points, sort_order AS sortOrder
          FROM assignment_questions WHERE assignment_id = ? ORDER BY sort_order ASC`
       )
       .bind(id)
       .all<{
         id: string;
         question: string;
+        explanation: string | null;
         options: string;
         correctIndex: number;
         points: number;
@@ -36,6 +37,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     return Response.json({
       questions: questions.results.map((q) => ({
         ...q,
+        explanation: q.explanation || null,
         options: JSON.parse(q.options) as string[],
       })),
     });
@@ -59,6 +61,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
 
   const question = safeText(body.question, 2000);
+  const explanation = safeText(body.explanation, 3000);
   const options = Array.isArray(body.options)
     ? (body.options as unknown[])
         .slice(0, 6)
@@ -83,10 +86,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     await db
       .prepare(
-        `INSERT INTO assignment_questions (id, assignment_id, question, options, correct_index, points, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO assignment_questions (id, assignment_id, question, explanation, options, correct_index, points, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .bind(qId, id, question, JSON.stringify(options), correctIndex, points, sortOrder)
+      .bind(qId, id, question, explanation, JSON.stringify(options), correctIndex, points, sortOrder)
       .run();
   } catch {
     return jsonError('جدول الأسئلة غير موجود. يرجى تشغيل الترحيل أولاً', 500);

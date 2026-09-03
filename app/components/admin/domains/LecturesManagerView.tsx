@@ -12,7 +12,7 @@
  * - One-time lecture access code generator & history manager
  */
 
-import { useState, useMemo, type FormEvent } from 'react';
+import { useState, useMemo, useEffect, type FormEvent } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   PlaySquare,
@@ -45,6 +45,13 @@ export function LecturesManagerView() {
   const exams = useMemo(() => data?.exams || [], [data?.exams]);
   const accessCodes = useMemo(() => data?.accessCodes || [], [data?.accessCodes]);
 
+  useEffect(() => {
+    for (const video of videos) {
+      void loadMaterials(video.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videos.length]);
+
   const filteredVideos = useMemo(() => {
     const q = search.trim().toLowerCase();
     return videos.filter((video) => {
@@ -75,6 +82,7 @@ export function LecturesManagerView() {
             youtubeUrl: fd.get('youtubeUrl'),
             prerequisiteExamId: fd.get('prerequisiteExamId') || null,
             minimumScore: Number(fd.get('minimumScore')) || 0,
+            maxViews: Number(fd.get('maxViews')) || 0,
           }),
         }),
       'تم حفظ وإضافة المحاضرة بنجاح'
@@ -102,6 +110,7 @@ export function LecturesManagerView() {
             status: fd.get('status'),
             prerequisiteExamId: fd.get('prerequisiteExamId') || null,
             minimumScore: Number(fd.get('minimumScore')) || 0,
+            maxViews: Number(fd.get('maxViews')) || 0,
           }),
         }),
       'تم تحديث بيانات المحاضرة بنجاح'
@@ -126,6 +135,63 @@ export function LecturesManagerView() {
         );
       },
     });
+  };
+
+  type Material = { id: string; fileName: string; fileSize: number };
+  const [materialsMap, setMaterialsMap] = useState<Record<string, Material[]>>({});
+
+  const loadMaterials = async (videoId: string) => {
+    try {
+      const result = await adminApiRequest(`/api/admin/videos/${videoId}/materials`);
+      if (result.materials) {
+        setMaterialsMap((prev) => ({ ...prev, [videoId]: result.materials as Material[] }));
+      }
+    } catch { /* ignore */ }
+  };
+
+  const handleUploadMaterial = async (video: Video) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf,application/pdf';
+    input.multiple = true;
+    input.onchange = async () => {
+      const files = input.files;
+      if (!files || files.length === 0) return;
+      const fd = new FormData();
+      for (const file of Array.from(files)) {
+        if (!file.type.includes('pdf')) {
+          alert(`الملف "${file.name}" يجب أن يكون PDF`);
+          return;
+        }
+        if (file.size > 25 * 1024 * 1024) {
+          alert(`حجم الملف "${file.name}" يتجاوز 25 ميجابايت`);
+          return;
+        }
+        fd.append('files', file);
+      }
+      await mutate(
+        () =>
+          adminApiRequest(`/api/admin/videos/${video.id}/materials`, {
+            method: 'POST',
+            body: fd,
+          }),
+        `تم رفع ${files.length} ملف(ات) بنجاح`
+      );
+      void loadMaterials(video.id);
+    };
+    input.click();
+  };
+
+  const handleDeleteMaterial = async (videoId: string, materialId: string) => {
+    if (!confirm('هل أنت متأكد من حذف هذا الملف؟')) return;
+    await mutate(
+      () =>
+        adminApiRequest(`/api/admin/videos/${videoId}/materials?id=${materialId}`, {
+          method: 'DELETE',
+        }),
+      'تم حذف الملف بنجاح'
+    );
+    void loadMaterials(videoId);
   };
 
   return (
@@ -234,6 +300,24 @@ export function LecturesManagerView() {
                         {video.courseTitle} · {video.sourceType === 'youtube' ? 'YouTube غير مدرج' : 'ملف خاص'}
                         {video.durationSeconds > 0 && ` · ${Math.round(video.durationSeconds / 60)} دقيقة`}
                       </span>
+                      {materialsMap[video.id]?.length ? (
+                        <div style={{ marginTop: '0.35rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                          {materialsMap[video.id].map((m) => (
+                            <span key={m.id} style={{ fontSize: '0.75rem', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                              📄 {m.fileName} ({m.fileSize > 1_048_576 ? `${Math.round(m.fileSize / 1_048_576)} MB` : `${Math.round(m.fileSize / 1024)} KB`})
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm text-danger"
+                                style={{ padding: '0 0.25rem', fontSize: '0.7rem' }}
+                                onClick={() => void handleDeleteMaterial(video.id, m.id)}
+                                title="حذف الملف"
+                              >
+                                ✕
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   </td>
                   <td>
@@ -259,6 +343,14 @@ export function LecturesManagerView() {
                   </td>
                   <td className="text-end">
                     <div className="admin-row-actions">
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => handleUploadMaterial(video)}
+                        title="رفع مادة مرفقة (PDF)"
+                      >
+                        <Upload size={15} />
+                      </button>
                       <button
                         type="button"
                         className="btn btn-ghost btn-sm"
@@ -393,6 +485,18 @@ export function LecturesManagerView() {
                 />
               </label>
 
+              <label className="admin-field-label">
+                <span>عدد مرات المشاهدة (0 = غير محدود)</span>
+                <input
+                  name="maxViews"
+                  type="number"
+                  min="0"
+                  max="1000"
+                  defaultValue="0"
+                  className="admin-input"
+                />
+              </label>
+
               <footer className="admin-modal-footer">
                 <button
                   type="button"
@@ -495,6 +599,18 @@ export function LecturesManagerView() {
                   />
                 </label>
               </div>
+
+              <label className="admin-field-label">
+                <span>عدد مرات المشاهدة (0 = غير محدود)</span>
+                <input
+                  name="maxViews"
+                  type="number"
+                  min="0"
+                  max="1000"
+                  defaultValue={editingVideo.maxViews || 0}
+                  className="admin-input"
+                />
+              </label>
 
               <footer className="admin-modal-footer">
                 <button

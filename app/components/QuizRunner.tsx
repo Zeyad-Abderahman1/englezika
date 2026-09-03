@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, LoaderCircle, Send } from 'lucide-react';
+import AssessmentReview, { type ReviewQuestion } from './AssessmentReview';
 import { replaceAbortController, runRecoverableLoad } from '../lib/recoverable-load';
 
 type Question = {
@@ -12,6 +13,8 @@ type Question = {
   prompt: string;
   options: string[];
   points: number;
+  hasImage?: boolean;
+  explanation?: string;
 };
 type ExamPayload = {
   exam: {
@@ -32,7 +35,7 @@ type Result = {
   passed: boolean;
   feedback: string;
   gradingMethod: string;
-  answers: Array<{ questionId: string; score: number; points: number; feedback: string }>;
+  answers: Array<{ questionId: string; score: number; points: number; feedback: string; explanation?: string }>;
 };
 
 export default function QuizRunner({ examId }: { examId: string }) {
@@ -200,38 +203,37 @@ export default function QuizRunner({ examId }: { examId: string }) {
       </div>
     );
   if (!payload) return null;
-  if (result)
+  if (result) {
+    const reviewQuestions: ReviewQuestion[] = payload.questions.map((question) => {
+      const grade = result.answers.find((item) => item.questionId === question.id);
+      return {
+        id: question.id,
+        prompt: question.prompt,
+        sortOrder: question.sortOrder,
+        points: question.points,
+        studentAnswer: answers[question.id] || '',
+        correctAnswer: grade?.feedback?.includes(':') ? grade.feedback.split(':').slice(1).join(':').trim() : '',
+        isCorrect: (grade?.score ?? 0) > 0,
+        explanation: grade?.explanation || question.explanation,
+        hasImage: question.hasImage,
+      };
+    });
+
     return (
       <div className="quiz-result">
-        <div className={`result-ring ${result.passed ? 'passed' : 'needs-work'}`}>
-          <strong>{result.percentage}%</strong>
-          <span>
-            {result.score} / {result.maxScore}
-          </span>
-        </div>
-        <h1>{result.passed ? 'برافو عليك!' : 'خطوة كويسة ونكمّل'}</h1>
-        <p>{result.feedback}</p>
-        <div className="answer-feedback">
-          {payload.questions.map((question) => {
-            const grade = result.answers.find((item) => item.questionId === question.id);
-            return (
-              <article key={question.id}>
-                <strong>
-                  {question.sortOrder}. {question.prompt}
-                </strong>
-                <span>
-                  {grade?.score || 0} / {question.points}
-                </span>
-                <p>{grade?.feedback}</p>
-              </article>
-            );
-          })}
-        </div>
+        <AssessmentReview
+          title={result.passed ? 'برافو عليك!' : 'خطوة كويسة ونكمّل'}
+          score={result.score}
+          maxScore={result.maxScore}
+          percentage={result.percentage}
+          questions={reviewQuestions}
+        />
         <Link href="/account" className="btn btn-primary btn-large">
           العودة إلى حسابي <ArrowLeft />
         </Link>
       </div>
     );
+  }
 
   const question = payload.questions[active];
   const minutes = Math.floor(remaining / 60);
@@ -288,6 +290,14 @@ export default function QuizRunner({ examId }: { examId: string }) {
             <strong>{question.points} درجة</strong>
           </div>
           <h2>{question.prompt}</h2>
+          {question.hasImage && (
+            <img
+              src={`/api/student/questions/${question.id}/image`}
+              alt="صورة السؤال"
+              className="question-image"
+              loading="lazy"
+            />
+          )}
           {question.type === 'short_answer' ? (
             <textarea
               rows={7}

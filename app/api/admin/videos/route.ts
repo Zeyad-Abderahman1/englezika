@@ -41,6 +41,7 @@ export async function POST(request: Request) {
   const durationSeconds = safeInteger(body.durationSeconds, 0, 0, 100_000);
   const prerequisiteExamId = safeText(body.prerequisiteExamId, 80) || null;
   const minimumScore = prerequisiteExamId ? safeInteger(body.minimumScore, 0, 0, 100) : 0;
+  const maxViews = safeInteger(body.maxViews, 0, 0, 1000);
   const youtubeId = extractYouTubeId(safeText(body.youtubeUrl, 500));
   if (!courseId || title.length < 2 || !youtubeId) {
     return jsonError('اختر الكورس وأدخل عنوانًا ورابط YouTube صحيحًا');
@@ -63,8 +64,8 @@ export async function POST(request: Request) {
     .prepare(
       `INSERT INTO videos
        (id, course_id, title, source_type, source_url, youtube_id, duration_seconds,
-        prerequisite_exam_id, minimum_score, status, created_at)
-       VALUES (?, ?, ?, 'youtube', ?, ?, ?, ?, ?, 'published', ?)`
+        prerequisite_exam_id, minimum_score, max_views, status, created_at)
+       VALUES (?, ?, ?, 'youtube', ?, ?, ?, ?, ?, ?, 'published', ?)`
     )
     .bind(
       id,
@@ -75,6 +76,7 @@ export async function POST(request: Request) {
       durationSeconds,
       prerequisiteExamId,
       minimumScore,
+      maxViews || null,
       Date.now()
     )
     .run();

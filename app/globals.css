@@ -4105,6 +4105,12 @@ html[data-theme='light'] .feature-number {
   font-size: 24px;
   line-height: 1.7;
 }
+.question-image {
+  max-width: 100%;
+  border-radius: 10px;
+  margin: 12px 0;
+  border: 1px solid var(--line);
+}
 .question-card > textarea {
   width: 100%;
   resize: vertical;
@@ -6948,5 +6954,309 @@ html[data-theme='light'] .admin-topbar {
 }
 html[data-theme='light'] .admin-hamburger {
   color: var(--text) !important;
+}
+
+/* ============================================
+   Course Sequence Tree
+   ============================================ */
+
+.course-sequence-tree {
+  margin-bottom: 24px;
+  padding: 20px;
+  background: var(--surface, #1a1b23);
+  border: 1px solid var(--line, rgba(255,255,255,0.08));
+  border-radius: 16px;
+}
+.seq-heading {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text, #fff);
+}
+.seq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.seq-link {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+}
+.seq-link-disabled {
+  pointer-events: none;
+}
+.seq-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  transition: background 0.15s;
+}
+.seq-item:hover {
+  background: rgba(255,255,255,0.04);
+}
+.seq-item-active {
+  background: rgba(207, 11, 39, 0.08);
+  border: 1px solid rgba(207, 11, 39, 0.2);
+}
+.seq-item-locked {
+  opacity: 0.55;
+}
+.seq-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 52px;
+}
+.seq-number {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted, #888);
+  min-width: 18px;
+  text-align: center;
+}
+.seq-icon {
+  flex-shrink: 0;
+}
+.seq-icon-done {
+  color: #22c55e;
+}
+.seq-icon-locked {
+  color: var(--muted, #888);
+}
+.seq-icon-active {
+  color: var(--brand, #d7193f);
+}
+.seq-item-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.seq-item-type {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted, #888);
+}
+.seq-item-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text, #fff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.seq-item-right {
+  flex-shrink: 0;
+}
+.seq-status {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(255,255,255,0.06);
+  color: var(--brand, #d7193f);
+}
+.seq-status-done {
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+}
+.seq-status-locked {
+  background: rgba(255,255,255,0.04);
+  color: var(--muted, #888);
+}
+
+@media (max-width: 600px) {
+  .course-sequence-tree {
+    padding: 14px;
+    border-radius: 12px;
+  }
+  .seq-item {
+    padding: 10px 10px;
+    gap: 8px;
+  }
+  .seq-item-left {
+    min-width: 42px;
+    gap: 6px;
+  }
+  .seq-item-title {
+    font-size: 13px;
+  }
+}
+
+/* Lecture Materials */
+.lecture-materials-bar {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ============================================
+   Course Sequence Manager (Admin)
+   ============================================ */
+
+.seq-manager {
+  padding: 24px;
+  background: var(--surface, #1a1b23);
+  border: 1px solid var(--line, rgba(255,255,255,0.08));
+  border-radius: 16px;
+}
+.seq-manager-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.seq-manager-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text, #fff);
+}
+.seq-manager-error {
+  padding: 10px 14px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #ef4444;
+  background: rgba(239,68,68,0.08);
+  border-radius: 8px;
+}
+.seq-manager-success {
+  padding: 10px 14px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #22c55e;
+  background: rgba(34,197,94,0.08);
+  border-radius: 8px;
+}
+.seq-manager-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--muted, #888);
+  font-size: 14px;
+}
+.seq-manager-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 16px;
+}
+.seq-manager-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2, rgba(255,255,255,0.03));
+  border: 1px solid var(--line, rgba(255,255,255,0.06));
+  border-radius: 10px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.seq-manager-item:hover {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.1);
+}
+.seq-manager-item-drag {
+  cursor: grab;
+  color: var(--muted, #888);
+  touch-action: none;
+}
+.seq-manager-item-drag:active {
+  cursor: grabbing;
+}
+.seq-manager-item-num {
+  min-width: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted, #888);
+  text-align: center;
+}
+.seq-manager-item-icon {
+  flex-shrink: 0;
+}
+.seq-manager-item-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.seq-manager-item-type {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted, #888);
+}
+.seq-manager-item-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text, #fff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.seq-manager-item-subtitle {
+  font-size: 11px;
+  color: var(--muted, #888);
+}
+.seq-manager-item-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.seq-manager-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted, #888);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.seq-manager-btn:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text, #fff);
+}
+.seq-manager-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.seq-manager-btn-danger:hover {
+  background: rgba(239,68,68,0.15);
+  color: #ef4444;
+}
+.seq-manager-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--line, rgba(255,255,255,0.06));
+}
+.seq-manager-add .admin-select {
+  min-width: 140px;
+}
+.seq-manager-footer {
+  padding-top: 12px;
+  border-top: 1px solid var(--line, rgba(255,255,255,0.06));
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 600px) {
+  .seq-manager { padding: 14px; }
+  .seq-manager-item { padding: 8px 8px; gap: 6px; }
+  .seq-manager-add { flex-wrap: wrap; }
+  .seq-manager-add .admin-select { min-width: 100%; }
 }
 

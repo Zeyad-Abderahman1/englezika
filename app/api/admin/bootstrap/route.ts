@@ -32,6 +32,7 @@ export async function GET(request: Request) {
     totalExams,
     totalVideos,
     accessCodes,
+    accessCodeBatches,
   ] = await Promise.all([
     db
       .prepare(
@@ -64,6 +65,8 @@ export async function GET(request: Request) {
         `SELECT x.id, x.course_id AS courseId, x.title, x.description, x.instructions,
        x.duration_minutes AS durationMinutes,
        x.passing_score AS passingScore, x.max_attempts AS maxAttempts, x.status, x.created_at AS createdAt,
+       COALESCE(x.assessment_type, 'exam') AS assessmentType,
+       COALESCE(x.mode, 'online') AS mode,
        c.title AS courseTitle, COUNT(q.id) AS questionCount, COALESCE(SUM(q.points), 0) AS maxScore
        FROM exams x LEFT JOIN courses c ON c.id = x.course_id
        LEFT JOIN questions q ON q.exam_id = x.id
@@ -143,6 +146,15 @@ export async function GET(request: Request) {
       )
       .bind(canManageVideos ? 1 : 0)
       .all(),
+    db
+      .prepare(
+        `SELECT b.*, v.title as video_title, c.title as course_title
+         FROM access_code_batches b
+         LEFT JOIN videos v ON b.video_id = v.id
+         LEFT JOIN courses c ON b.course_id = c.id
+         ORDER BY b.created_at DESC LIMIT 20`
+      )
+      .all(),
   ]);
 
   const can = (permission: string) =>
@@ -191,6 +203,7 @@ export async function GET(request: Request) {
     attempts: can('grade_exams') ? attempts.results : [],
     videos: can('manage_videos') ? videos.results : [],
     accessCodes: can('manage_videos') ? accessCodes.results : [],
+    accessCodeBatches: can('manage_videos') ? accessCodeBatches.results : [],
     contacts: can('manage_messages') ? contacts.results : [],
     pagination: {
       courses: makePagination(

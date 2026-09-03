@@ -6,6 +6,7 @@ import {
   createSignedVideoCompletionToken,
   verifySignedVideoCompletionToken,
 } from './video-token';
+import { hasCourseItems, getCourseSequenceUnlockState } from './course-sequence';
 
 export { VIDEO_EMBED_TOKEN_TTL_MS };
 
@@ -93,6 +94,23 @@ export async function authorizeVideoAccess(
   }
 
   if (Number(video.hasIndividualGrant)) return { ok: true, video };
+
+  const courseHasSequence = await hasCourseItems(video.courseId);
+
+  if (courseHasSequence) {
+    const unlockState = await getCourseSequenceUnlockState(video.courseId, normalized);
+    const key = `video:${videoId}`;
+    const state = unlockState.get(key);
+    if (state && !state.unlocked) {
+      return {
+        ok: false,
+        status: 403,
+        error: 'يجب إكمال العناصر السابقة في تسلسل التعلم أولاً',
+        code: 'SEQUENCE_LOCKED',
+      };
+    }
+    if (state?.unlocked) return { ok: true, video };
+  }
 
   const previousVideo = await db
     .prepare(

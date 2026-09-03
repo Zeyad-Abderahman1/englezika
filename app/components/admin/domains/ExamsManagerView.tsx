@@ -22,6 +22,7 @@ import {
   X,
   Clock,
   Award,
+  ImagePlus,
 } from 'lucide-react';
 import {
   useAdmin,
@@ -40,14 +41,16 @@ const emptyQuestion = (): QuestionDraft => ({
   options: '',
   correctAnswer: '',
   rubric: '',
+  explanation: '',
   points: 1,
+  imageFile: null,
 });
 
 export function ExamsManagerView() {
   const searchParams = useSearchParams();
   const defaultCourseIdFromUrl = searchParams.get('courseId') || '';
 
-  const { data, busy, mutate, openConfirm, openPrompt } = useAdmin();
+  const { data, busy, mutate, openConfirm, openPrompt, refreshData, setNotice, setError } = useAdmin();
   const [search, setSearch] = useState('');
   const [selectedCourseId, setSelectedCourseId] = useState(defaultCourseIdFromUrl);
   const [statusFilter, setStatusFilter] = useState('all');
@@ -82,7 +85,6 @@ export function ExamsManagerView() {
     const form = e.currentTarget;
     const values = Object.fromEntries(new FormData(form));
 
-    // Validate that every question has prompt, options, and correct answer
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       const parsedOptions = q.options
@@ -112,26 +114,43 @@ export function ExamsManagerView() {
         .filter(Boolean),
     }));
 
-    const ok = await mutate(
-      () =>
-        adminApiRequest('/api/admin/exams', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            ...values,
-            durationMinutes: Number(values.durationMinutes) || 30,
-            passingScore: Number(values.passingScore) || 50,
-            maxAttempts: Number(values.maxAttempts) || 3,
-            questions: preparedQuestions,
-          }),
+    try {
+      const result = await adminApiRequest('/api/admin/exams', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ...values,
+          durationMinutes: Number(values.durationMinutes) || 30,
+          passingScore: Number(values.passingScore) || 50,
+          maxAttempts: Number(values.maxAttempts) || 3,
+          assessmentType: values.assessmentType || 'exam',
+          mode: values.mode || 'online',
+          questions: preparedQuestions,
         }),
-      'تم إنشاء الامتحان والأسئلة بنجاح'
-    );
+      });
 
-    if (ok) {
+      const questionIds = (result as { questionIds?: string[] }).questionIds;
+      if (questionIds) {
+        for (let i = 0; i < questions.length; i++) {
+          const q = questions[i];
+          if (q.imageFile && questionIds[i]) {
+            const formData = new FormData();
+            formData.append('file', q.imageFile);
+            await adminApiRequest(`/api/admin/questions/${questionIds[i]}/image`, {
+              method: 'POST',
+              body: formData,
+            }).catch(() => {});
+          }
+        }
+      }
+
+      setNotice('تم إنشاء الامتحان والأسئلة بنجاح');
+      await refreshData(1);
       form.reset();
       setQuestions([emptyQuestion()]);
       setIsBuilderOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر تنفيذ العملية');
     }
   };
 
@@ -499,6 +518,24 @@ export function ExamsManagerView() {
                     <option value="draft">مسودة</option>
                   </select>
                 </label>
+
+                <div className="admin-form-row">
+                  <label className="admin-field-label">
+                    <span>نوع التقييم</span>
+                    <select name="assessmentType" defaultValue="exam" className="admin-select">
+                      <option value="exam">امتحان</option>
+                      <option value="quiz">اختبار سريع (Quiz)</option>
+                    </select>
+                  </label>
+
+                  <label className="admin-field-label">
+                    <span>طريقة التسليم</span>
+                    <select name="mode" defaultValue="online" className="admin-select">
+                      <option value="online">إلكتروني فقط</option>
+                      <option value="file">ملف PDF + إلكتروني</option>
+                    </select>
+                  </label>
+                </div>
               </div>
 
               {/* Question Builder */}
@@ -608,6 +645,41 @@ export function ExamsManagerView() {
                               اكتب اختيارين على الأقل في أسطر منفصلة، ثم اختر الإجابة الصحيحة من القائمة أعلاه.
                             </small>
                           </label>
+
+                          <label className="admin-field-label">
+                            <span>تعليق المعلم على الإجابة</span>
+                            <textarea
+                              value={q.explanation}
+                              onChange={(e) => updateQuestion(idx, { explanation: e.target.value })}
+                              rows={2}
+                              placeholder="شرح يظهر للطالب بعد التسليم (اختياري)..."
+                              className="admin-input"
+                            />
+                            <small className="admin-field-hint">
+                              يظهر هذا التعليق للطالب بعد تسليم الامتحان لتوضيح الإجابة الصحيحة.
+                            </small>
+                          </label>
+
+                          <div className="admin-field-label">
+                            <span>صورة السؤال</span>
+                            <div className="admin-question-image-row">
+                              <label className="btn btn-outline btn-sm">
+                                <ImagePlus size={14} /> {q.imageFile ? 'تغيير الصورة' : 'إضافة صورة'}
+                                <input
+                                  type="file"
+                                  accept="image/jpeg,image/png,image/webp"
+                                  className="sr-only"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0] || null;
+                                    updateQuestion(idx, { imageFile: file });
+                                  }}
+                                />
+                              </label>
+                              {q.imageFile && (
+                                <span className="admin-field-hint">{q.imageFile.name}</span>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </article>
                     );
