@@ -250,6 +250,7 @@ export type ConfirmDialogState = {
   confirmLabel?: string;
   cancelLabel?: string;
   isDestructive?: boolean;
+  requireMatch?: string;
   onConfirm: () => void | Promise<void>;
 };
 

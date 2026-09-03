@@ -119,15 +119,16 @@ export function CoursesManagerView() {
 
   const handleDeleteCourse = (course: Course) => {
     openConfirm({
-      title: `حذف كورس «${course.title}»`,
+      title: `حذف كورس «${course.title}» نهائياً`,
       message:
-        'هل أنت متأكد من رغبتك في حذف هذا الكورس؟ لن تتمكن من حذفه إذا كان مرتبطًا بطلاب مشتركين أو امتحانات أو محاضرات.',
-      confirmLabel: 'تأكيد حذف الكورس',
+        'سيتم حذف الكورس وجميع المحاضرات والاختبارات والواجبات ومحاولات الطلاب والنتائج والبيانات التعليمية المرتبطة به نهائياً. لا يمكن التراجع عن هذا الإجراء.',
+      confirmLabel: 'حذف الكورس نهائياً',
+      requireMatch: 'DELETE',
       isDestructive: true,
       onConfirm: async () => {
         await mutate(
           () => adminApiRequest(`/api/admin/courses/${course.id}`, { method: 'DELETE' }),
-          'تم حذف الكورس بنجاح'
+          'تم حذف الكورس وبياناته التابعة بنجاح'
         );
       },
     });

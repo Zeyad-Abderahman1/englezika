@@ -225,15 +225,16 @@ export function ExamsManagerView() {
 
   const handleDeleteExam = (exam: Exam) => {
     openConfirm({
-      title: `حذف امتحان «${exam.title}»`,
+      title: `حذف امتحان «${exam.title}» نهائياً`,
       message:
-        'هل أنت متأكد من رغبتك في حذف هذا الامتحان؟ لن تتمكن من حذفه إذا كان هناك طلاب قد أجروا الامتحان بالفعل أو إذا كان مرتبطًا كشرط لفتح محاضرة.',
-      confirmLabel: 'تأكيد حذف الامتحان',
+        'سيتم حذف الامتحان وجميع محاولات الطلاب ونتائجهم وإجاباتهم المرتبطة بهذا الامتحان نهائياً. لا يمكن التراجع عن هذا الإجراء.',
+      confirmLabel: 'حذف الامتحان نهائياً',
+      requireMatch: 'DELETE',
       isDestructive: true,
       onConfirm: async () => {
         await mutate(
           () => adminApiRequest(`/api/admin/exams/${exam.id}`, { method: 'DELETE' }),
-          'تم حذف الامتحان بنجاح'
+          'تم حذف الامتحان وبياناته التابعة بنجاح'
         );
       },
     });

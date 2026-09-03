@@ -2,6 +2,7 @@ import { apiStaff, isStaffResponse } from '../../../../lib/staff-auth';
 import { getDatabase, getPrivateStorage } from '../../../../lib/platform';
 import { captureException } from '../../../../lib/observability';
 import { jsonError, requireSameOrigin, safeInteger, safeText } from '../../../../lib/security';
+import { recordAuditLog } from '../../../../lib/audit';
 
 function optionalTimestamp(value: unknown): number | null | undefined {
   if (value === undefined) return undefined;
@@ -110,9 +111,19 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
         "DELETE FROM notification_reads WHERE notification_type = 'assignment' AND notification_id = ?"
       )
       .bind(id),
+    db.prepare('DELETE FROM course_items WHERE assignment_id = ?').bind(id),
     db.prepare('DELETE FROM assignment_submissions WHERE assignment_id = ?').bind(id),
     db.prepare('DELETE FROM assignment_questions WHERE assignment_id = ?').bind(id),
     db.prepare('DELETE FROM assignments WHERE id = ?').bind(id),
   ]);
+
+  await recordAuditLog({
+    userEmail: staff.email,
+    action: 'assignment.deleted',
+    resource: 'assignment',
+    resourceId: id,
+    request,
+  });
+
   return new Response(null, { status: 204 });
 }

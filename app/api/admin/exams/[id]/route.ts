@@ -1,7 +1,9 @@
 import { apiStaff, isStaffResponse } from '../../../../lib/staff-auth';
-import { getDatabase } from '../../../../lib/platform';
+import { getDatabase, getPrivateStorage } from '../../../../lib/platform';
 import { jsonError, requireSameOrigin, safeInteger, safeText } from '../../../../lib/security';
 import { invalidatePublicCourseCache } from '../../../../lib/public-course-cache';
+import { recordAuditLog } from '../../../../lib/audit';
+import { captureException } from '../../../../lib/observability';
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const admin = await apiStaff(request, 'manage_exams');
@@ -173,31 +175,90 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (isStaffResponse(admin)) return admin;
   const { id } = await params;
   const db = getDatabase();
-  const attempt = await db
-    .prepare('SELECT id FROM attempts WHERE exam_id = ? LIMIT 1')
+
+  const exam = await db
+    .prepare('SELECT id, title, teacher_file_key AS teacherFileKey FROM exams WHERE id = ?')
     .bind(id)
-    .first();
-  if (attempt) return jsonError('لا يمكن حذف امتحان له نتائج؛ يمكنك تحويله إلى مسودة', 409);
-  const lesson = await db
-    .prepare('SELECT id FROM videos WHERE prerequisite_exam_id = ? LIMIT 1')
-    .bind(id)
-    .first();
-  if (lesson) return jsonError('لا يمكن حذف امتحان مرتبط بفتح محاضرة', 409);
-  const questionIds = await db
-    .prepare('SELECT id FROM questions WHERE exam_id = ?')
-    .bind(id)
-    .all<{ id: string }>();
-  await db.batch([
+    .first<{ id: string; title: string; teacherFileKey?: string | null }>();
+  if (!exam) return jsonError('الامتحان غير موجود', 404);
+
+  // Collect storage file keys to clean up after successful DB commit
+  const filesToDelete = new Set<string>();
+  if (exam.teacherFileKey) {
+    filesToDelete.add(exam.teacherFileKey);
+  }
+
+  const [questions, attempts] = await Promise.all([
     db
-      .prepare(
-        "DELETE FROM notification_reads WHERE notification_type = 'exam' AND notification_id = ?"
-      )
-      .bind(id),
-    ...questionIds.results.map((question) =>
-      db.prepare('DELETE FROM questions WHERE id = ?').bind(question.id)
-    ),
-    db.prepare('DELETE FROM exams WHERE id = ?').bind(id),
+      .prepare('SELECT id, image_file_key AS imageFileKey FROM questions WHERE exam_id = ?')
+      .bind(id)
+      .all<{ id: string; imageFileKey?: string | null }>()
+      .catch(() => ({ results: [] as { id: string; imageFileKey?: string | null }[] })),
+    db
+      .prepare('SELECT id, pdf_storage_key AS pdfStorageKey FROM attempts WHERE exam_id = ?')
+      .bind(id)
+      .all<{ id: string; pdfStorageKey?: string | null }>()
+      .catch(() => ({ results: [] as { id: string; pdfStorageKey?: string | null }[] })),
   ]);
+
+  for (const q of questions.results) {
+    if (q.imageFileKey) filesToDelete.add(q.imageFileKey);
+  }
+  for (const a of attempts.results) {
+    if (a.pdfStorageKey) filesToDelete.add(a.pdfStorageKey);
+  }
+
+  try {
+    await db.batch([
+      // 1. Unlink prerequisite on any videos gating on this exam
+      db
+        .prepare('UPDATE videos SET prerequisite_exam_id = NULL, minimum_score = 0 WHERE prerequisite_exam_id = ?')
+        .bind(id),
+      // 2. Notification reads
+      db
+        .prepare("DELETE FROM notification_reads WHERE notification_type = 'exam' AND notification_id = ?")
+        .bind(id),
+      // 3. Course items
+      db.prepare('DELETE FROM course_items WHERE exam_id = ?').bind(id),
+      // 4. Exam sessions
+      db.prepare('DELETE FROM exam_sessions WHERE exam_id = ?').bind(id),
+      // 5. Answers (attempts or questions)
+      db
+        .prepare(
+          'DELETE FROM answers WHERE attempt_id IN (SELECT id FROM attempts WHERE exam_id = ?) OR question_id IN (SELECT id FROM questions WHERE exam_id = ?)'
+        )
+        .bind(id, id),
+      // 6. Attempts
+      db.prepare('DELETE FROM attempts WHERE exam_id = ?').bind(id),
+      // 7. Questions
+      db.prepare('DELETE FROM questions WHERE exam_id = ?').bind(id),
+      // 8. Exam itself
+      db.prepare('DELETE FROM exams WHERE id = ?').bind(id),
+    ]);
+  } catch (error) {
+    captureException(error, { module: 'admin-exam-force-delete', examId: id });
+    return jsonError('فشل حذف الامتحان وبياناته التابعة.', 500);
+  }
+
+  // Best-effort storage cleanup after successful DB commit
+  const storage = getPrivateStorage();
+  for (const key of filesToDelete) {
+    try {
+      await storage.delete(key);
+    } catch (storageError) {
+      captureException(storageError, { module: 'exam-delete-storage', storageKey: key, examId: id });
+    }
+  }
+
+  await recordAuditLog({
+    userEmail: admin.email,
+    action: 'exam.force_deleted',
+    resource: 'exam',
+    resourceId: id,
+    details: { title: exam.title },
+    request,
+  });
+
   invalidatePublicCourseCache();
   return Response.json({ ok: true });
 }

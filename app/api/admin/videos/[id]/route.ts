@@ -1,7 +1,9 @@
 import { apiStaff, isStaffResponse } from '../../../../lib/staff-auth';
-import { getDatabase } from '../../../../lib/platform';
+import { getDatabase, getPrivateStorage } from '../../../../lib/platform';
 import { jsonError, requireSameOrigin, safeInteger, safeText } from '../../../../lib/security';
 import { invalidatePublicCourseCache } from '../../../../lib/public-course-cache';
+import { recordAuditLog } from '../../../../lib/audit';
+import { captureException } from '../../../../lib/observability';
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const originError = requireSameOrigin(request);
@@ -64,9 +66,72 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (isStaffResponse(admin)) return admin;
   const { id } = await params;
   const db = getDatabase();
-  const video = await db.prepare('SELECT id FROM videos WHERE id = ?').bind(id).first();
-  if (!video) return jsonError('الفيديو غير موجود', 404);
-  await db.prepare('DELETE FROM videos WHERE id = ?').bind(id).run();
+
+  const video = await db
+    .prepare('SELECT id, course_id AS courseId, title FROM videos WHERE id = ?')
+    .bind(id)
+    .first<{ id: string; courseId: string; title: string }>();
+  if (!video) return jsonError('المحاضرة غير موجودة', 404);
+
+  // Collect any material files to clean up after successful DB commit
+  const materials = await db
+    .prepare('SELECT id, file_key AS fileKey FROM lecture_materials WHERE video_id = ?')
+    .bind(id)
+    .all<{ id: string; fileKey?: string | null }>()
+    .catch(() => ({ results: [] as { id: string; fileKey?: string | null }[] }));
+
+  const filesToDelete = new Set<string>();
+  for (const m of materials.results) {
+    if (m.fileKey) filesToDelete.add(m.fileKey);
+  }
+
+  try {
+    await db.batch([
+      // 1. Notification reads
+      db
+        .prepare("DELETE FROM notification_reads WHERE notification_type = 'video' AND notification_id = ?")
+        .bind(id),
+      // 2. Course items
+      db.prepare('DELETE FROM course_items WHERE video_id = ?').bind(id),
+      // 3. Student video progress
+      db.prepare('DELETE FROM video_progress WHERE video_id = ?').bind(id),
+      // 4. View sessions
+      db.prepare('DELETE FROM video_view_sessions WHERE video_id = ?').bind(id),
+      // 5. Access grants
+      db.prepare('DELETE FROM student_video_access_grants WHERE video_id = ?').bind(id),
+      // 6. Access codes
+      db.prepare('DELETE FROM lecture_access_codes WHERE video_id = ?').bind(id),
+      // 7. Access code batches
+      db.prepare('DELETE FROM access_code_batches WHERE video_id = ?').bind(id),
+      // 8. Lecture materials
+      db.prepare('DELETE FROM lecture_materials WHERE video_id = ?').bind(id),
+      // 9. Video record itself
+      db.prepare('DELETE FROM videos WHERE id = ?').bind(id),
+    ]);
+  } catch (error) {
+    captureException(error, { module: 'admin-video-force-delete', videoId: id });
+    return jsonError('فشل حذف المحاضرة وبياناتها التابعة.', 500);
+  }
+
+  // Best-effort storage cleanup after successful DB commit
+  const storage = getPrivateStorage();
+  for (const key of filesToDelete) {
+    try {
+      await storage.delete(key);
+    } catch (storageError) {
+      captureException(storageError, { module: 'video-delete-storage', storageKey: key, videoId: id });
+    }
+  }
+
+  await recordAuditLog({
+    userEmail: admin.email,
+    action: 'video.force_deleted',
+    resource: 'video',
+    resourceId: id,
+    details: { courseId: video.courseId, title: video.title },
+    request,
+  });
+
   invalidatePublicCourseCache();
   return Response.json({ ok: true });
 }

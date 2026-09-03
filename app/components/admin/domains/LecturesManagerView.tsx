@@ -124,15 +124,16 @@ export function LecturesManagerView() {
 
   const handleDeleteVideo = (video: Video) => {
     openConfirm({
-      title: `حذف محاضرة «${video.title}»`,
+      title: `حذف محاضرة «${video.title}» نهائياً`,
       message:
-        'هل أنت متأكد من رغبتك في حذف هذه المحاضرة؟ سيتم حذف جميع أكواد الوصول المرتبطة بها.',
-      confirmLabel: 'تأكيد حذف المحاضرة',
+        'سيتم حذف المحاضرة وجميع أكواد الدخول والتقدم وسجلات المشاهدة والمواد المرتبطة بها نهائياً. لا يمكن التراجع عن هذا الإجراء.',
+      confirmLabel: 'حذف المحاضرة نهائياً',
+      requireMatch: 'DELETE',
       isDestructive: true,
       onConfirm: async () => {
         await mutate(
           () => adminApiRequest(`/api/admin/videos/${video.id}`, { method: 'DELETE' }),
-          'تم حذف المحاضرة بنجاح'
+          'تم حذف المحاضرة وبياناتها التابعة بنجاح'
         );
       },
     });
