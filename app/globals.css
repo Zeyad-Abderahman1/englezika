@@ -4612,14 +4612,93 @@ html[data-theme='light'] .feature-number {
   display: block;
   border: 0;
 }
-.youtube-click-shield {
+.youtube-click-shield,
+.video-surface-click-layer {
   position: absolute;
   z-index: 4;
   inset: 0;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
 }
-.video-frame.controls-hidden .youtube-click-shield {
+.video-frame.controls-hidden .youtube-click-shield,
+.video-frame.controls-hidden .video-surface-click-layer {
   cursor: none;
+}
+.video-center-paused-badge {
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  background: rgba(15, 17, 23, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  transition: transform 180ms ease, background 180ms ease;
+  pointer-events: none;
+}
+.video-surface-click-layer:hover .video-center-paused-badge {
+  transform: scale(1.08);
+  background: rgba(207, 11, 39, 0.9);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+.video-center-paused-badge svg {
+  margin-inline-start: 3px;
+}
+.video-center-ended-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 24px;
+  border-radius: 30px;
+  background: rgba(207, 11, 39, 0.94);
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 8px 28px rgba(207, 11, 39, 0.5);
+  transition: transform 180ms ease, background 180ms ease;
+  pointer-events: none;
+}
+.video-surface-click-layer:hover .video-center-ended-badge {
+  transform: scale(1.05);
+  background: #e11432;
+}
+.video-center-feedback {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  pointer-events: none;
+  animation: videoCenterPulse 650ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes videoCenterPulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.3);
+  }
 }
 .englizeka-video-controls {
   position: relative;
@@ -4633,9 +4712,10 @@ html[data-theme='light'] .feature-number {
   color: #fff;
   background: #07080a;
   opacity: 0;
-  overflow: hidden;
+  overflow: visible;
   pointer-events: none;
   transform: translateY(12px);
+  direction: ltr;
   transition:
     height 180ms ease,
     min-height 180ms ease,
@@ -4662,7 +4742,7 @@ html[data-theme='light'] .feature-number {
   border-radius: 10px;
 }
 .englizeka-video-controls button:last-child {
-  margin-inline-start: auto;
+  margin-inline-start: 0;
 }
 .englizeka-video-controls button svg {
   width: 20px;
@@ -4729,6 +4809,7 @@ html[data-theme='light'] .feature-number {
   flex-shrink: 0;
   user-select: none;
   padding: 0 2px;
+  direction: ltr;
 }
 
 /* ── Seek slider ──────────────────────────────────────────── */
@@ -4742,6 +4823,7 @@ html[data-theme='light'] .feature-number {
   cursor: pointer;
   touch-action: none;
   user-select: none;
+  direction: ltr;
 }
 .video-seek-track {
   position: relative;
@@ -4750,11 +4832,13 @@ html[data-theme='light'] .feature-number {
   background: rgba(255, 255, 255, 0.2);
   border-radius: 2px;
   overflow: visible;
+  direction: ltr;
 }
 .video-seek-filled {
   position: absolute;
   top: 0;
-  inset-inline-start: 0;
+  left: 0;
+  right: auto;
   height: 100%;
   background: #cf0b27;
   border-radius: 2px;
@@ -4763,6 +4847,8 @@ html[data-theme='light'] .feature-number {
 .video-seek-thumb {
   position: absolute;
   top: 50%;
+  left: 0;
+  right: auto;
   transform: translate(-50%, -50%);
   width: 14px;
   height: 14px;
@@ -4783,6 +4869,145 @@ html[data-theme='light'] .feature-number {
 }
 .video-seek-slider.scrubbing .video-seek-filled {
   background: #ff3050;
+}
+
+/* ── Settings popover ─────────────────────────────────────── */
+
+.video-settings-wrapper {
+  position: relative;
+}
+.video-ctrl-settings.is-active {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+.video-settings-popover {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  right: 0;
+  min-width: 250px;
+  max-width: 300px;
+  background: rgba(12, 14, 18, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: #fff;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(12px);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  user-select: none;
+  direction: rtl;
+}
+.video-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  font-size: 13px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.video-settings-close {
+  background: transparent !important;
+  border: none !important;
+  color: rgba(255, 255, 255, 0.6) !important;
+  width: 22px !important;
+  height: 22px !important;
+  font-size: 13px !important;
+  cursor: pointer;
+  border-radius: 6px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.video-settings-close:hover {
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+.video-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.video-settings-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
+}
+.video-settings-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  direction: ltr;
+}
+.video-chip {
+  padding: 4px 9px !important;
+  height: auto !important;
+  min-height: 26px !important;
+  width: auto !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  border-radius: 6px !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+.video-chip:hover {
+  background: rgba(255, 255, 255, 0.16) !important;
+  color: #fff !important;
+}
+.video-chip.is-selected {
+  background: #cf0b27 !important;
+  border-color: #ff3050 !important;
+  color: #fff !important;
+}
+.video-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.video-quality-item {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 30px !important;
+  padding: 5px 8px !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  cursor: pointer;
+  text-align: right;
+  transition: background 120ms ease;
+}
+.video-quality-item:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #fff !important;
+}
+.video-quality-item.is-selected {
+  background: rgba(207, 11, 39, 0.18) !important;
+  border-color: rgba(207, 11, 39, 0.45) !important;
+  color: #ff4767 !important;
+  font-weight: 700 !important;
+}
+.quality-check {
+  color: #10b981;
+  font-weight: 700;
+}
+.video-settings-hint {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.4;
+  margin: 3px 0 0;
 }
 
 /* ── Mobile overrides ─────────────────────────────────────── */
@@ -6957,135 +7182,419 @@ html[data-theme='light'] .admin-hamburger {
 }
 
 /* ============================================
-   Course Sequence Tree
+   Course Sequence Tree / Learning Roadmap
    ============================================ */
 
-.course-sequence-tree {
-  margin-bottom: 24px;
-  padding: 20px;
-  background: var(--surface, #1a1b23);
-  border: 1px solid var(--line, rgba(255,255,255,0.08));
+.course-roadmap-container {
+  margin-bottom: 28px;
+  padding: 22px;
+  background: var(--surface, #13151d);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
   border-radius: 16px;
-}
-.seq-heading {
-  margin: 0 0 16px;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text, #fff);
-}
-.seq-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.seq-link {
-  text-decoration: none;
-  color: inherit;
-  display: block;
-}
-.seq-link-disabled {
-  pointer-events: none;
-}
-.seq-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  transition: background 0.15s;
-}
-.seq-item:hover {
-  background: rgba(255,255,255,0.04);
-}
-.seq-item-active {
-  background: rgba(207, 11, 39, 0.08);
-  border: 1px solid rgba(207, 11, 39, 0.2);
-}
-.seq-item-locked {
-  opacity: 0.55;
-}
-.seq-item-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 52px;
-}
-.seq-number {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--muted, #888);
-  min-width: 18px;
-  text-align: center;
-}
-.seq-icon {
-  flex-shrink: 0;
-}
-.seq-icon-done {
-  color: #22c55e;
-}
-.seq-icon-locked {
-  color: var(--muted, #888);
-}
-.seq-icon-active {
-  color: var(--brand, #d7193f);
-}
-.seq-item-content {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.seq-item-type {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--muted, #888);
-}
-.seq-item-title {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text, #fff);
-  white-space: nowrap;
+  direction: rtl;
   overflow: hidden;
-  text-overflow: ellipsis;
-}
-.seq-item-right {
-  flex-shrink: 0;
-}
-.seq-status {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 20px;
-  background: rgba(255,255,255,0.06);
-  color: var(--brand, #d7193f);
-}
-.seq-status-done {
-  background: rgba(34, 197, 94, 0.12);
-  color: #22c55e;
-}
-.seq-status-locked {
-  background: rgba(255,255,255,0.04);
-  color: var(--muted, #888);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
 }
 
+.roadmap-header {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.roadmap-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.roadmap-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--brand, #e11432);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.roadmap-heading {
+  margin: 4px 0 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text, #fff);
+}
+
+.roadmap-progress-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.progress-fraction {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted, #8a909d);
+}
+
+.roadmap-mini-bar {
+  width: 130px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.roadmap-mini-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #059669);
+  border-radius: 4px;
+  transition: width 350ms ease;
+}
+
+.roadmap-timeline {
+  display: flex;
+  flex-direction: column;
+}
+
+.roadmap-step {
+  display: flex;
+  gap: 16px;
+  align-items: stretch;
+  position: relative;
+}
+
+/* Spine Column */
+.roadmap-spine {
+  width: 40px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+.spine-line {
+  width: 2px;
+  flex: 1;
+  min-height: 14px;
+  background: rgba(255, 255, 255, 0.1);
+  transition: background 200ms ease;
+}
+
+.spine-line.is-first,
+.spine-line.is-last {
+  visibility: hidden;
+}
+
+.spine-line.line-completed {
+  background: #10b981;
+}
+
+.spine-node {
+  position: relative;
+  z-index: 2;
+  margin: 3px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.node-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  color: var(--text, #fff);
+  transition: all 180ms ease;
+}
+
+.roadmap-step.is-completed .node-circle {
+  background: rgba(16, 185, 129, 0.16);
+  border: 2px solid #10b981;
+  color: #10b981;
+}
+
+.roadmap-step.is-current .node-circle {
+  background: rgba(207, 11, 39, 0.2);
+  border: 2px solid #cf0b27;
+  color: #fff;
+  box-shadow: 0 0 14px rgba(207, 11, 39, 0.55);
+}
+
+.roadmap-step.is-locked .node-circle {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1.5px solid rgba(255, 255, 255, 0.07);
+  color: var(--muted, #666);
+}
+
+.node-pulse-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pulse-ring {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px solid #ff3355;
+  animation: nodePulse 2s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+  pointer-events: none;
+}
+
+@keyframes nodePulse {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.8;
+  }
+  70% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+.spine-number {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted, #6a7180);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Content Cell */
+.roadmap-content-cell {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 18px;
+}
+
+.roadmap-link-wrapper {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  border-radius: 12px;
+}
+
+.roadmap-locked-wrapper {
+  display: block;
+  border-radius: 12px;
+}
+
+.roadmap-node-card {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: all 160ms ease;
+}
+
+.roadmap-step.is-completed .roadmap-node-card {
+  background: rgba(16, 185, 129, 0.02);
+  border-color: rgba(16, 185, 129, 0.16);
+}
+
+.roadmap-step.is-current .roadmap-node-card {
+  background: rgba(207, 11, 39, 0.05);
+  border: 1.5px solid rgba(207, 11, 39, 0.32);
+  box-shadow: 0 4px 20px rgba(207, 11, 39, 0.08);
+}
+
+.roadmap-step.is-locked .roadmap-node-card {
+  opacity: 0.6;
+  cursor: not-allowed;
+  border-color: rgba(255, 255, 255, 0.04);
+}
+
+.roadmap-link-wrapper:hover .roadmap-node-card {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.16);
+  transform: translateY(-1px);
+}
+
+.roadmap-link-wrapper:hover .roadmap-step.is-current .roadmap-node-card {
+  background: rgba(207, 11, 39, 0.09);
+  border-color: rgba(207, 11, 39, 0.5);
+}
+
+/* Card Header */
+.node-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.node-type-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.node-type-pill.type-video {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+}
+
+.node-type-pill.type-exam {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.node-type-pill.type-assignment {
+  color: #a855f7;
+  background: rgba(168, 85, 247, 0.1);
+}
+
+.node-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.node-status-pill.status-is-completed {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+  font-weight: 700;
+}
+
+.node-status-pill.status-is-current {
+  color: #ff3355;
+  background: rgba(207, 11, 39, 0.14);
+  font-weight: 700;
+}
+
+.node-status-pill.status-is-locked {
+  color: var(--muted, #777);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.node-status-pill.status-is-available {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Card Body */
+.node-card-body {
+  margin: 4px 0 8px;
+}
+
+.node-item-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text, #fff);
+  line-height: 1.5;
+}
+
+.node-item-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted, #8a909d);
+  line-height: 1.6;
+}
+
+.node-item-hint.current-hint {
+  color: #ff8095;
+  font-weight: 600;
+}
+
+.node-item-hint.completed-hint {
+  color: #34d399;
+}
+
+/* Card Footer */
+.node-card-footer {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.node-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 14px;
+  min-height: 36px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  transition: all 140ms ease;
+}
+
+.node-action-btn.btn-highlight {
+  background: #cf0b27;
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(207, 11, 39, 0.35);
+}
+
+.roadmap-link-wrapper:hover .node-action-btn.btn-highlight {
+  background: #e11432;
+  box-shadow: 0 4px 14px rgba(207, 11, 39, 0.45);
+}
+
+.action-arrow {
+  transition: transform 140ms ease;
+}
+
+.roadmap-link-wrapper:hover .action-arrow {
+  transform: translateX(-3px);
+}
+
+/* Mobile Responsiveness */
 @media (max-width: 600px) {
-  .course-sequence-tree {
-    padding: 14px;
+  .course-roadmap-container {
+    padding: 16px 12px;
     border-radius: 12px;
   }
-  .seq-item {
-    padding: 10px 10px;
-    gap: 8px;
+  .roadmap-step {
+    gap: 10px;
   }
-  .seq-item-left {
-    min-width: 42px;
-    gap: 6px;
+  .roadmap-spine {
+    width: 32px;
   }
-  .seq-item-title {
-    font-size: 13px;
+  .node-circle {
+    width: 30px;
+    height: 30px;
+  }
+  .node-circle svg {
+    width: 14px;
+    height: 14px;
+  }
+  .roadmap-node-card {
+    padding: 12px 12px;
+  }
+  .node-item-title {
+    font-size: 13.5px;
+  }
+  .roadmap-mini-bar {
+    width: 90px;
   }
 }
 

@@ -29,28 +29,44 @@ export async function POST(request: Request) {
     .first<{ id: string; title: string }>();
   if (!video) return jsonError('المحاضرة غير موجودة', 404);
 
-  const codes = await db
-    .prepare(
-      `SELECT id, display_suffix AS suffix,
-              'ENG-' || display_suffix AS fullCode
-       FROM lecture_access_codes
-       WHERE video_id = ? AND redeemed_at IS NULL
-       ORDER BY created_at ASC`
-    )
-    .bind(videoId)
-    .all<{ id: string; suffix: string; fullCode: string }>();
+  let codeRows: Array<{ id: string; suffix: string; fullCode: string; videoTitle: string }> = [];
 
-  if (!codes.results.length) {
+  if (Array.isArray(body.codes) && body.codes.length > 0) {
+    codeRows = body.codes
+      .filter((c: unknown): c is { fullCode: string; suffix?: string; id?: string } =>
+        typeof c === 'object' && c !== null && typeof (c as { fullCode?: unknown }).fullCode === 'string'
+      )
+      .map((c, idx) => ({
+        id: c.id || `code-${idx}`,
+        suffix: c.suffix || c.fullCode.slice(-5),
+        fullCode: c.fullCode,
+        videoTitle: video.title,
+      }));
+  } else {
+    const codes = await db
+      .prepare(
+        `SELECT id, display_suffix AS suffix,
+                'ENG-•••••-' || display_suffix AS fullCode
+         FROM lecture_access_codes
+         WHERE video_id = ? AND redeemed_at IS NULL
+         ORDER BY created_at ASC`
+      )
+      .bind(videoId)
+      .all<{ id: string; suffix: string; fullCode: string }>();
+
+    codeRows = codes.results.map((c) => ({
+      ...c,
+      videoTitle: video.title,
+    }));
+  }
+
+  if (!codeRows.length) {
     return jsonError('لا توجد أكواد متاحة للطباعة', 404);
   }
 
-  const pdfBuffer = await generateAccessCodePDF(
-    codes.results.map((c: { id: string; suffix: string; fullCode: string }) => ({
-      ...c,
-      videoTitle: video.title,
-    })),
-    { title: `Access Codes - ${video.title}` }
-  );
+  const pdfBuffer = await generateAccessCodePDF(codeRows, {
+    title: `Access Codes - ${video.title}`,
+  });
 
   return new Response(pdfBuffer as unknown as BodyInit, {
     headers: {

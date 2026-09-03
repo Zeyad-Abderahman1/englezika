@@ -10,12 +10,28 @@ import {
   LockKeyhole,
   Maximize2,
   Minimize2,
+  Pause,
   PauseCircle,
+  Play,
   PlayCircle,
   RefreshCw,
+  RotateCcw,
+  Settings,
   ShieldCheck,
   UserRound,
 } from 'lucide-react';
+
+const QUALITY_LABELS: Record<string, string> = {
+  highres: '1080p+ (عالية جداً)',
+  hd1080: '1080p (عالية)',
+  hd720: '720p',
+  large: '480p',
+  medium: '360p',
+  small: '240p',
+  tiny: '144p',
+  auto: 'تلقائي (تكيفي)',
+  default: 'تلقائي (تكيفي)',
+};
 
 export type PrerequisiteExam = {
   id: string;
@@ -80,6 +96,14 @@ export default function SecureVideoPlayer({
   const [duration, setDuration] = useState(0);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubPosition, setScrubPosition] = useState(0);
+  const [hasEnded, setHasEnded] = useState(false);
+  const [centerFeedback, setCenterFeedback] = useState<{ type: 'play' | 'pause'; id: number } | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [selectedQuality, setSelectedQuality] = useState('auto');
+  const [availableQualities, setAvailableQualities] = useState<string[]>([]);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [availableRates, setAvailableRates] = useState<number[]>([0.75, 1, 1.25, 1.5, 2]);
+  const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const videoFrameRef = useRef<HTMLDivElement>(null);
   const controlsHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -274,14 +298,36 @@ export default function SecureVideoPlayer({
       if (!data) return;
       if (data.videoId !== activeId) return;
 
+      if (data.type === 'englizeka-video-info') {
+        const info = data as {
+          qualities?: string[];
+          quality?: string;
+          rates?: number[];
+          rate?: number;
+        };
+        if (Array.isArray(info.qualities) && info.qualities.length > 0) {
+          setAvailableQualities(info.qualities);
+        }
+        if (typeof info.quality === 'string' && info.quality) {
+          setSelectedQuality(info.quality);
+        }
+        if (Array.isArray(info.rates) && info.rates.length > 0) {
+          setAvailableRates(info.rates);
+        }
+        if (typeof info.rate === 'number' && info.rate > 0) {
+          setPlaybackSpeed(info.rate);
+        }
+      }
       if (data.type === 'englizeka-video-ended') {
         setYoutubePlaying(false);
+        setHasEnded(true);
         stopHeartbeat();
         void completeLesson(activeId);
       }
       if (data.type === 'englizeka-video-state') {
         const playing = data.state === 'playing';
         setYoutubePlaying(playing);
+        if (playing) setHasEnded(false);
         revealControls(playing);
         if (playing) {
           void startViewSession(activeId);
@@ -289,6 +335,14 @@ export default function SecureVideoPlayer({
         } else {
           stopHeartbeat();
         }
+      }
+      if (data.type === 'englizeka-video-quality') {
+        const qData = data as { quality?: string };
+        if (typeof qData.quality === 'string') setSelectedQuality(qData.quality);
+      }
+      if (data.type === 'englizeka-video-rate') {
+        const rData = data as { rate?: number };
+        if (typeof rData.rate === 'number') setPlaybackSpeed(rData.rate);
       }
       if (data.type === 'englizeka-video-progress') {
         if (!scrubbingRef.current) {
@@ -379,6 +433,34 @@ export default function SecureVideoPlayer({
     [handleSliderInteraction, seekTo]
   );
 
+  const triggerCenterFeedback = useCallback((type: 'play' | 'pause') => {
+    setCenterFeedback({ type, id: Date.now() });
+    if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
+    feedbackTimer.current = setTimeout(() => {
+      setCenterFeedback(null);
+    }, 700);
+  }, []);
+
+  const handleSurfaceClick = useCallback(() => {
+    if (hasEnded) {
+      setHasEnded(false);
+      seekTo(0);
+      sendYouTubeCommand('play');
+      triggerCenterFeedback('play');
+      revealControls(true);
+      return;
+    }
+    if (youtubePlaying) {
+      sendYouTubeCommand('pause');
+      triggerCenterFeedback('pause');
+      revealControls(false);
+    } else {
+      sendYouTubeCommand('play');
+      triggerCenterFeedback('play');
+      revealControls(true);
+    }
+  }, [hasEnded, youtubePlaying, seekTo, sendYouTubeCommand, triggerCenterFeedback, revealControls]);
+
   const displayTime = isScrubbing ? scrubPosition : currentTime;
   const progressPercent = duration > 0 ? (displayTime / duration) * 100 : 0;
 
@@ -428,16 +510,54 @@ export default function SecureVideoPlayer({
                   </button>
                 </div>
               ) : (
-                <iframe
-                  key={activeSource.sourceUrl}
-                  ref={iframeRef}
-                  className="youtube-player-host"
-                  src={activeSource.sourceUrl}
-                  title={active.title}
-                  allow="autoplay; encrypted-media"
-                  referrerPolicy="strict-origin-when-cross-origin"
-                  sandbox="allow-scripts allow-same-origin allow-presentation"
-                />
+                <>
+                  <iframe
+                    key={activeSource.sourceUrl}
+                    ref={iframeRef}
+                    className="youtube-player-host"
+                    src={activeSource.sourceUrl}
+                    title={active.title}
+                    allow="autoplay; encrypted-media"
+                    referrerPolicy="strict-origin-when-cross-origin"
+                    sandbox="allow-scripts allow-same-origin allow-presentation"
+                  />
+                  {/* Click/tap surface layer covering visible video */}
+                  <div
+                    className="video-surface-click-layer"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={hasEnded ? 'إعادة تشغيل المحاضرة' : youtubePlaying ? 'إيقاف الفيديو مؤقتاً' : 'تشغيل الفيديو'}
+                    onClick={handleSurfaceClick}
+                    onKeyDown={(e) => {
+                      if (e.key === ' ' || e.key === 'Enter') {
+                        e.preventDefault();
+                        handleSurfaceClick();
+                      }
+                    }}
+                  >
+                    {/* Ended / Replay state */}
+                    {hasEnded && (
+                      <div className="video-center-ended-badge" aria-hidden="true">
+                        <RotateCcw size={32} />
+                        <span>إعادة تشغيل المحاضرة</span>
+                      </div>
+                    )}
+
+                    {/* Paused state overlay */}
+                    {!hasEnded && !youtubePlaying && !centerFeedback && (
+                      <div className="video-center-paused-badge" aria-hidden="true">
+                        <Play size={36} />
+                      </div>
+                    )}
+
+                    {/* Transient feedback icon */}
+                    {centerFeedback && (
+                      <div key={centerFeedback.id} className="video-center-feedback animate-feedback" aria-hidden="true">
+                        {centerFeedback.type === 'play' ? <Play size={42} /> : <Pause size={42} />}
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
               <div
                 className="video-watermark video-watermark-top"
@@ -469,35 +589,50 @@ export default function SecureVideoPlayer({
             {activeSource?.kind === 'youtube' && !activeSource.error && (
               <div
                 className={`englizeka-video-controls ${controlsVisible ? 'is-visible' : ''}`}
+                dir="ltr"
+                onClick={(e) => e.stopPropagation()}
                 onFocus={() => revealControls(false)}
                 onBlur={() => revealControls(youtubePlaying)}
                 onContextMenu={(event) => event.preventDefault()}
               >
                 <button
                   type="button"
+                  className="video-ctrl-btn video-ctrl-play"
+                  aria-label={hasEnded ? 'إعادة تشغيل المحاضرة' : youtubePlaying ? 'إيقاف الفيديو مؤقتًا' : 'تشغيل الفيديو'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (hasEnded) {
+                      setHasEnded(false);
+                      seekTo(0);
+                    }
+                    sendYouTubeCommand(youtubePlaying ? 'pause' : 'play');
+                  }}
+                >
+                  {hasEnded ? <RotateCcw /> : youtubePlaying ? <PauseCircle /> : <PlayCircle />}
+                </button>
+                <button
+                  type="button"
                   className="video-ctrl-btn"
                   aria-label="رجوع 10 ثوانٍ"
-                  onClick={() => seekTo(currentTime - 10)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    seekTo(currentTime - 10);
+                  }}
                 >
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 17a1 1 0 0 1-1-1v-4l-5 3V9l5 3V8a1 1 0 0 1 1.5-.86l6 4a1 1 0 0 1 0 1.72l-6 4A1 1 0 0 1 11 17z" transform="scale(-1,1) translate(-24,0)"/><text x="5" y="16" fontSize="7" fill="currentColor" stroke="none" fontWeight="700">10</text></svg>
                 </button>
                 <button
                   type="button"
-                  className="video-ctrl-btn video-ctrl-play"
-                  aria-label={youtubePlaying ? 'إيقاف الفيديو مؤقتًا' : 'تشغيل الفيديو'}
-                  onClick={() => sendYouTubeCommand(youtubePlaying ? 'pause' : 'play')}
-                >
-                  {youtubePlaying ? <PauseCircle /> : <PlayCircle />}
-                </button>
-                <button
-                  type="button"
                   className="video-ctrl-btn"
                   aria-label="تقديم 10 ثوانٍ"
-                  onClick={() => seekTo(currentTime + 10)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    seekTo(currentTime + 10);
+                  }}
                 >
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 17a1 1 0 0 0 1-1v-4l5 3V9l-5 3V8a1 1 0 0 0-1.5-.86l-6 4a1 1 0 0 0 0 1.72l6 4A1 1 0 0 0 13 17z"/><text x="10" y="16" fontSize="7" fill="currentColor" stroke="none" fontWeight="700">10</text></svg>
                 </button>
-                <span className="video-time-label">{formatTime(displayTime)}</span>
+                <span className="video-time-label" dir="ltr">{formatTime(displayTime)}</span>
                 <div
                   ref={sliderRef}
                   className={`video-seek-slider ${isScrubbing ? 'scrubbing' : ''}`}
@@ -507,6 +642,7 @@ export default function SecureVideoPlayer({
                   aria-valuemax={Math.floor(duration)}
                   aria-valuenow={Math.floor(displayTime)}
                   tabIndex={0}
+                  dir="ltr"
                   onPointerDown={handleSliderPointerDown}
                   onPointerMove={handleSliderPointerMove}
                   onPointerUp={handleSliderPointerUp}
@@ -516,16 +652,112 @@ export default function SecureVideoPlayer({
                   }}
                 >
                   <div className="video-seek-track">
-                    <div className="video-seek-filled" style={{ width: `${progressPercent}%` }} />
+                    <div className="video-seek-filled" style={{ left: 0, width: `${progressPercent}%` }} />
                     <div className="video-seek-thumb" style={{ left: `${progressPercent}%` }} />
                   </div>
                 </div>
-                <span className="video-time-label">{formatTime(duration)}</span>
+                <span className="video-time-label" dir="ltr">{formatTime(duration)}</span>
+
+                {/* Settings / Quality & Speed Menu */}
+                <div className="video-settings-wrapper" style={{ position: 'relative' }}>
+                  <button
+                    type="button"
+                    className={`video-ctrl-btn video-ctrl-settings ${showSettings ? 'is-active' : ''}`}
+                    aria-label="إعدادات الفيديو والجودة"
+                    title="الإعدادات والجودة"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSettings((prev) => !prev);
+                    }}
+                  >
+                    <Settings size={18} />
+                  </button>
+                  {showSettings && (
+                    <div
+                      className="video-settings-popover"
+                      dir="rtl"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="video-settings-header">
+                        <span>إعدادات التشغيل</span>
+                        <button
+                          type="button"
+                          className="video-settings-close"
+                          onClick={() => setShowSettings(false)}
+                          aria-label="إغلاق"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      <div className="video-settings-section">
+                        <span className="video-settings-title">سرعة التشغيل</span>
+                        <div className="video-settings-chips" dir="ltr">
+                          {[0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                            <button
+                              key={rate}
+                              type="button"
+                              className={`video-chip ${playbackSpeed === rate ? 'is-selected' : ''}`}
+                              onClick={() => {
+                                setPlaybackSpeed(rate);
+                                sendYouTubeCommand('speed', String(rate));
+                              }}
+                            >
+                              {rate === 1 ? '1x (عادي)' : `${rate}x`}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="video-settings-section">
+                        <span className="video-settings-title">جودة الفيديو</span>
+                        <div className="video-settings-list">
+                          <button
+                            type="button"
+                            className={`video-quality-item ${selectedQuality === 'auto' || selectedQuality === 'default' ? 'is-selected' : ''}`}
+                            onClick={() => {
+                              setSelectedQuality('auto');
+                              sendYouTubeCommand('quality', 'default');
+                            }}
+                          >
+                            <span>تلقائي (تكيفي حسب السرعة)</span>
+                            {(selectedQuality === 'auto' || selectedQuality === 'default') && (
+                              <span className="quality-check">✓</span>
+                            )}
+                          </button>
+                          {availableQualities
+                            .filter((q) => q !== 'auto' && q !== 'default')
+                            .map((q) => (
+                              <button
+                                key={q}
+                                type="button"
+                                className={`video-quality-item ${selectedQuality === q ? 'is-selected' : ''}`}
+                                onClick={() => {
+                                  setSelectedQuality(q);
+                                  sendYouTubeCommand('quality', q);
+                                }}
+                              >
+                                <span>{QUALITY_LABELS[q] || q}</span>
+                                {selectedQuality === q && <span className="quality-check">✓</span>}
+                              </button>
+                            ))}
+                        </div>
+                        <p className="video-settings-hint">
+                          يتم تكييف البث تلقائيًا حسب سرعة اتصالك بالإنترنت لضمان المشاهدة بدون تقطيع.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <button
                   type="button"
                   className="video-ctrl-btn video-ctrl-fullscreen"
                   aria-label={isFullscreen ? 'الخروج من ملء الشاشة' : 'ملء الشاشة'}
-                  onClick={() => void toggleFullscreen()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void toggleFullscreen();
+                  }}
                 >
                   {isFullscreen ? <Minimize2 /> : <Maximize2 />}
                 </button>
@@ -554,7 +786,7 @@ export default function SecureVideoPlayer({
               </p>
             )}
             <Link
-              href={`/exams/${active.prerequisiteExam.id}`}
+              href={`/exam/${active.prerequisiteExam.id}`}
               className="btn btn-primary"
               style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', margin: '0.5rem auto 0' }}
             >
@@ -648,7 +880,7 @@ export default function SecureVideoPlayer({
                     </div>
                   </div>
                   <Link
-                    href={`/exams/${video.prerequisiteExam.id}`}
+                    href={`/exam/${video.prerequisiteExam.id}`}
                     className={`btn btn-sm ${video.prerequisiteExam.passed ? 'btn-outline' : 'btn-primary'}`}
                     style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', flexShrink: 0 }}
                   >
@@ -665,6 +897,9 @@ export default function SecureVideoPlayer({
                   setCompletionMessage('');
                   setSecurityMessage('');
                   setYoutubePlaying(false);
+                  setHasEnded(false);
+                  setCenterFeedback(null);
+                  setShowSettings(false);
                   setCurrentTime(0);
                   setDuration(0);
                 }}

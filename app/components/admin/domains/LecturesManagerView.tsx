@@ -44,6 +44,7 @@ export function LecturesManagerView() {
   const videos = useMemo(() => data?.videos || [], [data?.videos]);
   const exams = useMemo(() => data?.exams || [], [data?.exams]);
   const accessCodes = useMemo(() => data?.accessCodes || [], [data?.accessCodes]);
+  const accessCodeBatches = useMemo(() => data?.accessCodeBatches || [], [data?.accessCodeBatches]);
 
   useEffect(() => {
     for (const video of videos) {
@@ -338,6 +339,7 @@ export function LecturesManagerView() {
                       videoId={video.id}
                       videoTitle={video.title}
                       history={accessCodes}
+                      batches={accessCodeBatches}
                       onGenerated={() => refreshData(1)}
                     />
                   </td>

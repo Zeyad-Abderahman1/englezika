@@ -146,6 +146,17 @@ export type LectureAccessCodeHistory = {
   courseTitle: string;
 };
 
+export type AccessCodeBatch = {
+  id: string;
+  course_id: string;
+  video_id: string;
+  count: number;
+  created_by: string;
+  created_at: number;
+  video_title: string | null;
+  course_title: string | null;
+};
+
 export type StaffAccount = {
   email: string;
   name: string;
@@ -189,6 +200,7 @@ export type AdminData = {
   attempts: Attempt[];
   videos: Video[];
   accessCodes: LectureAccessCodeHistory[];
+  accessCodeBatches?: AccessCodeBatch[];
   contacts: Contact[];
   announcements: Announcement[];
   pagination: {

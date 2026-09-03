@@ -38,12 +38,36 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       var playerReady = false;
       var pendingCommand = null;
       var progressTimer = null;
+
+      function sendPlayerInfo() {
+        if (!playerReady) return;
+        var qualities = [];
+        var quality = 'default';
+        var rates = [0.5, 0.75, 1, 1.25, 1.5, 2];
+        var rate = 1;
+        try {
+          if (typeof player.getAvailableQualityLevels === 'function') qualities = player.getAvailableQualityLevels() || [];
+          if (typeof player.getPlaybackQuality === 'function') quality = player.getPlaybackQuality() || 'default';
+          if (typeof player.getAvailablePlaybackRates === 'function') rates = player.getAvailablePlaybackRates() || rates;
+          if (typeof player.getPlaybackRate === 'function') rate = player.getPlaybackRate() || 1;
+        } catch (e) {}
+        window.parent.postMessage({
+          type: 'englizeka-video-info',
+          videoId: ${lessonId},
+          qualities: qualities,
+          quality: quality,
+          rates: rates,
+          rate: rate
+        }, window.location.origin);
+      }
+
       var player = new YT.Player('player', {
         videoId: ${youtubeId},
-        playerVars: { controls: 0, cc_load_policy: 0, disablekb: 1, fs: 0, modestbranding: 1, origin: ${embedOrigin}, playsinline: 1, rel: 0, iv_load_policy: 3, playsinline: 1 },
+        playerVars: { controls: 0, cc_load_policy: 0, disablekb: 1, fs: 0, modestbranding: 1, origin: ${embedOrigin}, playsinline: 1, rel: 0, iv_load_policy: 3 },
         events: {
           onReady: function () {
             playerReady = true;
+            sendPlayerInfo();
             if (pendingCommand === 'play') player.playVideo();
             if (pendingCommand === 'pause') player.pauseVideo();
             pendingCommand = null;
@@ -56,10 +80,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
           onStateChange: function (event) {
             var state = event.data === YT.PlayerState.PLAYING ? 'playing' : event.data === YT.PlayerState.PAUSED ? 'paused' : event.data === YT.PlayerState.ENDED ? 'ended' : 'other';
             window.parent.postMessage({ type: 'englizeka-video-state', videoId: ${lessonId}, state: state }, window.location.origin);
+            if (event.data === YT.PlayerState.PLAYING) {
+              sendPlayerInfo();
+            }
             if (event.data === YT.PlayerState.ENDED) {
               if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
               window.parent.postMessage({ type: 'englizeka-video-ended', videoId: ${lessonId} }, window.location.origin);
             }
+          },
+          onPlaybackQualityChange: function (event) {
+            window.parent.postMessage({ type: 'englizeka-video-quality', videoId: ${lessonId}, quality: event.data || 'default' }, window.location.origin);
+          },
+          onPlaybackRateChange: function (event) {
+            window.parent.postMessage({ type: 'englizeka-video-rate', videoId: ${lessonId}, rate: event.data || 1 }, window.location.origin);
           }
         }
       });
@@ -71,6 +104,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         }
         if (event.data.command === 'play') player.playVideo();
         if (event.data.command === 'pause') player.pauseVideo();
+        if (event.data.command === 'get-info') sendPlayerInfo();
+        if (event.data.command === 'speed') {
+          var speed = Number(event.data.value);
+          if (isFinite(speed) && speed > 0 && typeof player.setPlaybackRate === 'function') {
+            player.setPlaybackRate(speed);
+          }
+        }
+        if (event.data.command === 'quality' && typeof event.data.value === 'string') {
+          if (typeof player.setPlaybackQuality === 'function') {
+            player.setPlaybackQuality(event.data.value);
+          }
+        }
         if (event.data.command === 'seek' && typeof event.data.value === 'string') {
           var seconds = Number(event.data.value);
           if (isFinite(seconds) && seconds >= 0) {
