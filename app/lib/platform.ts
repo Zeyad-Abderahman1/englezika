@@ -37,6 +37,11 @@ export type PlatformEnv = {
   FAWATERAK_CLIENT_ID?: string;
   FAWATERAK_CLIENT_SECRET?: string;
   FAWATERAK_VENDOR_API_KEY?: string;
+  KASHIER_MODE?: string;
+  KASHIER_MERCHANT_ID?: string;
+  KASHIER_PAYMENT_API_KEY?: string;
+  KASHIER_SECRET_KEY?: string;
+  PAYMENT_GATEWAY?: string;
   APP_URL?: string;
   SESSION_SECRET?: string;
   TRUSTED_PROXY_IP_HEADER?: string;
@@ -100,6 +105,12 @@ export function getPlatformEnv(): PlatformEnv {
       injected?.FAWATERAK_CLIENT_SECRET ?? process.env.FAWATERAK_CLIENT_SECRET,
     FAWATERAK_VENDOR_API_KEY:
       injected?.FAWATERAK_VENDOR_API_KEY ?? process.env.FAWATERAK_VENDOR_API_KEY,
+    KASHIER_MODE: injected?.KASHIER_MODE ?? process.env.KASHIER_MODE,
+    KASHIER_MERCHANT_ID: injected?.KASHIER_MERCHANT_ID ?? process.env.KASHIER_MERCHANT_ID,
+    KASHIER_PAYMENT_API_KEY:
+      injected?.KASHIER_PAYMENT_API_KEY ?? process.env.KASHIER_PAYMENT_API_KEY,
+    KASHIER_SECRET_KEY: injected?.KASHIER_SECRET_KEY ?? process.env.KASHIER_SECRET_KEY,
+    PAYMENT_GATEWAY: injected?.PAYMENT_GATEWAY ?? process.env.PAYMENT_GATEWAY,
     APP_URL: injected?.APP_URL ?? process.env.APP_URL,
     SESSION_SECRET: injected?.SESSION_SECRET ?? process.env.SESSION_SECRET,
     TRUSTED_PROXY_IP_HEADER:

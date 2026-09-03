@@ -5,6 +5,11 @@ import { isStrongPassword, safeInteger, safeText } from '../app/lib/security.ts'
 import { sanitizeContext } from '../app/lib/observability.ts';
 import { amountToMinorUnits, createFawaterakSignature } from '../app/lib/fawaterak-crypto.ts';
 import {
+  verifyKashierSignature,
+  amountToMinorUnits as kashierAmountToMinorUnits,
+  mapKashierStatus,
+} from '../app/lib/kashier-crypto.ts';
+import {
   isAllowedFawaterakBaseUrl,
   isAllowedFawaterakCheckoutUrl,
   resolvePublicAppOrigin,
@@ -137,4 +142,61 @@ test('video embed tokens are short-lived, signed, and bound to the student and l
     ),
     false
   );
+});
+
+test('Kashier amounts are converted to integer minor units', () => {
+  assert.equal(kashierAmountToMinorUnits('150.00'), 15000);
+  assert.equal(kashierAmountToMinorUnits(99.5), 9950);
+  assert.equal(kashierAmountToMinorUnits('invalid'), null);
+});
+
+test('Kashier webhook signature follows the documented HMAC-SHA256 algorithm', async () => {
+  const paymentApiKey = 'test-payment-api-key';
+  const data = {
+    amount: 50000,
+    currency: 'EGP',
+    kashierOrderId: 'kashier-order-123',
+    merchantOrderId: 'merchant-order-456',
+    method: 'card',
+    status: 'SUCCESS',
+    transactionId: 'TX-789',
+    transactionResponseCode: '00',
+    channel: 'online',
+    signatureKeys: [
+      'amount',
+      'channel',
+      'currency',
+      'kashierOrderId',
+      'merchantOrderId',
+      'method',
+      'status',
+      'transactionId',
+      'transactionResponseCode',
+    ],
+  };
+
+  const sortedKeys = [...data.signatureKeys].sort();
+  const pairs = sortedKeys.map(
+    (key) => `${encodeURIComponent(key)}=${encodeURIComponent(String(data[key]))}`
+  );
+  const signaturePayload = pairs.join('&');
+
+  const { createHmac } = await import('node:crypto');
+  const expectedSignature = createHmac('sha256', paymentApiKey)
+    .update(signaturePayload)
+    .digest('hex');
+
+  const valid = await verifyKashierSignature(data, expectedSignature, paymentApiKey);
+  assert.equal(valid, true);
+
+  const invalid = await verifyKashierSignature(data, 'wrong-sig', paymentApiKey);
+  assert.equal(invalid, false);
+});
+
+test('Kashier status mapping covers all expected states', () => {
+  assert.equal(mapKashierStatus('SUCCESS'), 'paid');
+  assert.equal(mapKashierStatus('PENDING'), 'pending');
+  assert.equal(mapKashierStatus('FAILED'), 'failed');
+  assert.equal(mapKashierStatus('CANCELLED'), 'failed');
+  assert.equal(mapKashierStatus('EXPIRED'), 'failed');
 });
