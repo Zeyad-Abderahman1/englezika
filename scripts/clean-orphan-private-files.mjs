@@ -4,6 +4,50 @@ import path from 'node:path';
 import process from 'node:process';
 import pg from 'pg';
 
+
+export const STORAGE_REFERENCE_SOURCES = Object.freeze([
+  {
+    table: 'users',
+    column: 'birth_certificate_key',
+    query: "SELECT birth_certificate_key AS key FROM users WHERE birth_certificate_key IS NOT NULL AND birth_certificate_key != ''",
+  },
+  {
+    table: 'assignments',
+    column: 'teacher_file_key',
+    query: "SELECT teacher_file_key AS key FROM assignments WHERE teacher_file_key IS NOT NULL AND teacher_file_key != ''",
+  },
+  {
+    table: 'assignment_submissions',
+    column: 'pdf_storage_key',
+    query: "SELECT pdf_storage_key AS key FROM assignment_submissions WHERE pdf_storage_key IS NOT NULL AND pdf_storage_key != ''",
+  },
+  {
+    table: 'exams',
+    column: 'teacher_file_key',
+    query: "SELECT teacher_file_key AS key FROM exams WHERE teacher_file_key IS NOT NULL AND teacher_file_key != ''",
+  },
+  {
+    table: 'questions',
+    column: 'image_file_key',
+    query: "SELECT image_file_key AS key FROM questions WHERE image_file_key IS NOT NULL AND image_file_key != ''",
+  },
+  {
+    table: 'assignment_questions',
+    column: 'image_file_key',
+    query: "SELECT image_file_key AS key FROM assignment_questions WHERE image_file_key IS NOT NULL AND image_file_key != ''",
+  },
+  {
+    table: 'attempts',
+    column: 'pdf_storage_key',
+    query: "SELECT pdf_storage_key AS key FROM attempts WHERE pdf_storage_key IS NOT NULL AND pdf_storage_key != ''",
+  },
+  {
+    table: 'lecture_materials',
+    column: 'file_key',
+    query: "SELECT file_key AS key FROM lecture_materials WHERE file_key IS NOT NULL AND file_key != ''",
+  },
+]);
+
 function storageRoot(env = process.env) {
   const configured = env.PRIVATE_STORAGE_DIR?.trim();
   if (configured) return path.resolve(configured);
@@ -27,7 +71,7 @@ async function listFilesRecursively(directory, root) {
 export async function runCleanOrphanPrivateFiles(options = {}) {
   const env = options.env || process.env;
   const databaseUrl = options.databaseUrl || env.DATABASE_URL?.trim();
-  const dryRun = options.dryRun ?? !options.execute;
+  const dryRun = options.dryRun !== undefined ? Boolean(options.dryRun) : options.execute !== true;
 
   if (!databaseUrl) {
     throw new Error('DATABASE_URL is required to run orphan file cleanup');
@@ -40,23 +84,33 @@ export async function runCleanOrphanPrivateFiles(options = {}) {
   await client.connect();
 
   try {
-    const [certRes, teacherRes, subRes] = await Promise.all([
-      client.query(
-        "SELECT birth_certificate_key AS key FROM users WHERE birth_certificate_key IS NOT NULL AND birth_certificate_key != ''"
-      ).catch(() => ({ rows: [] })),
-      client.query(
-        "SELECT teacher_file_key AS key FROM assignments WHERE teacher_file_key IS NOT NULL AND teacher_file_key != ''"
-      ).catch(() => ({ rows: [] })),
-      client.query(
-        "SELECT file_key AS key FROM assignment_submissions WHERE file_key IS NOT NULL AND file_key != ''"
-      ).catch(() => ({ rows: [] })),
-    ]);
+    const queryResults = await Promise.all(
+      STORAGE_REFERENCE_SOURCES.map(async (source) => {
+        try {
+          const res = await client.query(source.query);
+          return { source, rows: res?.rows || [] };
+        } catch (error) {
+          const safeMessage = `Storage reference lookup failed for ${source.table}.${source.column}: ${error?.message || 'unknown error'}`;
+          throw new Error(safeMessage);
+        }
+      })
+    );
 
-    const knownKeys = new Set([
-      ...certRes.rows.map((r) => r.key),
-      ...teacherRes.rows.map((r) => r.key),
-      ...subRes.rows.map((r) => r.key),
-    ]);
+    const knownKeys = new Set();
+    for (const { rows } of queryResults) {
+      for (const row of rows) {
+        if (row?.key && typeof row.key === 'string') {
+          const rawKey = row.key.trim();
+          if (rawKey) {
+            knownKeys.add(rawKey);
+            const normalizedKey = rawKey.replaceAll('\\', '/').replace(/^\/+/, '');
+            if (normalizedKey) {
+              knownKeys.add(normalizedKey);
+            }
+          }
+        }
+      }
+    }
 
     const diskFiles = await listFilesRecursively(root, root);
     const orphans = diskFiles.filter((key) => !knownKeys.has(key));
@@ -82,11 +136,12 @@ export async function runCleanOrphanPrivateFiles(options = {}) {
     }
 
     let deleted = 0;
+    const rootPrefix = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
     for (const key of orphans) {
       const normalized = key.replaceAll('\\', '/').replace(/^\/+/, '');
       if (normalized && !normalized.split('/').some((part) => part === '..' || part === '')) {
         const fullPath = path.resolve(root, ...normalized.split('/'));
-        if (fullPath.startsWith(`${root}${path.sep}`)) {
+        if (fullPath.startsWith(rootPrefix)) {
           await rm(fullPath, { force: true });
           deleted += 1;
         }
@@ -105,9 +160,16 @@ export async function runCleanOrphanPrivateFiles(options = {}) {
   }
 }
 
+export function parseCleanOrphanArgs(argv = process.argv.slice(2)) {
+  const isExecute = Array.isArray(argv) && argv.includes('--execute');
+  return {
+    execute: isExecute,
+  };
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const isExecute = process.argv.includes('--execute') || process.argv.includes('--force');
-  runCleanOrphanPrivateFiles({ execute: isExecute })
+  const { execute } = parseCleanOrphanArgs(process.argv.slice(2));
+  runCleanOrphanPrivateFiles({ execute })
     .then((result) => {
       process.stdout.write(`[cleanOrphanPrivateFiles] ${result.message}\n`);
       process.exit(0);
