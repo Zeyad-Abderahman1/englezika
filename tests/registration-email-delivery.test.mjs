@@ -3,11 +3,14 @@ import { afterEach, test } from 'node:test';
 
 import { POST as register } from '../app/api/auth/register/route.ts';
 
-function fakeDatabase() {
+function fakeDatabase(insertedUsers = []) {
   return {
     prepare(sql) {
       return {
-        bind() {
+        bind(...args) {
+          if (sql.includes('INSERT INTO users')) {
+            insertedUsers.push({ sql, args });
+          }
           return this;
         },
         async first() {
@@ -28,7 +31,7 @@ function fakeDatabase() {
   };
 }
 
-function registrationRequest({ includeRemovedFields = true } = {}) {
+function registrationRequest({ includeRemovedFields = true, grade = 'تالتة ثانوي', section = 'علمي علوم' } = {}) {
   const form = new FormData();
   for (const [key, value] of Object.entries({
     email: 'registration-delivery@example.test',
@@ -45,8 +48,8 @@ function registrationRequest({ includeRemovedFields = true } = {}) {
     ...(includeRemovedFields ? { parent_job: 'Tester' } : {}),
     governorate: 'القاهرة',
     gender: 'ذكر',
-    grade: 'تالتة ثانوي',
-    section: 'علمي علوم',
+    grade,
+    ...(section !== undefined ? { section } : {}),
     account_use_agreement: 'accepted',
   })) {
     form.set(key, value);
@@ -116,3 +119,41 @@ test('registration accepts a form without the removed mother-phone and parent-jo
   assert.equal(body.accountCreated, true);
   assert.equal(body.verificationPending, true);
 });
+
+test('registration: first secondary students are allowed with no track and section is saved as empty', async () => {
+  const insertedUsers = [];
+  globalThis.__ENGLIZEKA_ENV__ = {
+    DB: fakeDatabase(insertedUsers),
+    STORAGE: {
+      async put() {},
+      async get() { return null; },
+      async delete() {},
+    },
+    EMAIL_TEST_MODE: 'false',
+    VERIFICATION_SECRET: 'diagnostic-secret-that-is-long-enough',
+  };
+
+  // 1. Grade = أولى ثانوي with no section -> Allowed and saved with empty track
+  const res1 = await register(registrationRequest({ grade: 'أولى ثانوي', section: '' }));
+  assert.equal(res1.status, 503);
+  assert.equal(insertedUsers[0].args[13], 'أولى ثانوي');
+  assert.equal(insertedUsers[0].args[14], '', 'First secondary track must be empty string');
+
+  // 2. Grade = أولى ثانوي with stale/invalid track passed in body -> Track is discarded and saved as empty
+  insertedUsers.length = 0;
+  const res2 = await register(registrationRequest({ grade: 'أولى ثانوي', section: 'علمي علوم' }));
+  assert.equal(res2.status, 503);
+  assert.equal(insertedUsers[0].args[13], 'أولى ثانوي');
+  assert.equal(insertedUsers[0].args[14], '', 'Stale track value must be cleared for first secondary');
+
+  // 3. Grade = تانية ثانوي without section -> Rejected with 400 'اختر الشعبة'
+  const res3 = await register(registrationRequest({ grade: 'تانية ثانوي', section: '' }));
+  assert.equal(res3.status, 400);
+  const body3 = await res3.json();
+  assert.equal(body3.error, 'اختر الشعبة');
+
+  // 4. Grade = تالتة ثانوي without section -> Rejected with 400 'اختر الشعبة'
+  const res4 = await register(registrationRequest({ grade: 'تالتة ثانوي', section: '' }));
+  assert.equal(res4.status, 400);
+  const body4 = await res4.json();
+  assert.equal(body4.error, 'اختر الشعبة');

@@ -56,9 +56,10 @@ const GOVERNORATES = [
 const GRADES = ['أولى ثانوي', 'تانية ثانوي', 'تالتة ثانوي'];
 
 const SECTIONS_BY_GRADE: Record<string, string[]> = {
-  'أولى ثانوي': ['علمي', 'أدبي'],
   'تانية ثانوي': ['علمي علوم', 'علمي رياضة', 'أدبي'],
+  'ثانية ثانوي': ['علمي علوم', 'علمي رياضة', 'أدبي'],
   'تالتة ثانوي': ['علمي علوم', 'علمي رياضة', 'أدبي'],
+  'ثالثة ثانوي': ['علمي علوم', 'علمي رياضة', 'أدبي'],
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -640,7 +641,8 @@ function RegisterForm() {
     Boolean(birthCertificate) &&
     agreementAccepted;
 
-  const sections = grade ? (SECTIONS_BY_GRADE[grade] ?? []) : [];
+  const isFirstSecondary = grade === 'أولى ثانوي';
+  const sections = !isFirstSecondary && grade ? (SECTIONS_BY_GRADE[grade] ?? []) : [];
 
   // Reset section when grade changes
   const handleGradeChange = (v: string) => {
@@ -659,6 +661,10 @@ function RegisterForm() {
       passwordConfirm: true,
     });
     if (!isFormValid) return;
+    if (!isFirstSecondary && sections.length > 0 && !section) {
+      setError('اختر الشعبة');
+      return;
+    }
     setError('');
     setLoading(true);
     try {
@@ -677,7 +683,7 @@ function RegisterForm() {
         governorate,
         gender,
         grade,
-        section,
+        section: isFirstSecondary ? '' : section,
       }).forEach(([key, value]) => payload.set(key, value));
       payload.set('account_use_agreement', agreementAccepted ? 'accepted' : '');
       if (birthCertificate) payload.set('birth_certificate', birthCertificate);
@@ -902,7 +908,7 @@ function RegisterForm() {
             onChange={handleGradeChange}
           />
         </div>
-        {sections.length > 0 && (
+        {!isFirstSecondary && sections.length > 0 && (
           <div className="auth-field-group">
             <label className="auth-label" htmlFor="reg-section">
               الشعبة <span className="auth-req">*</span>

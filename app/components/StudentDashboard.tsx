@@ -47,7 +47,7 @@ type DashboardData = {
   user: {
     email: string;
     displayName: string;
-    profile?: { name?: string; phone?: string; grade?: string } | null;
+    profile?: { name?: string; phone?: string; grade?: string; section?: string } | null;
   };
   enrollments: Array<{
     id: string;
@@ -546,7 +546,17 @@ export default function StudentDashboard() {
   const [deleteErr, setDeleteErr] = useState('');
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [leaderboardGrade, setLeaderboardGrade] = useState('');
+  const [profileGrade, setProfileGrade] = useState('');
+  const [profileSection, setProfileSection] = useState('');
   const loadControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (data?.user?.profile) {
+      const g = data.user.profile.grade || '';
+      setProfileGrade(g);
+      setProfileSection(g === 'أولى ثانوي' ? '' : (data.user.profile.section || ''));
+    }
+  }, [data?.user?.profile?.grade, data?.user?.profile?.section]);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setError('');
@@ -1415,10 +1425,14 @@ export default function StudentDashboard() {
                 event.preventDefault();
                 setSaved(false);
                 const form = new FormData(event.currentTarget);
+                const payload = Object.fromEntries(form);
+                if (profileGrade === 'أولى ثانوي') {
+                  payload.section = '';
+                }
                 const response = await fetch('/api/profile', {
                   method: 'PUT',
                   headers: { 'content-type': 'application/json' },
-                  body: JSON.stringify(Object.fromEntries(form)),
+                  body: JSON.stringify(payload),
                 });
                 if (response.ok) {
                   setSaved(true);
@@ -1449,13 +1463,38 @@ export default function StudentDashboard() {
               </label>
               <label>
                 <span>الصف الدراسي</span>
-                <select name="grade" defaultValue={data.user.profile?.grade || ''}>
+                <select
+                  name="grade"
+                  value={profileGrade}
+                  onChange={(e) => {
+                    const newGrade = e.target.value;
+                    setProfileGrade(newGrade);
+                    if (newGrade === 'أولى ثانوي') {
+                      setProfileSection('');
+                    }
+                  }}
+                >
                   <option value="">اختر الصف</option>
-                  <option>أولى ثانوي</option>
-                  <option>تانية ثانوي</option>
-                  <option>تالتة ثانوي</option>
+                  <option value="أولى ثانوي">أولى ثانوي</option>
+                  <option value="تانية ثانوي">تانية ثانوي</option>
+                  <option value="تالتة ثانوي">تالتة ثانوي</option>
                 </select>
               </label>
+              {profileGrade && profileGrade !== 'أولى ثانوي' && (
+                <label>
+                  <span>الشعبة</span>
+                  <select
+                    name="section"
+                    value={profileSection}
+                    onChange={(e) => setProfileSection(e.target.value)}
+                  >
+                    <option value="">اختر الشعبة</option>
+                    <option value="علمي علوم">علمي علوم</option>
+                    <option value="علمي رياضة">علمي رياضة</option>
+                    <option value="أدبي">أدبي</option>
+                  </select>
+                </label>
+              )}
               <div className="settings-submit">
                 <button className="btn btn-primary" type="submit">
                   حفظ التغييرات

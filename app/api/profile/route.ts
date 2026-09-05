@@ -13,6 +13,8 @@ export async function PUT(request: Request) {
   const phone = safeText(body.phone, 30);
   const grade = safeText(body.grade, 60);
   const section = safeText(body.section, 60);
+  const isFirstSecondary = grade === 'أولى ثانوي';
+  const finalSection = isFirstSecondary ? '' : section;
   const schoolName = safeText(body.school_name, 150);
   const parentJob = safeText(body.parent_job, 100);
   const governorate = safeText(body.governorate, 60);
@@ -34,7 +36,7 @@ export async function PUT(request: Request) {
       name,
       phone,
       grade,
-      section,
+      finalSection,
       schoolName,
       parentJob,
       governorate,

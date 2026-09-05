@@ -44,7 +44,13 @@ const EGYPTIAN_GOVERNORATES = [
   'الوادي الجديد',
 ];
 
-const VALID_GRADES = ['أولى ثانوي', 'تانية ثانوي', 'تالتة ثانوي'];
+const VALID_GRADES = [
+  'أولى ثانوي',
+  'تانية ثانوي',
+  'ثانية ثانوي',
+  'تالتة ثانوي',
+  'ثالثة ثانوي',
+];
 const VALID_GENDERS = ['ذكر', 'أنثى'];
 const MAX_BIRTH_CERTIFICATE_SIZE = 5 * 1024 * 1024;
 const ACCOUNT_USE_AGREEMENT_VERSION = '2026-07-28';
@@ -127,7 +133,9 @@ export async function POST(request: Request) {
   if (!EGYPTIAN_GOVERNORATES.includes(governorate)) return jsonError('اختر المحافظة من القائمة');
   if (!VALID_GENDERS.includes(gender)) return jsonError('اختر النوع من القائمة');
   if (!VALID_GRADES.includes(grade)) return jsonError('اختر الصف الدراسي من القائمة');
-  if (!section) return jsonError('اختر الشعبة');
+  const isFirstSecondary = grade === 'أولى ثانوي';
+  if (!isFirstSecondary && !section) return jsonError('اختر الشعبة');
+  const finalSection = isFirstSecondary ? '' : section;
   if (!isStrongPassword(password)) {
     return jsonError(
       'كلمة المرور يجب أن تكون 12 حرفاً على الأقل، وتحتوي على حرف كبير، وحرف صغير، ورقم، ورمز خاص (!@#$%).'
@@ -179,7 +187,7 @@ export async function POST(request: Request) {
       governorate,
       gender,
       grade,
-      section,
+      section: finalSection,
       birthCertificateKey: certificateKey,
       birthCertificateContentType: certificateType,
       accountUseAgreementAcceptedAt: Date.now(),
