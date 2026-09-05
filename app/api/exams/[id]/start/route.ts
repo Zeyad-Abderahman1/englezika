@@ -4,6 +4,28 @@ import { startOrResumeExamSession } from '../../../../lib/exam-session';
 import { getDatabase } from '../../../../lib/platform';
 import { checkRateLimit, getClientIp, rateLimitResponse } from '../../../../lib/rate-limit';
 import { jsonError, requestBodyWithinLimit, requireSameOrigin } from '../../../../lib/security';
+import { hasCourseItems, getCourseSequenceUnlockState } from '../../../../lib/course-sequence';
+
+async function assertExamUnlocked(
+  examId: string,
+  courseId: string | null,
+  email: string
+): Promise<{ ok: boolean; status?: number; error?: string }> {
+  if (!courseId) return { ok: true };
+  const courseHasSequence = await hasCourseItems(courseId);
+  if (!courseHasSequence) return { ok: true };
+  const unlockState = await getCourseSequenceUnlockState(courseId, email);
+  const key = `exam:${examId}`;
+  const state = unlockState.get(key);
+  if (state && !state.unlocked) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'يجب إكمال العناصر السابقة في تسلسل التعلم أولاً',
+    };
+  }
+  return { ok: true };
+}
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const originError = requireSameOrigin(request);
@@ -20,6 +42,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const availabilityError = examAvailabilityError(exam, Date.now());
   if (availabilityError === 'not-open') return jsonError('الامتحان لم يبدأ بعد', 403);
   if (availabilityError === 'closed') return jsonError('انتهى وقت إتاحة الامتحان', 403);
+
+  const sequenceCheck = await assertExamUnlocked(id, exam.courseId, email);
+  if (!sequenceCheck.ok) return jsonError(sequenceCheck.error!, sequenceCheck.status!);
 
   const sessionResult = await startOrResumeExamSession(
     getDatabase(),

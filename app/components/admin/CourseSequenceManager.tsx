@@ -9,7 +9,7 @@
  * Persists via POST to /api/admin/courses/[id]/sequence.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -192,6 +192,42 @@ export default function CourseSequenceManager({
   const [success, setSuccess] = useState('');
   const [addType, setAddType] = useState<ItemType | ''>('');
   const [addItemId, setAddItemId] = useState('');
+
+  useEffect(() => {
+    if (initialItems && initialItems.length > 0) {
+      setItems(initialItems);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/admin/courses/${courseId}/sequence`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.items) return;
+        const loaded: SequenceItem[] = data.items.map(
+          (i: {
+            itemType: ItemType;
+            videoId?: string | null;
+            examId?: string | null;
+            assignmentId?: string | null;
+            title?: string;
+            subtitle?: string;
+          }) => ({
+            id: `${i.itemType}:${i.videoId || i.examId || i.assignmentId}`,
+            itemType: i.itemType,
+            videoId: i.videoId || undefined,
+            examId: i.examId || undefined,
+            assignmentId: i.assignmentId || undefined,
+            title: i.title || '',
+            subtitle: i.subtitle,
+          })
+        );
+        setItems(loaded);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [courseId, initialItems]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
