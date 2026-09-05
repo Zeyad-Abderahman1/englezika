@@ -11,7 +11,7 @@ async function LectureMaterials({ videoId }: { videoId: string }) {
   const db = getDatabase();
   const materials = await db
     .prepare(
-      'SELECT id, file_name AS fileName, file_size AS fileSize FROM lecture_materials WHERE video_id = ? ORDER BY created_at'
+      'SELECT id, title AS fileName, file_size AS fileSize FROM lecture_materials WHERE video_id = ? ORDER BY created_at'
     )
     .bind(videoId)
     .all<{ id: string; fileName: string; fileSize: number }>();

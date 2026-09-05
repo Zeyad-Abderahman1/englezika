@@ -1,12 +1,12 @@
 import { apiStaff, isStaffResponse } from '../../../../../lib/staff-auth';
-import { getDatabase } from '../../../../../lib/platform';
-import { getPrivateStorage } from '../../../../../lib/private-storage';
+import { getDatabase, getPrivateStorage } from '../../../../../lib/platform';
 import { jsonError, requireSameOrigin } from '../../../../../lib/security';
+import { captureException } from '../../../../../lib/observability';
 import {
   hasAllowedContentLength,
   isPdfUpload,
-  MAX_PDF_SIZE,
-  MAX_UPLOAD_BODY_SIZE,
+  MAX_MATERIAL_SIZE,
+  MAX_MATERIAL_UPLOAD_BODY_SIZE,
 } from '../../../../../lib/upload-validation';
 
 /**
@@ -25,12 +25,12 @@ export async function GET(
 
   const materials = await db
     .prepare(
-      `SELECT id, storage_key AS storageKey, file_name AS fileName,
-              file_size AS fileSize, created_at AS createdAt, updated_at AS updatedAt
+      `SELECT id, file_key AS storageKey, title AS fileName,
+              file_size AS fileSize, created_at AS createdAt
        FROM lecture_materials WHERE video_id = ? ORDER BY created_at`
     )
     .bind(id)
-    .all<{ id: string; storageKey: string; fileName: string; fileSize: number; createdAt: number; updatedAt: number }>();
+    .all<{ id: string; storageKey: string; fileName: string; fileSize: number; createdAt: number }>();
 
   return Response.json({ materials: materials.results });
 }
@@ -64,7 +64,7 @@ export async function POST(
   if (normalizedContentType !== 'multipart/form-data') {
     return jsonError('يجب رفع ملف عبر form-data', 400);
   }
-  if (!hasAllowedContentLength(request, MAX_UPLOAD_BODY_SIZE)) {
+  if (!hasAllowedContentLength(request, MAX_MATERIAL_UPLOAD_BODY_SIZE)) {
     return jsonError('حجم الطلب غير صالح أو يتجاوز الحد المسموح', 413);
   }
 
@@ -93,7 +93,7 @@ export async function POST(
     const mimeType = file.type || 'application/pdf';
     const fileBytes = await file.arrayBuffer();
 
-    if (fileBytes.byteLength > MAX_PDF_SIZE) {
+    if (fileBytes.byteLength > MAX_MATERIAL_SIZE) {
       return jsonError(`حجم الملف "${file.name}" يتجاوز الحد الأقصى (25 ميجابايت)`, 400);
     }
     if (!isPdfUpload(mimeType, fileBytes)) {
@@ -106,15 +106,26 @@ export async function POST(
       httpMetadata: { contentType: 'application/pdf' },
     });
 
-    const safeName = file.name.replace(/\.pdf$/i, '').slice(0, 200) || 'تحميل المحاضرة';
+    const safeName =
+      file.name
+        .replace(/\.pdf$/i, '')
+        .replace(/[\r\n\0]/g, '')
+        .slice(0, 200)
+        .trim() || 'تحميل المحاضرة';
 
-    await db
-      .prepare(
-        `INSERT INTO lecture_materials (id, video_id, storage_key, file_name, file_size, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(materialId, id, storageKey, safeName, fileBytes.byteLength, now, now)
-      .run();
+    try {
+      await db
+        .prepare(
+          `INSERT INTO lecture_materials (id, video_id, title, file_key, mime_type, file_size, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(materialId, id, safeName, storageKey, 'application/pdf', fileBytes.byteLength, now)
+        .run();
+    } catch (dbError) {
+      await storage.delete(storageKey).catch(() => {});
+      captureException(dbError, { module: 'admin-video-materials-upload-db', videoId: id, storageKey });
+      return jsonError('تعذر رفع الملف', 500);
+    }
 
     created.push({ id: materialId, fileName: safeName, fileSize: fileBytes.byteLength });
   }
@@ -143,7 +154,7 @@ export async function DELETE(
 
   if (materialId) {
     const material = await db
-      .prepare('SELECT id, storage_key AS storageKey FROM lecture_materials WHERE id = ? AND video_id = ?')
+      .prepare('SELECT id, file_key AS storageKey FROM lecture_materials WHERE id = ? AND video_id = ?')
       .bind(materialId, id)
       .first<{ id: string; storageKey: string }>();
     if (!material) return jsonError('لا توجد مادة مرفقة', 404);
@@ -152,7 +163,7 @@ export async function DELETE(
     await db.prepare('DELETE FROM lecture_materials WHERE id = ?').bind(material.id).run();
   } else {
     const materials = await db
-      .prepare('SELECT id, storage_key AS storageKey FROM lecture_materials WHERE video_id = ?')
+      .prepare('SELECT id, file_key AS storageKey FROM lecture_materials WHERE video_id = ?')
       .bind(id)
       .all<{ id: string; storageKey: string }>();
 

@@ -33,7 +33,7 @@ export function LecturesManagerView() {
   const searchParams = useSearchParams();
   const defaultCourseIdFromUrl = searchParams.get('courseId') || '';
 
-  const { data, busy, mutate, openConfirm, refreshData } = useAdmin();
+  const { data, busy, mutate, openConfirm, refreshData, setError } = useAdmin();
   const [search, setSearch] = useState('');
   const [selectedCourseId, setSelectedCourseId] = useState(defaultCourseIdFromUrl);
   const [statusFilter, setStatusFilter] = useState('all');
@@ -161,12 +161,12 @@ export function LecturesManagerView() {
       if (!files || files.length === 0) return;
       const fd = new FormData();
       for (const file of Array.from(files)) {
-        if (!file.type.includes('pdf')) {
-          alert(`الملف "${file.name}" يجب أن يكون PDF`);
+        if (!file.type.includes('pdf') && !file.name.toLowerCase().endsWith('.pdf')) {
+          setError(`الملف "${file.name}" يجب أن يكون بصيغة PDF`);
           return;
         }
         if (file.size > 25 * 1024 * 1024) {
-          alert(`حجم الملف "${file.name}" يتجاوز 25 ميجابايت`);
+          setError(`حجم الملف "${file.name}" يتجاوز الحد الأقصى (25 ميجابايت)`);
           return;
         }
         fd.append('files', file);
@@ -185,15 +185,23 @@ export function LecturesManagerView() {
   };
 
   const handleDeleteMaterial = async (videoId: string, materialId: string) => {
-    if (!confirm('هل أنت متأكد من حذف هذا الملف؟')) return;
-    await mutate(
-      () =>
-        adminApiRequest(`/api/admin/videos/${videoId}/materials?id=${materialId}`, {
-          method: 'DELETE',
-        }),
-      'تم حذف الملف بنجاح'
-    );
-    void loadMaterials(videoId);
+    openConfirm({
+      title: 'حذف المادة المرفقة',
+      message: 'هل أنت متأكد من حذف هذا الملف؟ لن يتمكن الطلاب من تحميله بعد الآن.',
+      isDestructive: true,
+      confirmLabel: 'حذف',
+      cancelLabel: 'إلغاء',
+      onConfirm: async () => {
+        await mutate(
+          () =>
+            adminApiRequest(`/api/admin/videos/${videoId}/materials?id=${materialId}`, {
+              method: 'DELETE',
+            }),
+          'تم حذف الملف بنجاح'
+        );
+        void loadMaterials(videoId);
+      },
+    });
   };
 
   return (

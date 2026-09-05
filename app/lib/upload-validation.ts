@@ -2,6 +2,7 @@ export const MAX_PDF_SIZE = 15 * 1024 * 1024;
 export const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 export const MAX_MATERIAL_SIZE = 25 * 1024 * 1024;
 export const MAX_UPLOAD_BODY_SIZE = MAX_PDF_SIZE + 256 * 1024;
+export const MAX_MATERIAL_UPLOAD_BODY_SIZE = MAX_MATERIAL_SIZE + 512 * 1024;
 export const MAX_JSON_BODY_SIZE = 256 * 1024;
 
 export const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;

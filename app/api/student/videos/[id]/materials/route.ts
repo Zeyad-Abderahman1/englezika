@@ -50,7 +50,7 @@ export async function GET(
 
   const materials = await db
     .prepare(
-      'SELECT id, storage_key AS storageKey, file_name AS fileName, file_size AS fileSize FROM lecture_materials WHERE video_id = ? ORDER BY created_at'
+      'SELECT id, file_key AS storageKey, title AS fileName, file_size AS fileSize FROM lecture_materials WHERE video_id = ? ORDER BY created_at'
     )
     .bind(id)
     .all<{ id: string; storageKey: string; fileName: string; fileSize: number }>();
