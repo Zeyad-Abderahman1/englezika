@@ -43,19 +43,21 @@ export async function POST(request: Request) {
         .map((question, index) => parseQuestion(question as RawQuestion, index + 1))
     : [];
   if (title.length < 3) return jsonError('اسم الامتحان مطلوب');
-  if (
-    !questions.length ||
-    questions.some((question) => !question.prompt || !question.correctAnswer)
-  ) {
-    return jsonError('أضف سؤالاً واحداً على الأقل مع الإجابة الصحيحة');
-  }
-  if (
-    questions.some((question) => question.type === 'multiple_choice' && question.options.length < 2)
-  ) {
-    return jsonError('كل سؤال اختيار من متعدد يحتاج اختيارين على الأقل');
-  }
-  if (questions.some((question) => !question.options.includes(question.correctAnswer))) {
-    return jsonError('اختر الإجابة الصحيحة من اختيارات السؤال');
+  if (mode === 'online') {
+    if (
+      !questions.length ||
+      questions.some((question) => !question.prompt || !question.correctAnswer)
+    ) {
+      return jsonError('أضف سؤالاً واحداً على الأقل مع الإجابة الصحيحة');
+    }
+    if (
+      questions.some((question) => question.type === 'multiple_choice' && question.options.length < 2)
+    ) {
+      return jsonError('كل سؤال اختيار من متعدد يحتاج اختيارين على الأقل');
+    }
+    if (questions.some((question) => !question.options.includes(question.correctAnswer))) {
+      return jsonError('اختر الإجابة الصحيحة من اختيارات السؤال');
+    }
   }
   const db = getDatabase();
   if (courseId) {
@@ -65,7 +67,7 @@ export async function POST(request: Request) {
   const id = crypto.randomUUID();
   const now = Date.now();
   const questionIds = questions.map(() => crypto.randomUUID());
-  await db.batch([
+  const statements = [
     db
       .prepare(
         `INSERT INTO exams
@@ -92,27 +94,33 @@ export async function POST(request: Request) {
         assessmentType,
         mode
       ),
-    ...questions.map((question, i) =>
-      db
-        .prepare(
-          `INSERT INTO questions
+  ];
+  if (mode === 'online') {
+    for (let i = 0; i < questions.length; i++) {
+      const question = questions[i];
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO questions
        (id, exam_id, sort_order, type, prompt, options, correct_answer, rubric, explanation, points)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .bind(
-          questionIds[i],
-          id,
-          question.sortOrder,
-          question.type,
-          question.prompt,
-          JSON.stringify(question.options),
-          question.correctAnswer,
-          question.rubric,
-          question.explanation,
-          question.points
-        )
-    ),
-  ]);
+          )
+          .bind(
+            questionIds[i],
+            id,
+            question.sortOrder,
+            question.type,
+            question.prompt,
+            JSON.stringify(question.options),
+            question.correctAnswer,
+            question.rubric,
+            question.explanation,
+            question.points
+          )
+      );
+    }
+  }
+  await db.batch(statements);
   invalidatePublicCourseCache();
   return Response.json({ ok: true, id, questionIds });
 }

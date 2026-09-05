@@ -11,6 +11,8 @@ export type StudentExam = {
   maxAttempts: number;
   opensAt: number | null;
   closesAt: number | null;
+  assessmentType: string;
+  mode: string;
 };
 
 export async function loadStudentExam(id: string, email: string): Promise<StudentExam | null> {
@@ -19,7 +21,9 @@ export async function loadStudentExam(id: string, email: string): Promise<Studen
       `SELECT x.id, x.course_id AS courseId, x.title, x.description, x.instructions,
        x.duration_minutes AS durationMinutes, x.passing_score AS passingScore,
        x.max_attempts AS maxAttempts,
-       x.opens_at AS opensAt, x.closes_at AS closesAt
+       x.opens_at AS opensAt, x.closes_at AS closesAt,
+       COALESCE(x.assessment_type, 'exam') AS assessmentType,
+       COALESCE(x.mode, 'online') AS mode
        FROM exams x LEFT JOIN enrollments e
        ON e.course_id = x.course_id AND e.user_email = ? AND e.status = 'approved'
        WHERE x.id = ? AND x.status = 'published'
