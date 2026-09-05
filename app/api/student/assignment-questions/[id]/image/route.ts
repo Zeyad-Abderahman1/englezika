@@ -1,6 +1,7 @@
 import { apiVerifiedUser, isResponse } from '../../../../../lib/api-auth';
 import { getDatabase } from '../../../../../lib/platform';
 import { getPrivateStorage } from '../../../../../lib/private-storage';
+import { hasCourseItems, getCourseSequenceUnlockState } from '../../../../../lib/course-sequence';
 
 export async function GET(
   _request: Request,
@@ -49,6 +50,19 @@ export async function GET(
 
   if (!enrollment) {
     return Response.json({ error: 'Accès refusé' }, { status: 403 });
+  }
+
+  // Enforce course sequence unlock
+  if (assignment.courseId) {
+    const courseHasSequence = await hasCourseItems(assignment.courseId);
+    if (courseHasSequence) {
+      const unlockState = await getCourseSequenceUnlockState(assignment.courseId, normalizedEmail);
+      const key = `assignment:${question.assignmentId}`;
+      const state = unlockState.get(key);
+      if (state && !state.unlocked) {
+        return Response.json({ error: 'يجب إكمال العناصر السابقة أولاً' }, { status: 403 });
+      }
+    }
   }
 
   const storage = getPrivateStorage();

@@ -21,7 +21,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   try {
     const questions = await db
       .prepare(
-        `SELECT id, question, explanation, options, correct_index AS correctIndex, points, sort_order AS sortOrder
+        `SELECT id, question, explanation, options, correct_index AS correctIndex, points, sort_order AS sortOrder,
+                image_file_key AS imageFileKey
          FROM assignment_questions WHERE assignment_id = ? ORDER BY sort_order ASC`
       )
       .bind(id)
@@ -33,12 +34,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         correctIndex: number;
         points: number;
         sortOrder: number;
+        imageFileKey: string | null;
       }>();
     return Response.json({
       questions: questions.results.map((q) => ({
         ...q,
         explanation: q.explanation || null,
         options: JSON.parse(q.options) as string[],
+        imageFileKey: q.imageFileKey || null,
+        hasImage: q.imageFileKey != null,
       })),
     });
   } catch {

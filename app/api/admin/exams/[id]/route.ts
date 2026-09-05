@@ -26,7 +26,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const questions = await db
     .prepare(
       `SELECT id, sort_order AS sortOrder, type, prompt, options,
-     correct_answer AS correctAnswer, rubric, explanation, points
+     correct_answer AS correctAnswer, rubric, explanation, points,
+     image_file_key AS imageFileKey
      FROM questions WHERE exam_id = ? ORDER BY sort_order`
     )
     .bind(id)
@@ -36,6 +37,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     questions: questions.results.map((question) => ({
       ...question,
       options: question.options ? JSON.parse(String(question.options)) : [],
+      imageFileKey: question.imageFileKey || null,
+      hasImage: question.imageFileKey != null,
     })),
   });
 }

@@ -143,7 +143,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       questions = qResult.results.map((q) => ({
         id: q.id,
         question: q.question,
-        explanation: q.explanation || null,
+        explanation: hasSubmission ? (q.explanation || null) : null,
         options: JSON.parse(q.options) as string[],
         correctIndex: hasSubmission ? q.correctIndex : null,
         points: q.points,
