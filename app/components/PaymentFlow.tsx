@@ -29,7 +29,7 @@ export default function PaymentFlow({
         window.location.assign(`/learn/${encodeURIComponent(courseId)}`);
         return;
       }
-      const response = await fetch('/api/payments/checkout', {
+      const response = await fetch('/api/payments/fawaterak/checkout', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ courseId }),
@@ -55,7 +55,7 @@ export default function PaymentFlow({
       <p>
         {isFree
           ? 'اضغط على الزر لتفعيل الكورس المجاني فوراً على حسابك والانتقال إلى المحتوى.'
-          : 'هتنتقل لصفحة الدفع الآمنة لاختيار وسيلة الدفع المتاحة وإكمال العملية. لن يتم فتح الكورس إلا بعد وصول تأكيد الدفع من بوابة الدفع.'}
+          : 'هتنتقل لصفحة فواتيرك الآمنة لاختيار وسيلة الدفع المتاحة وإكمال العملية. لن يتم فتح الكورس إلا بعد وصول تأكيد الدفع من فواتيرك.'}
       </p>
 
       <button
@@ -66,12 +66,12 @@ export default function PaymentFlow({
       >
         {loading ? (
           <>
-            <Loader2 size={18} className="spin" aria-hidden /> جاري فتح صفحة الدفع...
+            <Loader2 size={18} className="spin" aria-hidden /> جاري فتح بوابة الدفع...
           </>
         ) : isFree ? (
           'فعّل الكورس المجاني'
         ) : (
-          'ادفع الآن'
+          'ادفع الآن عبر فواتيرك'
         )}
       </button>
 
