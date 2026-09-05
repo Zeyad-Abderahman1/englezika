@@ -137,23 +137,22 @@ export function LectureAccessCodeManager({
     }
   };
 
-  const downloadPdf = async (batchCodes?: Array<{ id: string; suffix: string; fullCode: string }>) => {
-    if (downloadingPdf) return;
+  const downloadPdf = async (codesToExport: string[]) => {
+    if (downloadingPdf || !codesToExport || codesToExport.length === 0) return;
     setDownloadingPdf(true);
     setError('');
     try {
-      const payload: { videoId: string; codes?: Array<{ fullCode: string; suffix?: string }> } = { videoId };
-      if (batchCodes && batchCodes.length > 0) {
-        payload.codes = batchCodes.map((c) => ({ fullCode: c.fullCode, suffix: c.suffix }));
-      }
       const response = await fetch('/api/admin/access-codes/pdf', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ videoId, codes: codesToExport }),
       });
       if (!response.ok) {
-        const result = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(result.error || 'تعذر تحميل الملف');
+        const result = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          message?: string;
+        };
+        throw new Error(result.message || result.error || 'تعذر تحميل الملف');
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -193,19 +192,6 @@ export function LectureAccessCodeManager({
           {bulkBusy ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />}
           {bulkBusy ? 'جاري إنشاء الأكواد...' : 'إنشاء دفعة أكواد'}
         </button>
-
-        {videoHistory.length > 0 && (
-          <button
-            type="button"
-            className="status-button lecture-code-trigger"
-            onClick={() => downloadPdf()}
-            disabled={downloadingPdf}
-            title="تحميل كشف الأكواد المتبقية غير المستخدمة"
-          >
-            {downloadingPdf ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />}
-            تحميل PDF
-          </button>
-        )}
       </div>
 
       {showBulkOptions && (
@@ -270,13 +256,27 @@ export function LectureAccessCodeManager({
       {generatedCode && (
         <div className="generated-lecture-code" role="status" aria-live="polite">
           <div>
-            <strong>الكود جاهز — سيظهر كاملًا هذه المرة فقط</strong>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+              <span className="status-pill status-approved" style={{ fontSize: '0.78rem' }}>احفظ الكود الآن</span>
+              <strong>سيظهر كاملًا هذه المرة فقط</strong>
+            </div>
             <p>يعمل لطالب واحد مرة واحدة، ويفتح محاضرة «{videoTitle}» فقط.</p>
           </div>
           <code dir="ltr">{generatedCode}</code>
-          <button type="button" className="btn btn-primary" onClick={copySingle}>
-            {copied ? <Check size={16} /> : <Clipboard size={16} />} {copied ? 'تم النسخ' : 'نسخ الكود'}
-          </button>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+            <button type="button" className="btn btn-primary" onClick={copySingle}>
+              {copied ? <Check size={16} /> : <Clipboard size={16} />} {copied ? 'تم النسخ' : 'نسخ الكود'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => downloadPdf([generatedCode])}
+              disabled={downloadingPdf}
+            >
+              {downloadingPdf ? <LoaderCircle className="spin" size={16} /> : <Download size={16} />}{' '}
+              تحميل PDF
+            </button>
+          </div>
         </div>
       )}
 
@@ -284,7 +284,10 @@ export function LectureAccessCodeManager({
       {generatedBatch && generatedBatch.length > 0 && (
         <div className="generated-lecture-code" role="status" aria-live="polite">
           <div>
-            <strong>تم إنشاء {generatedBatch.length} كود بنجاح</strong>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+              <span className="status-pill status-approved" style={{ fontSize: '0.78rem' }}>احفظ الأكواد الآن</span>
+              <strong>تم إنشاء {generatedBatch.length} كود بنجاح (تظهر كاملة هذه المرة فقط)</strong>
+            </div>
             <p>الأكواد تفتح محاضرة «{videoTitle}» لطالب واحد مرة واحدة لكل كود.</p>
           </div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '8px 0' }}>
@@ -295,10 +298,10 @@ export function LectureAccessCodeManager({
             <button
               type="button"
               className="btn btn-outline btn-sm"
-              onClick={() => downloadPdf(generatedBatch)}
+              onClick={() => downloadPdf(generatedBatch.map((c) => c.fullCode))}
               disabled={downloadingPdf}
             >
-              {downloadingPdf ? <LoaderCircle className="spin" size={14} /> : <FileText size={14} />}{' '}
+              {downloadingPdf ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />}{' '}
               تحميل PDF للأكواد المُنشأة
             </button>
           </div>
@@ -339,6 +342,16 @@ export function LectureAccessCodeManager({
       {videoHistory.length > 0 && (
         <details className="lecture-code-history">
           <summary>سجل الأكواد الفردية ({videoHistory.length})</summary>
+          <div
+            style={{
+              padding: '8px 12px',
+              fontSize: '0.8rem',
+              color: 'var(--muted, #aaa)',
+              borderBottom: '1px solid rgba(255,255,255,0.06)',
+            }}
+          >
+            لأسباب أمنية لا يتم تخزين الأكواد بصورتها الأصلية في النظام. يجب نسخ الأكواد أو تحميل ملف PDF فور إنشائها مباشرة.
+          </div>
           <div>
             {videoHistory.map((item) => (
               <article key={item.id}>

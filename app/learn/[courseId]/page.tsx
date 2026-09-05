@@ -89,6 +89,8 @@ export default async function LearnPage({
     .bind(normalizedEmail, courseId)
     .all<{ videoId: string }>();
 
+  const grantedIds = new Set(grants.results.map((item) => item.videoId));
+
   if (!enrollment && grants.results.length === 0) {
     return (
       <main className="portal-page">
@@ -122,14 +124,15 @@ export default async function LearnPage({
     sequenceItems = rawItems.map((item) => {
       const key = `${item.itemType}:${item.videoId || item.examId || item.assignmentId}`;
       const state = sequenceUnlockState!.get(key);
+      const isGrantedVideo = item.itemType === 'video' && Boolean(item.videoId) && grantedIds.has(item.videoId!);
       return {
         key,
         itemType: item.itemType,
         itemId: item.videoId || item.examId || item.assignmentId || '',
         title: item.title,
-        unlocked: state?.unlocked ?? false,
+        unlocked: isGrantedVideo ? true : (state?.unlocked ?? false),
         isCompleted: state?.isCompleted ?? false,
-        lockReason: state?.lockReason ?? null,
+        lockReason: isGrantedVideo ? null : (state?.lockReason ?? null),
         assessmentType: state?.assessmentType,
       };
     });
@@ -182,7 +185,6 @@ export default async function LearnPage({
     .all<{ examId: string; bestPercentage: number }>();
 
   const completedIds = new Set(completed.results.map((item) => item.videoId));
-  const grantedIds = new Set(grants.results.map((item) => item.videoId));
   const examScoresMap = new Map(examAttempts.results.map((r) => [r.examId, Number(r.bestPercentage)]));
 
   const videos: Video[] = result.results.map((video, index, allVideos) => {
@@ -214,13 +216,14 @@ export default async function LearnPage({
     let unlocked = 0;
     let lockReason: 'previous_lesson' | 'prerequisite_exam' | null = null;
 
-    if (courseHasSequence && sequenceUnlockState) {
+    if (hasGrant) {
+      unlocked = 1;
+      lockReason = null;
+    } else if (courseHasSequence && sequenceUnlockState) {
       const seqKey = `video:${video.id}`;
       const seqState = sequenceUnlockState.get(seqKey);
       unlocked = seqState?.unlocked ? 1 : 0;
       lockReason = seqState?.unlocked ? null : 'previous_lesson';
-    } else if (hasGrant) {
-      unlocked = 1;
     } else if (Boolean(enrollment)) {
       if (!prevCompleted) {
         unlocked = 0;

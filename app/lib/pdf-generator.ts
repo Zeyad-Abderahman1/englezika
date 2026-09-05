@@ -54,7 +54,7 @@ function buildHTML(codes: AccessCodeRow[], fontBase64: string): string {
 
   .grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: 12px;
     width: 100%;
   }
@@ -62,7 +62,7 @@ function buildHTML(codes: AccessCodeRow[], fontBase64: string): string {
   .card {
     border: 1px solid #000;
     border-radius: 4px;
-    padding: 16px 8px;
+    padding: 14px 10px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -70,16 +70,18 @@ function buildHTML(codes: AccessCodeRow[], fontBase64: string): string {
     min-height: 72px;
     background: #fff;
     page-break-inside: avoid;
+    overflow: hidden;
   }
 
   .code {
     font-family: 'Courier New', Courier, monospace;
-    font-size: 15px;
+    font-size: 11.5px;
     font-weight: 700;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.2px;
     text-align: center;
     direction: ltr;
     unicode-bidi: isolate;
+    white-space: nowrap;
     color: #000;
     line-height: 1.3;
   }
@@ -94,6 +96,7 @@ function buildHTML(codes: AccessCodeRow[], fontBase64: string): string {
     color: #000;
     margin-top: 6px;
     line-height: 1.4;
+    word-break: break-word;
   }
 </style>
 </head>
