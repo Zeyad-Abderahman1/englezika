@@ -24,7 +24,7 @@ export async function POST(
   const originError = requireSameOrigin(request);
   if (originError) return originError;
 
-  const user = await apiVerifiedUser();
+  const user = await apiVerifiedUser(request);
   if (isResponse(user)) return user;
 
   const { id } = await params;

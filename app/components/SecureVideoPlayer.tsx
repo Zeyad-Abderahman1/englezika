@@ -6,6 +6,8 @@ import {
   Award,
   CheckCircle2,
   ClipboardCheck,
+  Eye,
+  EyeOff,
   LoaderCircle,
   LockKeyhole,
   Maximize2,
@@ -49,6 +51,9 @@ export type Video = {
   unlocked: number;
   prerequisiteExam?: PrerequisiteExam | null;
   lockReason?: 'previous_lesson' | 'prerequisite_exam' | null;
+  maxViews?: number;
+  usedViews?: number;
+  remainingViews?: number | null;
 };
 
 type ResolvedSource = {
@@ -195,13 +200,52 @@ export default function SecureVideoPlayer({
         headers: { 'content-type': 'application/json' },
         body: '{}',
       });
-      if (!response.ok) return;
+      if (!response.ok) {
+        const errorData = (await response.json().catch(() => ({}))) as { error?: string };
+        if (response.status === 403) {
+          setSecurityMessage(errorData.error || 'لقد استنفدت عدد المشاهدات المسموحة لهذه المحاضرة');
+          setYoutubePlaying(false);
+          setLessons((prev) =>
+            prev.map((item) =>
+              item.id === videoId
+                ? {
+                    ...item,
+                    remainingViews: 0,
+                    usedViews:
+                      typeof item.maxViews === 'number' && item.maxViews > 0
+                        ? item.maxViews
+                        : item.usedViews,
+                  }
+                : item
+            )
+          );
+        }
+        return;
+      }
       const data = (await response.json().catch(() => ({}))) as {
         sessionId?: string;
         expiresAt?: number;
+        viewsRemaining?: number | null;
       };
       if (data.sessionId && data.expiresAt) {
         viewSessionRef.current = { sessionId: data.sessionId, expiresAt: data.expiresAt };
+      }
+      if (typeof data.viewsRemaining === 'number') {
+        const remaining = data.viewsRemaining;
+        setLessons((prev) =>
+          prev.map((item) =>
+            item.id === videoId
+              ? {
+                  ...item,
+                  remainingViews: remaining,
+                  usedViews:
+                    typeof item.maxViews === 'number' && item.maxViews > 0
+                      ? Math.max(item.maxViews - remaining, 0)
+                      : item.usedViews,
+                }
+              : item
+          )
+        );
       }
     } catch {
       // Non-critical — continue playing
@@ -573,16 +617,18 @@ export default function SecureVideoPlayer({
                   <ShieldCheck />
                   <h2>نظام المشاهدة الآمن</h2>
                   <p>{securityMessage}</p>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => {
-                      setSecurityMessage('');
-                      sendYouTubeCommand('play');
-                    }}
-                  >
-                    <PlayCircle /> العودة للمشاهدة
-                  </button>
+                  {active?.remainingViews !== 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => {
+                        setSecurityMessage('');
+                        sendYouTubeCommand('play');
+                      }}
+                    >
+                      <PlayCircle /> العودة للمشاهدة
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -805,9 +851,30 @@ export default function SecureVideoPlayer({
             <span className="section-label">المحاضرة الحالية</span>
             <h1>{active?.title}</h1>
           </div>
-          <span className="secure-badge">
-            <ShieldCheck /> مشاهدة محمية
-          </span>
+          <div className="video-badges">
+            {typeof active?.maxViews === 'number' && active.maxViews > 0 ? (
+              active.remainingViews === 0 ? (
+                <span className="view-limit-badge is-exhausted" title="تم استهلاك جميع مرات المشاهدة">
+                  <EyeOff /> تم استخدام جميع مرات المشاهدة
+                </span>
+              ) : active.remainingViews === 1 ? (
+                <span className="view-limit-badge is-warning" title="المشاهدة الأخيرة المتبقية">
+                  <Eye /> متبقي لك مشاهدة واحدة
+                </span>
+              ) : (
+                <span className="view-limit-badge is-ok" title={`متبقي لك ${active.remainingViews} من ${active.maxViews} مشاهدات`}>
+                  <Eye /> متبقي لك {active.remainingViews} من {active.maxViews} مشاهدات
+                </span>
+              )
+            ) : active ? (
+              <span className="view-limit-badge is-unlimited" title="مشاهدة غير محدودة">
+                <Eye /> مشاهدة غير محدودة
+              </span>
+            ) : null}
+            <span className="secure-badge">
+              <ShieldCheck /> مشاهدة محمية
+            </span>
+          </div>
         </div>
         {completionMessage && (
           <div className="lesson-complete-message">

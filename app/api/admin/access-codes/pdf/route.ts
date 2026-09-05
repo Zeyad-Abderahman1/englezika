@@ -103,8 +103,23 @@ export async function POST(request: Request) {
     .all<{ id: string; codeHash: string; videoId: string; redeemedAt: number | null }>();
 
   const rowMap = new Map<string, { id: string; videoId: string; redeemedAt: number | null }>();
-  for (const row of existingRows.results) {
-    rowMap.set(row.codeHash, row);
+  for (const rawRow of existingRows.results) {
+    const row = rawRow as Record<string, unknown>;
+    const codeHash = String(row.codeHash ?? row.codehash ?? '');
+    const rowVideoId = String(row.videoId ?? row.videoid ?? '');
+    const redeemedAt =
+      row.redeemedAt !== undefined && row.redeemedAt !== null
+        ? Number(row.redeemedAt)
+        : row.redeemedat !== undefined && row.redeemedat !== null
+          ? Number(row.redeemedat)
+          : null;
+    if (codeHash) {
+      rowMap.set(codeHash, {
+        id: String(row.id || ''),
+        videoId: rowVideoId,
+        redeemedAt,
+      });
+    }
   }
 
   for (const item of parsedCodes) {
@@ -124,9 +139,14 @@ export async function POST(request: Request) {
     };
   });
 
-  const pdfBuffer = await generateAccessCodePDF(codeRows, {
-    title: `Access Codes - ${video.title}`,
-  });
+  let pdfBuffer: Buffer;
+  try {
+    pdfBuffer = await generateAccessCodePDF(codeRows, {
+      title: `Access Codes - ${video.title}`,
+    });
+  } catch (pdfError) {
+    return jsonError('تعذر إنشاء ملف PDF للأكواد', 500);
+  }
 
   return new Response(pdfBuffer as unknown as BodyInit, {
     headers: {

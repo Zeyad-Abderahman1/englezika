@@ -138,10 +138,11 @@ export default async function LearnPage({
     });
   }
 
-  // Fetch videos in sequential order with prerequisite exam data
+  // Fetch videos in sequential order with prerequisite exam data and view limits
   const result = await db
     .prepare(
       `SELECT v.id, v.title, v.duration_seconds AS durationSeconds,
+              v.max_views AS maxViews,
               v.prerequisite_exam_id AS prerequisiteExamId, v.minimum_score AS minimumScore,
               v.created_at AS createdAt,
               x.title AS prerequisiteExamTitle, x.passing_score AS examPassingScore
@@ -155,6 +156,7 @@ export default async function LearnPage({
       id: string;
       title: string;
       durationSeconds: number;
+      maxViews: number;
       prerequisiteExamId: string | null;
       minimumScore: number;
       createdAt: number;
@@ -172,6 +174,18 @@ export default async function LearnPage({
     .bind(normalizedEmail, courseId)
     .all<{ videoId: string }>();
 
+  // Fetch consumed view sessions for this student (read-only)
+  const viewSessions = await db
+    .prepare(
+      `SELECT s.video_id AS videoId, COUNT(*) AS count
+       FROM video_view_sessions s
+       JOIN videos v ON v.id = s.video_id
+       WHERE s.user_email = ? AND v.course_id = ? AND s.status IN ('active', 'expired', 'submitted')
+       GROUP BY s.video_id`
+    )
+    .bind(normalizedEmail, courseId)
+    .all<{ videoId: string; count: number }>();
+
   // Fetch user exam attempt best percentages
   const examAttempts = await db
     .prepare(
@@ -186,11 +200,15 @@ export default async function LearnPage({
 
   const completedIds = new Set(completed.results.map((item) => item.videoId));
   const examScoresMap = new Map(examAttempts.results.map((r) => [r.examId, Number(r.bestPercentage)]));
+  const viewCountsMap = new Map(viewSessions.results.map((r) => [r.videoId, Number(r.count)]));
 
   const videos: Video[] = result.results.map((video, index, allVideos) => {
     const hasGrant = grantedIds.has(video.id);
     const isCompleted = completedIds.has(video.id);
     const prevCompleted = index === 0 || completedIds.has(allVideos[index - 1].id);
+    const maxViews = Number(video.maxViews || 0);
+    const usedViews = viewCountsMap.get(video.id) || 0;
+    const remainingViews = maxViews > 0 ? Math.max(maxViews - usedViews, 0) : null;
 
     let prerequisiteExam = null;
     let examPassed = true;
@@ -244,6 +262,9 @@ export default async function LearnPage({
       unlocked,
       prerequisiteExam,
       lockReason,
+      maxViews,
+      usedViews,
+      remainingViews,
     };
   });
 

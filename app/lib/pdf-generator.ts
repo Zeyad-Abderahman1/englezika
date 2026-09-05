@@ -9,11 +9,15 @@ type AccessCodeRow = {
   videoTitle?: string;
 };
 
-const ARABIC_FONT_PATH = path.join(process.cwd(), 'fonts', 'NotoSansArabic-Regular.ttf');
-
 function loadFontBase64(): string {
-  const fontBytes = fs.readFileSync(ARABIC_FONT_PATH);
-  return fontBytes.toString('base64');
+  try {
+    const fontPath = getArabicFontPath();
+    if (fs.existsSync(/*turbopackIgnore: true*/ fontPath)) {
+      const fontBytes = fs.readFileSync(/*turbopackIgnore: true*/ fontPath);
+      return fontBytes.toString('base64');
+    }
+  } catch {}
+  return '';
 }
 
 function buildHTML(codes: AccessCodeRow[], fontBase64: string): string {
@@ -116,7 +120,21 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
-function findChrome(): string {
+function getArabicFontPath(): string {
+  const candidates = [
+    path.join(process.cwd(), 'fonts', 'NotoSansArabic-Regular.ttf'),
+    path.resolve(process.cwd(), '..', 'fonts', 'NotoSansArabic-Regular.ttf'),
+    '/var/www/englizeka/fonts/NotoSansArabic-Regular.ttf',
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(/*turbopackIgnore: true*/ p)) return p;
+    } catch {}
+  }
+  return path.join(process.cwd(), 'fonts', 'NotoSansArabic-Regular.ttf');
+}
+
+function findChrome(): string | null {
   const candidates = [
     process.env.CHROME_PATH,
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -125,48 +143,128 @@ function findChrome(): string {
     '/usr/bin/google-chrome-stable',
     '/usr/bin/chromium-browser',
     '/usr/bin/chromium',
+    '/snap/bin/chromium',
+    '/usr/lib/chromium-browser/chromium-browser',
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   ].filter(Boolean) as string[];
 
   for (const p of candidates) {
     try {
-      if (fs.existsSync(p)) return p;
+      if (fs.existsSync(/*turbopackIgnore: true*/ p)) return p;
     } catch {}
   }
-  throw new Error(
-    'Chrome/Chromium not found. Install Chrome or set CHROME_PATH env var. ' +
-    'Production deployment requires Chrome/Chromium installed on the server.'
-  );
+  return null;
 }
 
 /**
- * Generate a printable PDF of access codes using Puppeteer + HTML/CSS.
- * Arabic renders natively via the browser engine using the bundled local font.
+ * Pure Node.js PDFKit fallback renderer when Chrome/Puppeteer is unavailable.
  */
-export async function generateAccessCodePDF(
+async function generateAccessCodePDFKit(
   codes: AccessCodeRow[],
   _options?: { title?: string }
 ): Promise<Buffer> {
-  const fontBase64 = loadFontBase64();
-  const html = buildHTML(codes, fontBase64);
+  const PDFDocument = (await import('pdfkit')).default;
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 40 });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    const fontPath = getArabicFontPath();
+    const hasArabicFont = fs.existsSync(/*turbopackIgnore: true*/ fontPath);
+    if (hasArabicFont) {
+      doc.registerFont('NotoArabic', fontPath);
+    }
+
+    const pageWidth = doc.page.width - 80;
+    const colWidth = (pageWidth - 16) / 2;
+    const cardHeight = 65;
+    const cardsPerPage = Math.floor((doc.page.height - 80) / (cardHeight + 12)) * 2;
+
+    for (let i = 0; i < codes.length; i++) {
+      const pageIndex = Math.floor(i / cardsPerPage);
+      const indexOnPage = i % cardsPerPage;
+      const row = Math.floor(indexOnPage / 2);
+      const col = indexOnPage % 2;
+
+      if (i > 0 && indexOnPage === 0) {
+        doc.addPage();
+      }
+
+      const currentX = 40 + col * (colWidth + 16);
+      const currentY = 40 + row * (cardHeight + 12);
+
+      // Draw card border
+      doc.rect(currentX, currentY, colWidth, cardHeight).lineWidth(1).stroke('#000000');
+
+      // Draw code in monospace
+      doc.font('Courier-Bold')
+        .fontSize(10.5)
+        .fillColor('#000000')
+        .text(codes[i].fullCode, currentX + 6, currentY + 14, {
+          width: colWidth - 12,
+          align: 'center',
+          lineBreak: false,
+        });
+
+      // Draw lecture title
+      if (codes[i].videoTitle) {
+        if (hasArabicFont) {
+          doc.font('NotoArabic').fontSize(9.5);
+        } else {
+          doc.font('Helvetica-Bold').fontSize(9.5);
+        }
+        doc.fillColor('#333333')
+          .text(codes[i].videoTitle!, currentX + 6, currentY + 36, {
+            width: colWidth - 12,
+            align: 'center',
+            lineBreak: false,
+          });
+      }
+    }
+
+    doc.end();
+  });
+}
+
+/**
+ * Generate a printable PDF of access codes.
+ * Uses Puppeteer + HTML/CSS if Chrome is installed; falls back to pure-Node PDFKit.
+ */
+export async function generateAccessCodePDF(
+  codes: AccessCodeRow[],
+  options?: { title?: string }
+): Promise<Buffer> {
   const executablePath = findChrome();
 
-  const browser = await puppeteer.launch({
-    executablePath,
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
+  if (executablePath) {
+    try {
+      const fontBase64 = loadFontBase64();
+      const html = buildHTML(codes, fontBase64);
 
-  try {
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'load' });
-    const pdf = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: { top: '20mm', bottom: '20mm', left: '20mm', right: '20mm' },
-    });
-    return Buffer.from(pdf);
-  } finally {
-    await browser.close();
+      const browser = await puppeteer.launch({
+        executablePath,
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+      });
+
+      try {
+        const page = await browser.newPage();
+        await page.setContent(html, { waitUntil: 'load' });
+        const pdf = await page.pdf({
+          format: 'A4',
+          printBackground: true,
+          margin: { top: '20mm', bottom: '20mm', left: '20mm', right: '20mm' },
+        });
+        return Buffer.from(pdf);
+      } finally {
+        await browser.close();
+      }
+    } catch (puppeteerErr) {
+      console.warn('[PDF] Puppeteer rendering failed, falling back to PDFKit:', puppeteerErr);
+    }
   }
+
+  return generateAccessCodePDFKit(codes, options);
 }

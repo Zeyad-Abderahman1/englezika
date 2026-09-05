@@ -14,6 +14,10 @@ await Promise.all([
     recursive: true,
     force: true,
   }),
+  cp(resolve(root, 'fonts'), resolve(standalone, 'fonts'), {
+    recursive: true,
+    force: true,
+  }),
 ]);
 
-process.stdout.write('Copied public and .next/static assets into the standalone bundle.\n');
+process.stdout.write('Copied public, fonts, and .next/static assets into the standalone bundle.\n');

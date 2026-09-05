@@ -155,14 +155,17 @@ export function LectureAccessCodeManager({
         throw new Error(result.message || result.error || 'تعذر تحميل الملف');
       }
       const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+      const fileBlob = new Blob([blob], { type: 'application/pdf' });
+      const url = URL.createObjectURL(fileBlob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `access-codes-${videoId}.pdf`;
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      setTimeout(() => {
+        if (a.parentNode) a.parentNode.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 60000);
     } catch (generationError) {
       setError(generationError instanceof Error ? generationError.message : 'تعذر تحميل ملف الأكواد');
     } finally {
