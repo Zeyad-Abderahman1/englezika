@@ -106,14 +106,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!Array.isArray(rawAnswers)) return jsonError('يجب إرسال مصفوفة الإجابات', 400);
 
     // Load questions with correct answers and options
-    let questions: Array<{ id: string; question: string; correctIndex: number; points: number; options: string; sortOrder: number; hasImage: boolean }>;
+    let questions: Array<{ id: string; question: string; explanation: string; correctIndex: number; points: number; options: string; sortOrder: number; imageFileKey: string | null }>;
     try {
       const qResult = await db
         .prepare(
-          'SELECT id, question, correct_index AS correctIndex, points, options, sort_order AS sortOrder, has_image AS hasImage FROM assignment_questions WHERE assignment_id = ? ORDER BY sort_order'
+          `SELECT id, question, COALESCE(explanation, '') AS explanation, correct_index AS correctIndex, points, options, sort_order AS sortOrder, image_file_key AS imageFileKey FROM assignment_questions WHERE assignment_id = ? ORDER BY sort_order`
         )
         .bind(id)
-        .all<{ id: string; question: string; correctIndex: number; points: number; options: string; sortOrder: number; hasImage: boolean }>();
+        .all<{ id: string; question: string; explanation: string; correctIndex: number; points: number; options: string; sortOrder: number; imageFileKey: string | null }>();
       questions = qResult.results;
     } catch {
       return jsonError('أسئلة الواجب غير موجودة', 500);
@@ -164,7 +164,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         studentAnswer: chosenIndex >= 0 && chosenIndex < options.length ? options[chosenIndex] : '',
         correctAnswer: q.correctIndex >= 0 && q.correctIndex < options.length ? options[q.correctIndex] : '',
         isCorrect,
-        hasImage: Boolean(q.hasImage),
+        explanation: isCorrect ? '' : (q.explanation || ''),
+        hasImage: q.imageFileKey != null,
       };
     });
     return Response.json({
