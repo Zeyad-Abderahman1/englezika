@@ -75,6 +75,63 @@ export function normalizeLectureQRToken(value: unknown): string | null {
 export const normalizeLectureAccessCode = normalizeLectureQRToken;
 
 /**
+ * Safely extracts and normalizes a lecture QR token from diverse mobile scanner inputs:
+ * - Direct token: "eqr_ABC123..."
+ * - Hash fragment: "#eqr_ABC123...", "#token=eqr_ABC123...", "#code=eqr_ABC123..."
+ * - Percent-encoded scanner fragment: "%23eqr_ABC123..."
+ * - Full canonical URL: "https://englezika.com/redeem#eqr_ABC123..."
+ * - Mobile scanner encoded URL: "https://englezika.com/redeem%23eqr_ABC123..."
+ * - Query string URL: "https://englezika.com/redeem?token=eqr_ABC123..."
+ * - Path-based URL: "/redeem/eqr_ABC123..."
+ *
+ * All extracted tokens are strictly validated against QR_TOKEN_PATTERN.
+ */
+export function extractLectureQRToken(input: unknown): string | null {
+  if (typeof input !== 'string') return null;
+  let raw = input.trim();
+  if (!raw) return null;
+
+  // Safe URI decode in case characters or '#' were percent-encoded (%23, %5F, etc.)
+  try {
+    raw = decodeURIComponent(raw).trim();
+  } catch {}
+
+  // 1. Direct valid token
+  const direct = normalizeLectureQRToken(raw);
+  if (direct) return direct;
+
+  // 2. Hash fragment or percent-encoded fragment (#eqr_... or %23eqr_...)
+  const hashMatch = raw.match(/(?:#|%23)(?:token=|code=)?(eqr_[A-Za-z0-9_-]{24,80})/i);
+  if (hashMatch) {
+    const candidate = normalizeLectureQRToken(hashMatch[1]);
+    if (candidate) return candidate;
+  }
+
+  // 3. Query parameter (?token=eqr_... or &token=eqr_... or code=...)
+  const queryMatch = raw.match(/[?&](?:token|code)=(eqr_[A-Za-z0-9_-]{24,80})/i);
+  if (queryMatch) {
+    const candidate = normalizeLectureQRToken(queryMatch[1]);
+    if (candidate) return candidate;
+  }
+
+  // 4. Path-based (/redeem/eqr_...)
+  const pathMatch = raw.match(/\/redeem\/(eqr_[A-Za-z0-9_-]{24,80})/i);
+  if (pathMatch) {
+    const candidate = normalizeLectureQRToken(pathMatch[1]);
+    if (candidate) return candidate;
+  }
+
+  // 5. Embedded token pattern inside input
+  const embeddedMatch = raw.match(/\b(eqr_[A-Za-z0-9_-]{24,80})\b/i);
+  if (embeddedMatch) {
+    const candidate = normalizeLectureQRToken(embeddedMatch[1]);
+    if (candidate) return candidate;
+  }
+
+  return null;
+}
+
+/**
  * Computes SHA-256 hash of a normalized token or code.
  */
 export async function hashLectureAccessCode(normalizedCode: string): Promise<string> {

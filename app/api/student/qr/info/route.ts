@@ -23,83 +23,93 @@ async function handleQRInfo(rawToken: string, request: Request) {
   const codeHash = await hashLectureAccessCode(normalized);
   const db = getDatabase();
 
-  const codeRecord = await db
-    .prepare(
-      `SELECT lac.id, lac.course_id AS courseId, lac.video_id AS videoId,
-              lac.redeemed_at AS redeemedAt,
-              v.title AS videoTitle, v.description AS videoDescription,
-              c.title AS courseTitle, c.stage AS stage
-       FROM lecture_access_codes lac
-       JOIN videos v ON v.id = lac.video_id
-       JOIN courses c ON c.id = lac.course_id
-       WHERE lac.code_hash = ?
-       LIMIT 1`
-    )
-    .bind(codeHash)
-    .first<{
-      id: string;
-      courseId: string;
-      videoId: string;
-      redeemedAt: number | null;
-      videoTitle: string;
-      videoDescription: string | null;
-      courseTitle: string;
-      stage: string | null;
-    }>();
+  try {
+    const codeRecord = await db
+      .prepare(
+        `SELECT lac.id, lac.course_id AS courseId, lac.video_id AS videoId,
+                lac.redeemed_at AS redeemedAt,
+                v.title AS videoTitle,
+                c.title AS courseTitle, c.grade AS stage
+         FROM lecture_access_codes lac
+         JOIN videos v ON v.id = lac.video_id
+         JOIN courses c ON c.id = lac.course_id
+         WHERE lac.code_hash = ?
+         LIMIT 1`
+      )
+      .bind(codeHash)
+      .first<{
+        id: string;
+        courseId: string;
+        videoId: string;
+        redeemedAt: number | null;
+        videoTitle: string;
+        courseTitle: string;
+        stage: string | null;
+      }>();
 
-  if (!codeRecord) {
-    return Response.json(
-      {
-        ok: false,
-        error: 'QR_NOT_FOUND',
-        message: 'رمز QR غير موجود أو غير صالح.',
-      },
-      { status: 404 }
-    );
-  }
-
-  if (codeRecord.redeemedAt !== null) {
-    return Response.json(
-      {
-        ok: false,
-        isRedeemed: true,
-        error: 'QR_ALREADY_USED',
-        message: 'تم استخدام رمز QR هذا مسبقًا ولا يمكن استخدامه مرة أخرى.',
-        videoTitle: codeRecord.videoTitle,
-        courseTitle: codeRecord.courseTitle,
-      },
-      { status: 409 }
-    );
-  }
-
-  // Check student session
-  const student = await getCurrentStudentUser(request);
-  let alreadyHasAccess = false;
-  if (student?.email) {
-    alreadyHasAccess = await hasLectureAccess(db, student.email, codeRecord.videoId);
-  }
-
-  return Response.json(
-    {
-      ok: true,
-      isRedeemed: false,
-      alreadyHasAccess,
-      video: {
-        id: codeRecord.videoId,
-        title: codeRecord.videoTitle,
-        description: codeRecord.videoDescription,
-        courseId: codeRecord.courseId,
-        courseTitle: codeRecord.courseTitle,
-        stage: codeRecord.stage,
-      },
-      student: student ? { email: student.email, name: student.displayName || student.fullName } : null,
-    },
-    {
-      headers: {
-        'cache-control': 'private, no-store',
-      },
+    if (!codeRecord) {
+      return Response.json(
+        {
+          ok: false,
+          error: 'QR_NOT_FOUND',
+          message: 'رمز QR غير موجود أو غير صالح.',
+        },
+        { status: 404 }
+      );
     }
-  );
+
+    if (codeRecord.redeemedAt !== null) {
+      return Response.json(
+        {
+          ok: false,
+          isRedeemed: true,
+          error: 'QR_ALREADY_USED',
+          message: 'تم استخدام رمز QR هذا مسبقًا ولا يمكن استخدامه مرة أخرى.',
+          videoTitle: codeRecord.videoTitle,
+          courseTitle: codeRecord.courseTitle,
+        },
+        { status: 409 }
+      );
+    }
+
+    // Check student session
+    const student = await getCurrentStudentUser(request);
+    let alreadyHasAccess = false;
+    if (student?.email) {
+      alreadyHasAccess = await hasLectureAccess(db, student.email, codeRecord.videoId);
+    }
+
+    return Response.json(
+      {
+        ok: true,
+        isRedeemed: false,
+        alreadyHasAccess,
+        video: {
+          id: codeRecord.videoId,
+          title: codeRecord.videoTitle,
+          description: null,
+          courseId: codeRecord.courseId,
+          courseTitle: codeRecord.courseTitle,
+          stage: codeRecord.stage,
+        },
+        student: student ? { email: student.email, name: student.displayName || student.fullName } : null,
+      },
+      {
+        headers: {
+          'cache-control': 'private, no-store',
+        },
+      }
+    );
+  } catch (error) {
+    return Response.json(
+      {
+        ok: false,
+        error: 'DATABASE_ERROR',
+        message: 'تعذر التحقق من بيانات رمز QR حالياً. يرجى المحاولة مرة أخرى لاحقاً.',
+      },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(request: Request) {

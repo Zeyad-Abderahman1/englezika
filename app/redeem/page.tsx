@@ -52,6 +52,45 @@ type RedeemedLecture = {
 const PENDING_QR_STORAGE_KEY = 'englizeka_pending_qr_token';
 const QR_TOKEN_REGEX = /^eqr_[A-Za-z0-9_-]{24,80}$/;
 
+export function extractLectureQRToken(input: unknown): string | null {
+  if (typeof input !== 'string') return null;
+  let raw = input.trim();
+  if (!raw) return null;
+
+  try {
+    raw = decodeURIComponent(raw).trim();
+  } catch {}
+
+  // 1. Direct valid token
+  if (QR_TOKEN_REGEX.test(raw)) return raw;
+
+  // 2. Hash fragment or percent-encoded fragment (#eqr_... or %23eqr_...)
+  const hashMatch = raw.match(/(?:#|%23)(?:token=|code=)?(eqr_[A-Za-z0-9_-]{24,80})/i);
+  if (hashMatch && QR_TOKEN_REGEX.test(hashMatch[1])) {
+    return hashMatch[1];
+  }
+
+  // 3. Query parameter (?token=eqr_... or &token=eqr_... or code=...)
+  const queryMatch = raw.match(/[?&](?:token|code)=(eqr_[A-Za-z0-9_-]{24,80})/i);
+  if (queryMatch && QR_TOKEN_REGEX.test(queryMatch[1])) {
+    return queryMatch[1];
+  }
+
+  // 4. Path-based (/redeem/eqr_...)
+  const pathMatch = raw.match(/\/redeem\/(eqr_[A-Za-z0-9_-]{24,80})/i);
+  if (pathMatch && QR_TOKEN_REGEX.test(pathMatch[1])) {
+    return pathMatch[1];
+  }
+
+  // 5. Embedded token pattern inside input
+  const embeddedMatch = raw.match(/\b(eqr_[A-Za-z0-9_-]{24,80})\b/i);
+  if (embeddedMatch && QR_TOKEN_REGEX.test(embeddedMatch[1])) {
+    return embeddedMatch[1];
+  }
+
+  return null;
+}
+
 function RedeemContent() {
   const [token, setToken] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -59,66 +98,73 @@ function RedeemContent() {
   const [info, setInfo] = useState<QRInfoResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [redeemedLecture, setRedeemedLecture] = useState<RedeemedLecture | null>(null);
+  const [manualInput, setManualInput] = useState('');
+  const [manualError, setManualError] = useState('');
 
-  // 1. Initial capture from hash or sessionStorage
+  // 1. Initial capture from hash, path, query, or sessionStorage
   useEffect(() => {
     let capturedToken = '';
 
     if (typeof window !== 'undefined') {
       const rawHash = window.location.hash || '';
+      const rawPath = window.location.pathname || '';
+      const rawHref = window.location.href || '';
+      const rawSearch = window.location.search || '';
+
+      // 1. Try window.location.hash
       if (rawHash) {
-        // Remove leading '#'
-        let candidate = rawHash.replace(/^#/, '').trim();
-        if (candidate.startsWith('token=')) {
-          candidate = candidate.slice(6);
-        }
-        capturedToken = candidate;
+        capturedToken = extractLectureQRToken(rawHash) || '';
       }
 
-      // Check sessionStorage if hash is empty (e.g. returning from login / register)
+      // 2. Try window.location.pathname / href (handles %23eqr_ or /redeem/eqr_ from mobile scanners)
+      if (!capturedToken) {
+        if (rawPath.includes('%23') || rawPath.includes('#') || rawPath.includes('eqr_')) {
+          capturedToken = extractLectureQRToken(rawPath) || '';
+        }
+        if (!capturedToken && (rawHref.includes('%23') || rawHref.includes('eqr_'))) {
+          capturedToken = extractLectureQRToken(rawHref) || '';
+        }
+      }
+
+      // 3. Fallback to query parameters
+      if (!capturedToken && rawSearch) {
+        capturedToken = extractLectureQRToken(rawSearch) || '';
+      }
+
+      // 4. Check sessionStorage if hash/query is empty (e.g. returning from login / register)
       if (!capturedToken) {
         try {
           const stored = sessionStorage.getItem(PENDING_QR_STORAGE_KEY);
-          if (stored) capturedToken = stored.trim();
-        } catch {}
-      }
-
-      // Fallback check for query params for backward compatibility
-      if (!capturedToken) {
-        try {
-          const params = new URLSearchParams(window.location.search);
-          const q = (params.get('token') || params.get('code') || '').trim();
-          if (q) capturedToken = q;
+          if (stored) capturedToken = extractLectureQRToken(stored) || '';
         } catch {}
       }
 
       if (capturedToken) {
-        // Validate expected token format
-        if (QR_TOKEN_REGEX.test(capturedToken)) {
-          // Safely preserve in sessionStorage for navigation/login/register resilience
-          try {
-            sessionStorage.setItem(PENDING_QR_STORAGE_KEY, capturedToken);
-          } catch {}
+        try {
+          sessionStorage.setItem(PENDING_QR_STORAGE_KEY, capturedToken);
+        } catch {}
 
-          // Immediately remove the token from the visible browser URL
-          if (window.location.hash || window.location.search) {
-            window.history.replaceState(null, '', window.location.pathname);
-          }
+        // Immediately sanitize visible browser URL to /redeem
+        if (window.location.hash || window.location.search || window.location.pathname !== '/redeem') {
+          window.history.replaceState(null, '', '/redeem');
+        }
 
-          setToken(capturedToken);
-        } else {
-          // Invalid format: clean up and show error
+        setToken(capturedToken);
+      } else {
+        // If there was an attempted token in URL but it was invalid
+        const hadAttempt =
+          (rawHash && rawHash !== '#') ||
+          (rawSearch && (rawSearch.includes('token') || rawSearch.includes('code'))) ||
+          rawPath.includes('%23') ||
+          rawPath.includes('eqr_');
+
+        if (hadAttempt) {
           try {
             sessionStorage.removeItem(PENDING_QR_STORAGE_KEY);
           } catch {}
-          if (window.location.hash || window.location.search) {
-            window.history.replaceState(null, '', window.location.pathname);
-          }
-          setToken('');
+          window.history.replaceState(null, '', '/redeem');
           setErrorMessage('صيغة رمز QR غير صحيحة أو تالفة.');
-          setLoading(false);
         }
-      } else {
         setToken('');
         setLoading(false);
       }
@@ -204,20 +250,88 @@ function RedeemContent() {
     }
   };
 
+  const handleManualSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setManualError('');
+    const trimmed = manualInput.trim();
+    if (!trimmed) {
+      setManualError('يرجى إدخال رمز المحاضرة أو رابط التفعيل.');
+      return;
+    }
+
+    const extracted = extractLectureQRToken(trimmed);
+    if (!extracted) {
+      setManualError('رمز QR غير صالح. يجب أن يبدأ الرمز بـ eqr_ (مثال: eqr_ABC123...).');
+      return;
+    }
+
+    try {
+      sessionStorage.setItem(PENDING_QR_STORAGE_KEY, extracted);
+    } catch {}
+
+    window.history.replaceState(null, '', '/redeem');
+    setErrorMessage('');
+    setInfo(null);
+    setToken(extracted);
+  };
+
   // State 1: No token provided
   if (!token && !loading) {
     return (
       <div className="auth-card" style={{ maxWidth: 520, margin: '40px auto', textAlign: 'center', padding: '32px 24px' }} dir="rtl">
-        <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', color: '#ef4444' }}>
+        <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(59, 130, 246, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', color: '#3b82f6' }}>
           <QrCode size={32} />
         </div>
         <h2 style={{ fontSize: '1.4rem', fontWeight: 800, marginBottom: '10px' }}>تفعيل المحاضرة عبر رمز QR</h2>
-        <p style={{ color: 'var(--muted, #94a3b8)', lineHeight: 1.6, marginBottom: '24px' }}>
-          يرجى مسح رمز QR المطبوع على كارت المحاضرة باستخدام كاميرا هاتفك المحمول ليتم فتح المحاضرة مباشرة على حسابك.
+        <p style={{ color: 'var(--muted, #94a3b8)', lineHeight: 1.6, marginBottom: '20px' }}>
+          امسح رمز QR المطبوع على كارت المحاضرة باستخدام كاميرا هاتفك المحمول ليتم فتح المحاضرة مباشرة على حسابك.
         </p>
-        <Link href="/account" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-          الذهاب إلى لوحة التحكم <ArrowRight size={16} />
-        </Link>
+
+        <div style={{ margin: '24px 0', borderTop: '1px solid var(--border-color, rgba(255,255,255,0.1))', paddingTop: '20px' }}>
+          <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '8px' }}>أو أدخل رمز الكارت يدويًا</h3>
+          <p style={{ color: 'var(--muted, #94a3b8)', fontSize: '0.85rem', marginBottom: '16px' }}>
+            إذا تعذر على كاميرا الهاتف قراءة الرمز تلقائيًا، يمكنك إدخال الرمز أو لصق الرابط هنا:
+          </p>
+
+          <form onSubmit={handleManualSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'right' }}>
+            <input
+              type="text"
+              value={manualInput}
+              onChange={(e) => {
+                setManualInput(e.target.value);
+                if (manualError) setManualError('');
+              }}
+              placeholder="مثال: eqr_..."
+              dir="ltr"
+              className="input"
+              style={{
+                width: '100%',
+                padding: '12px 14px',
+                borderRadius: '8px',
+                fontSize: '0.95rem',
+                border: manualError ? '1px solid #ef4444' : undefined,
+              }}
+            />
+            {manualError && (
+              <div style={{ color: '#ef4444', fontSize: '0.85rem', textAlign: 'right' }}>
+                {manualError}
+              </div>
+            )}
+            <button
+              type="submit"
+              className="btn btn-primary"
+              style={{ width: '100%', padding: '12px', fontWeight: 700 }}
+            >
+              تفعيل المحاضرة
+            </button>
+          </form>
+        </div>
+
+        <div style={{ marginTop: '16px' }}>
+          <Link href="/account" className="btn btn-outline" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
+            الذهاب إلى لوحة التحكم <ArrowRight size={16} />
+          </Link>
+        </div>
       </div>
     );
   }
@@ -335,9 +449,28 @@ function RedeemContent() {
           {errorMessage || info?.message || 'لم نتمكن من العثور على محاضرة مرتبطة برمز QR هذا. تأكد من مسح الرمز المعتمد من منصة إنجليزيكا.'}
         </p>
 
-        <Link href="/" className="btn btn-primary">
-          العودة للصفحة الرئيسية
-        </Link>
+        <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => {
+              setErrorMessage('');
+              setInfo(null);
+              setToken('');
+              setManualError('');
+              setManualInput('');
+              try {
+                sessionStorage.removeItem(PENDING_QR_STORAGE_KEY);
+              } catch {}
+              window.history.replaceState(null, '', '/redeem');
+            }}
+            className="btn btn-outline"
+          >
+            إدخال الرمز يدويًا
+          </button>
+          <Link href="/" className="btn btn-primary">
+            العودة للصفحة الرئيسية
+          </Link>
+        </div>
       </div>
     );
   }

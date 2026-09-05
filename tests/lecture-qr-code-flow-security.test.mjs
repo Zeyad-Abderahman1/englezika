@@ -1,26 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   generateLectureQRToken,
   hashLectureQRToken,
   normalizeLectureQRToken,
+  extractLectureQRToken,
   buildLectureQRUrl,
   getLectureQRCodeInfo,
   redeemLectureAccessCode,
   hasLectureAccess,
 } from '../app/lib/lecture-access-codes.ts';
+import { POST as handleInfoPost, GET as handleInfoGet } from '../app/api/student/qr/info/route.ts';
+import { POST as handleRedeemPost } from '../app/api/student/qr/redeem/route.ts';
 
-// In-memory test database mocking SQLite/Postgres interface
-function createTestDb() {
+// In-memory test database strictly adhering to real PostgreSQL schema
+function createTestDb(options = {}) {
   const tables = {
     lecture_access_codes: [],
     student_video_access_grants: [],
+    // Real schema: videos has NO description column
     videos: [
-      { id: 'vid-101', course_id: 'crs-1', title: 'Lecture 1: Grammar Mastery', description: 'Deep dive into English tenses' },
-      { id: 'vid-102', course_id: 'crs-1', title: 'Lecture 2: Vocabulary Secrets', description: 'Advanced vocabulary building' },
+      { id: 'vid-101', course_id: 'crs-1', title: 'Lecture 1: Grammar Mastery' },
+      { id: 'vid-102', course_id: 'crs-1', title: 'Lecture 2: Vocabulary Secrets' },
     ],
+    // Real schema: courses has grade column, NOT stage column
     courses: [
-      { id: 'crs-1', title: 'Third Secondary English 2026', stage: 'الصف الثالث الثانوي' },
+      { id: 'crs-1', title: 'Third Secondary English 2026', grade: 'الصف الثالث الثانوي' },
     ],
     enrollments: [],
   };
@@ -28,11 +34,23 @@ function createTestDb() {
   return {
     tables,
     prepare(sql) {
+      if (options.shouldThrow) {
+        throw new Error('Database connection failure');
+      }
+
+      // Real schema enforcement: fail if query references columns that do not exist in Postgres
+      if (sql.includes('v.description') || sql.includes('videos.description')) {
+        throw new Error('error: column v.description does not exist');
+      }
+      if (sql.includes('c.stage') || sql.includes('courses.stage')) {
+        throw new Error('error: column c.stage does not exist');
+      }
+
       return {
         bind(...args) {
           return {
             async first() {
-              // 1. getLectureQRCodeInfo lookup
+              // 1. handleQRInfo lookup: lac joined with videos and courses
               if (sql.includes('FROM lecture_access_codes lac') && sql.includes('WHERE lac.code_hash = ?')) {
                 const [hash] = args;
                 const codeRow = tables.lecture_access_codes.find((r) => r.code_hash === hash);
@@ -40,11 +58,13 @@ function createTestDb() {
                 const video = tables.videos.find((v) => v.id === codeRow.video_id);
                 const course = tables.courses.find((c) => c.id === codeRow.course_id);
                 return {
+                  id: codeRow.id,
                   courseId: course?.id,
-                  courseTitle: course?.title,
                   videoId: video?.id,
-                  videoTitle: video?.title,
                   redeemedAt: codeRow.redeemed_at,
+                  videoTitle: video?.title,
+                  courseTitle: course?.title,
+                  stage: course?.grade,
                 };
               }
 
@@ -195,7 +215,49 @@ test('3. normalizeLectureQRToken strictly validates tokens and rejects malformed
   assert.equal(normalizeLectureQRToken('ENG1234567890ABCDEFGHIJKLMNO'), null);
 });
 
-test('4. End-to-end QR code lifecycle: Generation -> Query Info -> Single-use Redemption -> Verify Access', async () => {
+test('4. extractLectureQRToken safely parses canonical hash, mobile percent-encoded URLs, query params, and manual entry', () => {
+  const token = 'eqr_abcdefghijklmnopqrstuvwxyz012345';
+
+  // Canonical hash fragment
+  assert.equal(extractLectureQRToken(`#${token}`), token);
+  assert.equal(extractLectureQRToken(`https://englezika.com/redeem#${token}`), token);
+
+  // Mobile scanner percent-encoded hash (%23)
+  assert.equal(extractLectureQRToken(`%23${token}`), token);
+  assert.equal(extractLectureQRToken(`https://englezika.com/redeem%23${token}`), token);
+  assert.equal(extractLectureQRToken(`/redeem%23${token}`), token);
+
+  // Hash with key prefixes (#token= or #code=)
+  assert.equal(extractLectureQRToken(`#token=${token}`), token);
+  assert.equal(extractLectureQRToken(`https://englezika.com/redeem#token=${token}`), token);
+  assert.equal(extractLectureQRToken(`#code=${token}`), token);
+
+  // Query parameter fallback
+  assert.equal(extractLectureQRToken(`?token=${token}`), token);
+  assert.equal(extractLectureQRToken(`https://englezika.com/redeem?token=${token}`), token);
+  assert.equal(extractLectureQRToken(`https://englezika.com/redeem?code=${token}`), token);
+
+  // Path-based fallback
+  assert.equal(extractLectureQRToken(`/redeem/${token}`), token);
+
+  // URL-encoded characters in token (e.g. %5F for underscore)
+  const encodedToken = token.replace('_', '%5F');
+  assert.equal(extractLectureQRToken(`#${encodedToken}`), token);
+
+  // Manual token entry (direct token string with or without whitespace)
+  assert.equal(extractLectureQRToken(token), token);
+  assert.equal(extractLectureQRToken(`   ${token}   `), token);
+
+  // Invalid inputs correctly return null
+  assert.equal(extractLectureQRToken(''), null);
+  assert.equal(extractLectureQRToken(null), null);
+  assert.equal(extractLectureQRToken('invalid_text'), null);
+  assert.equal(extractLectureQRToken('https://englezika.com/redeem#invalid'), null);
+  assert.equal(extractLectureQRToken('https://englezika.com/redeem?token=short'), null);
+  assert.equal(extractLectureQRToken('ENG-ABCDE-12345-67890-ABCDE-FGHIJ-KLMNO'), null);
+});
+
+test('5. End-to-end QR code lifecycle: Generation -> Query Info -> Single-use Redemption -> Verify Access', async () => {
   const db = createTestDb();
   const token = generateLectureQRToken();
   const tokenHash = await hashLectureQRToken(token);
@@ -242,7 +304,7 @@ test('4. End-to-end QR code lifecycle: Generation -> Query Info -> Single-use Re
   assert.equal(infoAfter.status, 'already_used');
 });
 
-test('5. Non-existent QR tokens return invalid_token / invalid_code', async () => {
+test('6. Non-existent QR tokens return invalid_token / invalid_code', async () => {
   const db = createTestDb();
   const fakeToken = generateLectureQRToken();
 
@@ -253,7 +315,7 @@ test('5. Non-existent QR tokens return invalid_token / invalid_code', async () =
   assert.equal(redeem.status, 'invalid_code');
 });
 
-test('6. QR redemption URL encodes token strictly into URL hash fragment and never query string', () => {
+test('7. QR redemption URL encodes token strictly into URL hash fragment and never query string', () => {
   const token = generateLectureQRToken();
   const fullUrl = buildLectureQRUrl(token, 'https://englezika.com');
   const parsed = new URL(fullUrl);
@@ -264,8 +326,7 @@ test('6. QR redemption URL encodes token strictly into URL hash fragment and nev
   assert.match(parsed.hash, /^#eqr_[A-Za-z0-9_-]{32}$/);
 });
 
-test('7. Student QR redemption endpoint route requires token and rejects code', async () => {
-  const { readFile } = await import('node:fs/promises');
+test('8. Student QR redemption endpoint route requires token and rejects code', async () => {
   const redeemRouteContent = await readFile(
     new URL('../app/api/student/qr/redeem/route.ts', import.meta.url),
     'utf8'
@@ -275,3 +336,209 @@ test('7. Student QR redemption endpoint route requires token and rejects code', 
   assert.match(redeemRouteContent, /normalizeLectureQRToken\(body\.token\)/);
 });
 
+test('9. POST /api/student/qr/info returns valid lecture details using real schema (courses.grade AS stage, no videos.description)', async () => {
+  const db = createTestDb();
+  globalThis.__ENGLIZEKA_ENV__ = { DB: db };
+
+  const token = generateLectureQRToken();
+  const tokenHash = await hashLectureQRToken(token);
+
+  db.tables.lecture_access_codes.push({
+    id: 'code-uuid-real-schema',
+    course_id: 'crs-1',
+    video_id: 'vid-101',
+    code_hash: tokenHash,
+    code_suffix: token.slice(-6),
+    redeemed_at: null,
+    redeemed_by_student_email: null,
+    created_at: Date.now(),
+  });
+
+  const request = new Request('http://localhost:3000/api/student/qr/info', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+
+  const response = await handleInfoPost(request);
+  assert.equal(response.status, 200);
+
+  const data = await response.json();
+  assert.equal(data.ok, true);
+  assert.equal(data.isRedeemed, false);
+  assert.equal(data.video.id, 'vid-101');
+  assert.equal(data.video.title, 'Lecture 1: Grammar Mastery');
+  assert.equal(data.video.courseTitle, 'Third Secondary English 2026');
+  // stage correctly mapped from courses.grade
+  assert.equal(data.video.stage, 'الصف الثالث الثانوي');
+  // description safely null since videos table has no description column
+  assert.equal(data.video.description, null);
+});
+
+test('10. GET /api/student/qr/info returns valid lecture details from query string', async () => {
+  const db = createTestDb();
+  globalThis.__ENGLIZEKA_ENV__ = { DB: db };
+
+  const token = generateLectureQRToken();
+  const tokenHash = await hashLectureQRToken(token);
+
+  db.tables.lecture_access_codes.push({
+    id: 'code-uuid-get-test',
+    course_id: 'crs-1',
+    video_id: 'vid-102',
+    code_hash: tokenHash,
+    code_suffix: token.slice(-6),
+    redeemed_at: null,
+    redeemed_by_student_email: null,
+    created_at: Date.now(),
+  });
+
+  const request = new Request(`http://localhost:3000/api/student/qr/info?token=${encodeURIComponent(token)}`);
+  const response = await handleInfoGet(request);
+  assert.equal(response.status, 200);
+
+  const data = await response.json();
+  assert.equal(data.ok, true);
+  assert.equal(data.video.id, 'vid-102');
+  assert.equal(data.video.title, 'Lecture 2: Vocabulary Secrets');
+});
+
+test('11. POST /api/student/qr/info returns 404 for nonexistent valid-format token', async () => {
+  const db = createTestDb();
+  globalThis.__ENGLIZEKA_ENV__ = { DB: db };
+
+  const nonexistentToken = generateLectureQRToken();
+  const request = new Request('http://localhost:3000/api/student/qr/info', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token: nonexistentToken }),
+  });
+
+  const response = await handleInfoPost(request);
+  assert.equal(response.status, 404);
+
+  const data = await response.json();
+  assert.equal(data.ok, false);
+  assert.equal(data.error, 'QR_NOT_FOUND');
+});
+
+test('12. POST /api/student/qr/info returns 409 for already-used token', async () => {
+  const db = createTestDb();
+  globalThis.__ENGLIZEKA_ENV__ = { DB: db };
+
+  const token = generateLectureQRToken();
+  const tokenHash = await hashLectureQRToken(token);
+
+  db.tables.lecture_access_codes.push({
+    id: 'code-uuid-claimed',
+    course_id: 'crs-1',
+    video_id: 'vid-101',
+    code_hash: tokenHash,
+    code_suffix: token.slice(-6),
+    redeemed_at: Date.now() - 60000,
+    redeemed_by_student_email: 'first_student@example.com',
+    created_at: Date.now() - 120000,
+  });
+
+  const request = new Request('http://localhost:3000/api/student/qr/info', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+
+  const response = await handleInfoPost(request);
+  assert.equal(response.status, 409);
+
+  const data = await response.json();
+  assert.equal(data.ok, false);
+  assert.equal(data.isRedeemed, true);
+  assert.equal(data.error, 'QR_ALREADY_USED');
+  assert.equal(data.videoTitle, 'Lecture 1: Grammar Mastery');
+});
+
+test('13. POST /api/student/qr/info returns 400 for malformed token', async () => {
+  const db = createTestDb();
+  globalThis.__ENGLIZEKA_ENV__ = { DB: db };
+
+  const request = new Request('http://localhost:3000/api/student/qr/info', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token: 'malformed_token_123' }),
+  });
+
+  const response = await handleInfoPost(request);
+  assert.equal(response.status, 400);
+
+  const data = await response.json();
+  assert.equal(data.ok, false);
+  assert.equal(data.error, 'INVALID_QR_FORMAT');
+});
+
+test('14. POST /api/student/qr/info catches unexpected DB errors and returns safe JSON 500 without crashing', async () => {
+  // DB configured to throw an unexpected database failure
+  const faultyDb = createTestDb({ shouldThrow: true });
+  globalThis.__ENGLIZEKA_ENV__ = { DB: faultyDb };
+
+  const token = generateLectureQRToken();
+  const request = new Request('http://localhost:3000/api/student/qr/info', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+
+  const response = await handleInfoPost(request);
+  assert.equal(response.status, 500);
+
+  const data = await response.json();
+  assert.equal(data.ok, false);
+  assert.equal(data.error, 'DATABASE_ERROR');
+  assert.match(data.message, /تعذر التحقق من بيانات رمز QR/);
+});
+
+test('15. POST /api/student/qr/redeem rejects unauthenticated requests with 401', async () => {
+  const token = generateLectureQRToken();
+  const request = new Request('http://localhost:3000/api/student/qr/redeem', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+
+  const response = await handleRedeemPost(request);
+  assert.equal(response.status, 401);
+});
+
+test('16. Database query in /api/student/qr/info strictly matches PostgreSQL schema', async () => {
+  const routeContent = await readFile(
+    new URL('../app/api/student/qr/info/route.ts', import.meta.url),
+    'utf8'
+  );
+
+  // Must not query v.description
+  assert.doesNotMatch(routeContent, /v\.description/, 'Must not reference v.description');
+  assert.doesNotMatch(routeContent, /videos\.description/, 'Must not reference videos.description');
+
+  // Must not query c.stage (column is grade)
+  assert.doesNotMatch(routeContent, /c\.stage\b/, 'Must not reference c.stage directly');
+  assert.match(routeContent, /c\.grade\s+AS\s+stage/i, 'Must alias courses.grade as stage');
+});
+
+test('17. Frontend /redeem page contains direct manual token entry and mobile percent-encoding resilience', async () => {
+  const redeemPageContent = await readFile(
+    new URL('../app/redeem/page.tsx', import.meta.url),
+    'utf8'
+  );
+
+  // Contains manual submission handler
+  assert.match(redeemPageContent, /handleManualSubmit/);
+  assert.match(redeemPageContent, /extractLectureQRToken/);
+
+  // Contains manual input UI in State 1
+  assert.match(redeemPageContent, /أو أدخل رمز الكارت يدويًا/);
+  assert.match(redeemPageContent, /placeholder="مثال: eqr_\.\.\."/);
+
+  // Contains mobile percent-encoded scanner support (%23)
+  assert.match(redeemPageContent, /%23/);
+
+  // Preserves strict token validation
+  assert.match(redeemPageContent, /QR_TOKEN_REGEX = \/\^eqr_\[A-Za-z0-9_-\]\{24,80\}\$\//);
+});

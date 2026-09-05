@@ -279,19 +279,19 @@ function setupMockEnv() {
 test('CASE 1: Single code end-to-end lifecycle (Generate -> Hash -> PDF -> Redeem -> Grant -> Video Auth)', async () => {
   setupMockEnv();
   const {
-    generateLectureAccessCode,
-    hashLectureAccessCode,
-    normalizeLectureAccessCode,
+    generateLectureQRToken,
+    hashLectureQRToken,
+    normalizeLectureQRToken,
     redeemLectureAccessCode,
   } = await import('../app/lib/lecture-access-codes.ts');
   const { authorizeVideoAccess } = await import('../app/lib/video-access.ts');
-  const { POST: pdfRoute } = await import('../app/api/admin/access-codes/pdf/route.ts');
+  const { POST: pdfRoute } = await import('../app/api/admin/qr/pdf/route.ts');
 
-  // 1. Generate code
-  const code = generateLectureAccessCode();
-  const normalized = normalizeLectureAccessCode(code);
+  // 1. Generate QR token
+  const token = generateLectureQRToken();
+  const normalized = normalizeLectureQRToken(token);
   assert.ok(normalized);
-  const hash = await hashLectureAccessCode(normalized);
+  const hash = await hashLectureQRToken(normalized);
 
   // Store in DB
   mockDb.lectureAccessCodes.set(hash, {
@@ -299,13 +299,13 @@ test('CASE 1: Single code end-to-end lifecycle (Generate -> Hash -> PDF -> Redee
     codeHash: hash,
     videoId: 'video-1',
     courseId: 'course-1',
-    displaySuffix: normalized.slice(-5),
+    displaySuffix: normalized.slice(-6),
     redeemedAt: null,
     redeemedBy: null,
   });
 
-  // 2. Invoke PDF endpoint with valid staff cookie
-  const req = new Request('http://localhost:3000/api/admin/access-codes/pdf', {
+  // 2. Invoke QR PDF endpoint with valid staff cookie
+  const req = new Request('http://localhost:3000/api/admin/qr/pdf', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -313,7 +313,7 @@ test('CASE 1: Single code end-to-end lifecycle (Generate -> Hash -> PDF -> Redee
     },
     body: JSON.stringify({
       videoId: 'video-1',
-      codes: [code],
+      tokens: [token],
     }),
   });
 
@@ -323,9 +323,9 @@ test('CASE 1: Single code end-to-end lifecycle (Generate -> Hash -> PDF -> Redee
   const pdfBytes = await pdfRes.arrayBuffer();
   assert.ok(pdfBytes.byteLength > 100);
 
-  // 3. Redeem the SAME code
+  // 3. Redeem the SAME token
   const studentEmail = 'student1@example.test';
-  const redeemRes = await redeemLectureAccessCode(mockDb, studentEmail, code);
+  const redeemRes = await redeemLectureAccessCode(mockDb, studentEmail, token);
   assert.equal(redeemRes.status, 'success');
   assert.equal(redeemRes.videoId, 'video-1');
 
@@ -348,29 +348,29 @@ test('CASE 1: Single code end-to-end lifecycle (Generate -> Hash -> PDF -> Redee
 test('CASE 2: Bulk 5 codes generation, PDF export, unique hashes, and single redemption', async () => {
   setupMockEnv();
   const {
-    generateLectureAccessCode,
-    hashLectureAccessCode,
-    normalizeLectureAccessCode,
+    generateLectureQRToken,
+    hashLectureQRToken,
+    normalizeLectureQRToken,
     redeemLectureAccessCode,
   } = await import('../app/lib/lecture-access-codes.ts');
-  const { POST: pdfRoute } = await import('../app/api/admin/access-codes/pdf/route.ts');
+  const { POST: pdfRoute } = await import('../app/api/admin/qr/pdf/route.ts');
 
-  const codes = [];
+  const tokens = [];
   const hashes = new Set();
 
   for (let i = 0; i < 5; i++) {
-    const code = generateLectureAccessCode();
-    const normalized = normalizeLectureAccessCode(code);
+    const token = generateLectureQRToken();
+    const normalized = normalizeLectureQRToken(token);
     assert.ok(normalized);
-    const hash = await hashLectureAccessCode(normalized);
-    codes.push(code);
+    const hash = await hashLectureQRToken(normalized);
+    tokens.push(token);
     hashes.add(hash);
     mockDb.lectureAccessCodes.set(hash, {
       id: `bulk-code-${i}`,
       codeHash: hash,
       videoId: 'video-1',
       courseId: 'course-1',
-      displaySuffix: normalized.slice(-5),
+      displaySuffix: normalized.slice(-6),
       redeemedAt: null,
       redeemedBy: null,
     });
@@ -379,8 +379,8 @@ test('CASE 2: Bulk 5 codes generation, PDF export, unique hashes, and single red
   // Exactly 5 unique hashes
   assert.equal(hashes.size, 5);
 
-  // PDF endpoint accepts all 5 codes
-  const req = new Request('http://localhost:3000/api/admin/access-codes/pdf', {
+  // PDF endpoint accepts all 5 tokens
+  const req = new Request('http://localhost:3000/api/admin/qr/pdf', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -388,7 +388,7 @@ test('CASE 2: Bulk 5 codes generation, PDF export, unique hashes, and single red
     },
     body: JSON.stringify({
       videoId: 'video-1',
-      codes,
+      tokens,
     }),
   });
   const res = await pdfRoute(req);
@@ -398,7 +398,7 @@ test('CASE 2: Bulk 5 codes generation, PDF export, unique hashes, and single red
   // Each code redeems successfully once
   for (let i = 0; i < 5; i++) {
     const student = `bulk-student-${i}@example.test`;
-    const redeemResult = await redeemLectureAccessCode(mockDb, student, codes[i]);
+    const redeemResult = await redeemLectureAccessCode(mockDb, student, tokens[i]);
     assert.equal(redeemResult.status, 'success');
   }
 });
@@ -406,33 +406,33 @@ test('CASE 2: Bulk 5 codes generation, PDF export, unique hashes, and single red
 test('CASE 3: Altered code is rejected and creates zero grants', async () => {
   setupMockEnv();
   const {
-    generateLectureAccessCode,
-    hashLectureAccessCode,
-    normalizeLectureAccessCode,
+    generateLectureQRToken,
+    hashLectureQRToken,
+    normalizeLectureQRToken,
     redeemLectureAccessCode,
   } = await import('../app/lib/lecture-access-codes.ts');
 
-  const genuineCode = generateLectureAccessCode();
-  const normalized = normalizeLectureAccessCode(genuineCode);
+  const genuineToken = generateLectureQRToken();
+  const normalized = normalizeLectureQRToken(genuineToken);
   assert.ok(normalized);
-  const hash = await hashLectureAccessCode(normalized);
+  const hash = await hashLectureQRToken(normalized);
 
   mockDb.lectureAccessCodes.set(hash, {
     id: 'genuine-code',
     codeHash: hash,
     videoId: 'video-1',
     courseId: 'course-1',
-    displaySuffix: normalized.slice(-5),
+    displaySuffix: normalized.slice(-6),
     redeemedAt: null,
     redeemedBy: null,
   });
 
-  // Mutate last character to another valid character in CODE_ALPHABET
-  const lastChar = genuineCode.slice(-1);
+  // Mutate last character of base64url token
+  const lastChar = genuineToken.slice(-1);
   const replacementChar = lastChar === 'X' ? 'Y' : 'X';
-  const alteredCode = genuineCode.slice(0, -1) + replacementChar;
+  const alteredToken = genuineToken.slice(0, -1) + replacementChar;
 
-  const result = await redeemLectureAccessCode(mockDb, 'student@example.test', alteredCode);
+  const result = await redeemLectureAccessCode(mockDb, 'student@example.test', alteredToken);
   assert.equal(result.status, 'invalid_code');
   assert.equal(mockDb.studentGrants.size, 0);
 });
@@ -440,49 +440,49 @@ test('CASE 3: Altered code is rejected and creates zero grants', async () => {
 test('CASE 4: One-time use enforced (second attempt returns already_used)', async () => {
   setupMockEnv();
   const {
-    generateLectureAccessCode,
-    hashLectureAccessCode,
-    normalizeLectureAccessCode,
+    generateLectureQRToken,
+    hashLectureQRToken,
+    normalizeLectureQRToken,
     redeemLectureAccessCode,
   } = await import('../app/lib/lecture-access-codes.ts');
 
-  const code = generateLectureAccessCode();
-  const normalized = normalizeLectureAccessCode(code);
+  const token = generateLectureQRToken();
+  const normalized = normalizeLectureQRToken(token);
   assert.ok(normalized);
-  const hash = await hashLectureAccessCode(normalized);
+  const hash = await hashLectureQRToken(normalized);
 
   mockDb.lectureAccessCodes.set(hash, {
     id: 'single-use-code',
     codeHash: hash,
     videoId: 'video-1',
     courseId: 'course-1',
-    displaySuffix: normalized.slice(-5),
+    displaySuffix: normalized.slice(-6),
     redeemedAt: null,
     redeemedBy: null,
   });
 
-  const firstRedeem = await redeemLectureAccessCode(mockDb, 'first-student@example.test', code);
+  const firstRedeem = await redeemLectureAccessCode(mockDb, 'first-student@example.test', token);
   assert.equal(firstRedeem.status, 'success');
 
-  const secondRedeem = await redeemLectureAccessCode(mockDb, 'second-student@example.test', code);
+  const secondRedeem = await redeemLectureAccessCode(mockDb, 'second-student@example.test', token);
   assert.equal(secondRedeem.status, 'already_used');
 
   // Verify grant count remains exactly 1
   assert.equal(mockDb.studentGrants.size, 1);
 });
 
-test('CASE 5: Fake masked code ENG-•••••-ABCDE is rejected and no route fallback constructs it', async () => {
+test('CASE 5: Fake masked/suffix code is rejected and no route fallback constructs it', async () => {
   setupMockEnv();
   const { normalizeLectureAccessCode, redeemLectureAccessCode } = await import('../app/lib/lecture-access-codes.ts');
-  const { POST: pdfRoute } = await import('../app/api/admin/access-codes/pdf/route.ts');
+  const { POST: pdfRoute } = await import('../app/api/admin/qr/pdf/route.ts');
 
-  const fakeMasked = 'ENG-•••••-ABCDE';
+  const fakeMasked = 'eqr_••••••ABCDE';
   assert.equal(normalizeLectureAccessCode(fakeMasked), null);
 
   const redeemResult = await redeemLectureAccessCode(mockDb, 'student@example.test', fakeMasked);
   assert.equal(redeemResult.status, 'invalid_code');
 
-  const req = new Request('http://localhost:3000/api/admin/access-codes/pdf', {
+  const req = new Request('http://localhost:3000/api/admin/qr/pdf', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -490,24 +490,24 @@ test('CASE 5: Fake masked code ENG-•••••-ABCDE is rejected and no rout
     },
     body: JSON.stringify({
       videoId: 'video-1',
-      codes: [fakeMasked],
+      tokens: [fakeMasked],
     }),
   });
   const res = await pdfRoute(req);
   assert.equal(res.status, 400);
 
-  // Source inspection: Ensure route file contains zero database fallback or bullets
-  const routeSource = await readFile(new URL('../app/api/admin/access-codes/pdf/route.ts', import.meta.url), 'utf8');
-  assert.doesNotMatch(routeSource, /ENG-•••••-/);
+  // Source inspection: Ensure route file requires plaintext tokens and has zero DB fallback to display suffix
+  const routeSource = await readFile(new URL('../app/api/admin/qr/pdf/route.ts', import.meta.url), 'utf8');
+  assert.match(routeSource, /PLAINTEXT_TOKENS_REQUIRED/);
   assert.doesNotMatch(routeSource, /SELECT.*display_suffix.*FROM lecture_access_codes/);
 });
 
-test('CASE 6: PDF without plaintext codes returns HTTP 400 PLAINTEXT_CODES_REQUIRED (zero DB fallback)', async () => {
+test('CASE 6: PDF without plaintext tokens returns HTTP 400 PLAINTEXT_TOKENS_REQUIRED (zero DB fallback)', async () => {
   setupMockEnv();
-  const { POST: pdfRoute } = await import('../app/api/admin/access-codes/pdf/route.ts');
+  const { POST: pdfRoute } = await import('../app/api/admin/qr/pdf/route.ts');
 
-  // Request with videoId but NO codes
-  const reqNoCodes = new Request('http://localhost:3000/api/admin/access-codes/pdf', {
+  // Request with videoId but NO tokens
+  const reqNoTokens = new Request('http://localhost:3000/api/admin/qr/pdf', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -515,53 +515,53 @@ test('CASE 6: PDF without plaintext codes returns HTTP 400 PLAINTEXT_CODES_REQUI
     },
     body: JSON.stringify({ videoId: 'video-1' }),
   });
-  const resNoCodes = await pdfRoute(reqNoCodes);
-  assert.equal(resNoCodes.status, 400);
-  const dataNoCodes = await resNoCodes.json();
-  assert.equal(dataNoCodes.error, 'PLAINTEXT_CODES_REQUIRED');
+  const resNoTokens = await pdfRoute(reqNoTokens);
+  assert.equal(resNoTokens.status, 400);
+  const dataNoTokens = await resNoTokens.json();
+  assert.equal(dataNoTokens.error, 'PLAINTEXT_TOKENS_REQUIRED');
 
-  // Request with empty codes array
-  const reqEmpty = new Request('http://localhost:3000/api/admin/access-codes/pdf', {
+  // Request with empty tokens array
+  const reqEmpty = new Request('http://localhost:3000/api/admin/qr/pdf', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       cookie: 'englizeka_staff=mock-teacher-token-12345',
     },
-    body: JSON.stringify({ videoId: 'video-1', codes: [] }),
+    body: JSON.stringify({ videoId: 'video-1', tokens: [] }),
   });
   const resEmpty = await pdfRoute(reqEmpty);
   assert.equal(resEmpty.status, 400);
   const dataEmpty = await resEmpty.json();
-  assert.equal(dataEmpty.error, 'PLAINTEXT_CODES_REQUIRED');
+  assert.equal(dataEmpty.error, 'PLAINTEXT_TOKENS_REQUIRED');
 });
 
 test('CASE 7: PDF export for wrong video rejects submitted codes', async () => {
   setupMockEnv();
   const {
-    generateLectureAccessCode,
-    hashLectureAccessCode,
-    normalizeLectureAccessCode,
+    generateLectureQRToken,
+    hashLectureQRToken,
+    normalizeLectureQRToken,
   } = await import('../app/lib/lecture-access-codes.ts');
-  const { POST: pdfRoute } = await import('../app/api/admin/access-codes/pdf/route.ts');
+  const { POST: pdfRoute } = await import('../app/api/admin/qr/pdf/route.ts');
 
-  // Generate code for Video 1
-  const code = generateLectureAccessCode();
-  const normalized = normalizeLectureAccessCode(code);
+  // Generate token for Video 1
+  const token = generateLectureQRToken();
+  const normalized = normalizeLectureQRToken(token);
   assert.ok(normalized);
-  const hash = await hashLectureAccessCode(normalized);
+  const hash = await hashLectureQRToken(normalized);
 
   mockDb.lectureAccessCodes.set(hash, {
     id: 'code-video-1',
     codeHash: hash,
     videoId: 'video-1',
     courseId: 'course-1',
-    displaySuffix: normalized.slice(-5),
+    displaySuffix: normalized.slice(-6),
     redeemedAt: null,
     redeemedBy: null,
   });
 
-  // Attempt to export PDF for Video 2 with Code 1
-  const req = new Request('http://localhost:3000/api/admin/access-codes/pdf', {
+  // Attempt to export PDF for Video 2 with Token 1
+  const req = new Request('http://localhost:3000/api/admin/qr/pdf', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -569,7 +569,7 @@ test('CASE 7: PDF export for wrong video rejects submitted codes', async () => {
     },
     body: JSON.stringify({
       videoId: 'video-2',
-      codes: [code],
+      tokens: [token],
     }),
   });
   const res = await pdfRoute(req);
@@ -579,29 +579,29 @@ test('CASE 7: PDF export for wrong video rejects submitted codes', async () => {
 test('CASE 8: PDF export rejects already redeemed codes', async () => {
   setupMockEnv();
   const {
-    generateLectureAccessCode,
-    hashLectureAccessCode,
-    normalizeLectureAccessCode,
+    generateLectureQRToken,
+    hashLectureQRToken,
+    normalizeLectureQRToken,
   } = await import('../app/lib/lecture-access-codes.ts');
-  const { POST: pdfRoute } = await import('../app/api/admin/access-codes/pdf/route.ts');
+  const { POST: pdfRoute } = await import('../app/api/admin/qr/pdf/route.ts');
 
-  const code = generateLectureAccessCode();
-  const normalized = normalizeLectureAccessCode(code);
+  const token = generateLectureQRToken();
+  const normalized = normalizeLectureQRToken(token);
   assert.ok(normalized);
-  const hash = await hashLectureAccessCode(normalized);
+  const hash = await hashLectureQRToken(normalized);
 
-  // Store already redeemed code
+  // Store already redeemed token
   mockDb.lectureAccessCodes.set(hash, {
     id: 'code-redeemed',
     codeHash: hash,
     videoId: 'video-1',
     courseId: 'course-1',
-    displaySuffix: normalized.slice(-5),
+    displaySuffix: normalized.slice(-6),
     redeemedAt: Date.now() - 10000,
     redeemedBy: 'student@example.test',
   });
 
-  const req = new Request('http://localhost:3000/api/admin/access-codes/pdf', {
+  const req = new Request('http://localhost:3000/api/admin/qr/pdf', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -609,7 +609,7 @@ test('CASE 8: PDF export rejects already redeemed codes', async () => {
     },
     body: JSON.stringify({
       videoId: 'video-1',
-      codes: [code],
+      tokens: [token],
     }),
   });
   const res = await pdfRoute(req);
@@ -623,9 +623,16 @@ test('CASE 9 & 10: PDF text integrity and layout (LTR, nowrap, 2-column, no line
     return;
   }
 
-  const { generateLectureAccessCode } = await import('../app/lib/lecture-access-codes.ts');
-  const code = generateLectureAccessCode();
-  assert.equal(code.length, 39);
+  const {
+    generateLectureQRToken,
+    lectureQRCodeSuffix,
+    buildLectureQRUrl,
+  } = await import('../app/lib/lecture-access-codes.ts');
+  const token = generateLectureQRToken();
+  assert.match(token, /^eqr_[A-Za-z0-9_-]{32}$/);
+  const suffix = lectureQRCodeSuffix(token);
+  const targetUrl = buildLectureQRUrl(token, 'https://englezika.com');
+  assert.ok(targetUrl.includes(token));
 
   const browser = await puppeteer.launch({
     executablePath: chromePath,
@@ -637,19 +644,27 @@ test('CASE 9 & 10: PDF text integrity and layout (LTR, nowrap, 2-column, no line
     const page = await browser.newPage();
     await page.setViewport({ width: 794, height: 1123 }); // A4 dimensions at 96 DPI
 
-    // Build the exact HTML that pdf-generator builds
+    // Build the exact HTML that pdf-generator builds for QR cards
+    const QRCode = (await import('qrcode')).default;
+    const qrDataUrl = await QRCode.toDataURL(targetUrl, {
+      width: 240,
+      margin: 1,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+
     const html = `<!DOCTYPE html>
     <html lang="ar" dir="rtl">
     <head>
     <meta charset="UTF-8">
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      @page { size: A4; margin: 20mm; }
+      @page { size: A4; margin: 15mm 12mm; }
       body {
         font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
         direction: rtl;
         background: #fff;
-        padding: 20mm;
+        color: #0f172a;
       }
       .grid {
         display: grid;
@@ -658,47 +673,84 @@ test('CASE 9 & 10: PDF text integrity and layout (LTR, nowrap, 2-column, no line
         width: 100%;
       }
       .card {
-        border: 1px solid #000;
-        border-radius: 4px;
-        padding: 14px 10px;
+        border: 1.5px solid #1e293b;
+        border-radius: 8px;
+        padding: 10px 8px 8px;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        min-height: 72px;
+        text-align: center;
         background: #fff;
         page-break-inside: avoid;
         overflow: hidden;
+        min-height: 210px;
       }
-      .code {
-        font-family: 'Courier New', Courier, monospace;
-        font-size: 11.5px;
+      .brand {
+        font-size: 8.5px;
         font-weight: 700;
-        letter-spacing: 0.2px;
-        text-align: center;
-        direction: ltr;
-        unicode-bidi: isolate;
-        white-space: nowrap;
-        color: #000;
+        letter-spacing: 0.5px;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 3px;
+      }
+      .title {
+        font-size: 11px;
+        font-weight: 700;
+        color: #0f172a;
+        line-height: 1.35;
+        margin-bottom: 2px;
+        max-width: 95%;
+      }
+      .qr-container {
+        background: #fff;
+        padding: 3px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin: 4px 0;
+      }
+      .instruction {
+        font-size: 9px;
+        font-weight: 600;
+        color: #0f172a;
+        margin-top: 5px;
         line-height: 1.3;
       }
-      .name {
-        font-size: 11px;
-        font-weight: 600;
-        text-align: center;
-        direction: rtl;
-        unicode-bidi: isolate;
-        color: #000;
-        margin-top: 6px;
-        line-height: 1.4;
+      .badge {
+        display: inline-block;
+        font-size: 7.5px;
+        font-weight: 700;
+        color: #b91c1c;
+        background: #fef2f2;
+        border: 0.5px solid #fecaca;
+        border-radius: 9999px;
+        padding: 1.5px 8px;
+        margin-top: 4px;
+      }
+      .id-ref {
+        font-family: monospace;
+        font-size: 8px;
+        color: #94a3b8;
+        margin-top: 4px;
+        direction: ltr;
+        white-space: nowrap;
       }
     </style>
     </head>
     <body>
       <div class="grid">
         <div class="card">
-          <div class="code" dir="ltr">${code}</div>
-          <div class="name" dir="rtl" lang="ar">المحاضرة التجريبية الأولى</div>
+          <div class="brand">منصة إنجليزيكا · ENGLIZEKA</div>
+          <div class="title" dir="rtl" lang="ar">المحاضرة التجريبية الأولى</div>
+          <div class="qr-container">
+            <img src="${qrDataUrl}" width="108" height="108" alt="QR Code" />
+          </div>
+          <div class="instruction" dir="rtl" lang="ar">امسح الرمز بكاميرا هاتفك لفتح المحاضرة مباشرة</div>
+          <div class="badge">صالح للاستخدام مرة واحدة فقط لطالب واحد</div>
+          <div class="id-ref" dir="ltr">ID: ••••${suffix}</div>
         </div>
       </div>
     </body>
@@ -707,33 +759,29 @@ test('CASE 9 & 10: PDF text integrity and layout (LTR, nowrap, 2-column, no line
     await page.setContent(html, { waitUntil: 'load' });
 
     const metrics = await page.evaluate(() => {
-      const codeEl = document.querySelector('.code');
+      const idRefEl = document.querySelector('.id-ref');
       const cardEl = document.querySelector('.card');
-      const style = window.getComputedStyle(codeEl);
+      const qrImg = document.querySelector('.qr-container img');
+      const style = window.getComputedStyle(idRefEl);
       return {
-        text: codeEl.textContent,
+        idRefText: idRefEl.textContent,
         direction: style.direction,
         whiteSpace: style.whiteSpace,
-        codeScrollWidth: codeEl.scrollWidth,
-        codeClientWidth: codeEl.clientWidth,
-        codeOffsetHeight: codeEl.offsetHeight,
+        idRefScrollWidth: idRefEl.scrollWidth,
+        idRefClientWidth: idRefEl.clientWidth,
         cardClientWidth: cardEl.clientWidth,
+        qrImgLoaded: Boolean(qrImg && qrImg.naturalWidth > 0),
       };
     });
 
-    // 1. Text integrity: Zero mutation, bidi characters, or alteration
-    assert.equal(metrics.text, code);
-    assert.equal(metrics.text.length, code.length);
-    assert.deepEqual(Array.from(metrics.text), Array.from(code));
-
-    // 2. CSS properties
+    // 1. Text integrity: Suffix reference matches exactly without alteration
+    assert.equal(metrics.idRefText, `ID: ••••${suffix}`);
     assert.equal(metrics.direction, 'ltr');
     assert.equal(metrics.whiteSpace, 'nowrap');
 
-    // 3. Layout bounds: code element fits cleanly inside card without wrapping
-    assert.ok(metrics.codeScrollWidth <= metrics.cardClientWidth);
-    // Offset height must indicate exactly 1 line (~15-18px for 11.5px line-height 1.3)
-    assert.ok(metrics.codeOffsetHeight <= 22);
+    // 2. Layout bounds: Elements fit cleanly inside card without wrapping or overflow
+    assert.ok(metrics.idRefScrollWidth <= metrics.cardClientWidth);
+    assert.equal(metrics.qrImgLoaded, true, 'QR image must load and render in headless browser');
   } finally {
     await browser.close();
   }
