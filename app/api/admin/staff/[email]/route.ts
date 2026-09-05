@@ -52,7 +52,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ em
   const now = Date.now();
 
   if (typeof body.password === 'string' && body.password.length > 0) {
-    if (!isStrongPassword(body.password)) {
+    if (!isStrongPassword(body.password, 12, 200)) {
       return jsonError('كلمة المرور يجب أن تحتوي على 12 حرفاً على الأقل وحرف كبير وصغير ورقم ورمز');
     }
     const credentials = await hashPassword(body.password);

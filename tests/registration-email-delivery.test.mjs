@@ -31,12 +31,18 @@ function fakeDatabase(insertedUsers = []) {
   };
 }
 
-function registrationRequest({ includeRemovedFields = true, grade = 'تالتة ثانوي', section = 'علمي علوم' } = {}) {
+function registrationRequest({
+  includeRemovedFields = true,
+  grade = 'تالتة ثانوي',
+  section = 'علمي علوم',
+  password = 'Test!2026',
+  passwordConfirm = 'Test!2026',
+} = {}) {
   const form = new FormData();
   for (const [key, value] of Object.entries({
     email: 'registration-delivery@example.test',
-    password: 'Student!2026',
-    password_confirm: 'Student!2026',
+    password,
+    password_confirm: passwordConfirm,
     first_name: 'Test',
     second_name: 'Student',
     third_name: '',
@@ -157,3 +163,29 @@ test('registration: first secondary students are allowed with no track and secti
   assert.equal(res4.status, 400);
   const body4 = await res4.json();
   assert.equal(body4.error, 'اختر الشعبة');
+});
+
+test('registration rejects passwords and password confirmations longer than 9 characters', async () => {
+  globalThis.__ENGLIZEKA_ENV__ = {
+    DB: fakeDatabase(),
+    STORAGE: {
+      async put() {},
+      async get() { return null; },
+      async delete() {},
+    },
+    EMAIL_TEST_MODE: 'false',
+    VERIFICATION_SECRET: 'diagnostic-secret-that-is-long-enough',
+  };
+
+  // Password longer than 9 characters
+  const res1 = await register(registrationRequest({ password: 'LongPassword!2026', passwordConfirm: 'LongPassword!2026' }));
+  assert.equal(res1.status, 400);
+  const body1 = await res1.json();
+  assert.equal(body1.error, 'كلمة المرور يجب ألا تتجاوز 9 أحرف');
+
+  // Password confirmation longer than 9 characters
+  const res2 = await register(registrationRequest({ password: 'Pass!1', passwordConfirm: 'LongPassword!2026' }));
+  assert.equal(res2.status, 400);
+  const body2 = await res2.json();
+  assert.equal(body2.error, 'تأكيد كلمة المرور يجب ألا يتجاوز 9 أحرف');
+});

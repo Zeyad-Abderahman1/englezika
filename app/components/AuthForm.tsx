@@ -231,6 +231,14 @@ function ForgotPasswordModal({
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (newPassword.length > 9) {
+      setError('كلمة المرور الجديدة يجب ألا تتجاوز 9 أحرف');
+      return;
+    }
+    if (newPasswordConfirm.length > 9) {
+      setError('تأكيد كلمة المرور يجب ألا يتجاوز 9 أحرف');
+      return;
+    }
     if (newPassword !== newPasswordConfirm) {
       setError('كلمتا السر غير متطابقتين');
       return;
@@ -358,7 +366,7 @@ function ForgotPasswordModal({
               <PasswordInput
                 id="reset-new-pass"
                 name="new_password"
-                placeholder="8 أحرف على الأقل"
+                placeholder="حتى 9 أحرف"
                 value={newPassword}
                 onChange={setNewPassword}
               />
@@ -626,14 +634,21 @@ function RegisterForm() {
     lastName: lastName.trim().length < 2 ? 'الاسم الأخير يجب أن يكون حرفين على الأقل' : '',
     email: !EMAIL_RE.test(email) ? 'أدخل بريداً إلكترونياً صحيحاً' : '',
     password:
-      password.length < 12
-        ? 'كلمة السر 12 حرفاً على الأقل'
-        : !/[A-Z]/.test(password)
-          ? 'يجب أن تحتوي على حرف كبير'
-          : !/\d/.test(password)
-            ? 'يجب أن تحتوي على رقم'
-            : '',
-    passwordConfirm: password !== passwordConfirm ? 'كلمتا السر غير متطابقتين' : '',
+      password.length > 9
+        ? 'كلمة السر يجب ألا تتجاوز 9 أحرف'
+        : password.length < 6
+          ? 'كلمة السر 6 أحرف على الأقل'
+          : !/[A-Z]/.test(password)
+            ? 'يجب أن تحتوي على حرف كبير'
+            : !/\d/.test(password)
+              ? 'يجب أن تحتوي على رقم'
+              : '',
+    passwordConfirm:
+      passwordConfirm.length > 9
+        ? 'تأكيد كلمة السر يجب ألا يتجاوز 9 أحرف'
+        : password !== passwordConfirm
+          ? 'كلمتا السر غير متطابقتين'
+          : '',
   };
 
   const isFormValid =
@@ -661,6 +676,14 @@ function RegisterForm() {
       passwordConfirm: true,
     });
     if (!isFormValid) return;
+    if (password.length > 9) {
+      setError('كلمة السر يجب ألا تتجاوز 9 أحرف');
+      return;
+    }
+    if (passwordConfirm.length > 9) {
+      setError('تأكيد كلمة السر يجب ألا يتجاوز 9 أحرف');
+      return;
+    }
     if (!isFirstSecondary && sections.length > 0 && !section) {
       setError('اختر الشعبة');
       return;
@@ -957,7 +980,7 @@ function RegisterForm() {
             <PasswordInput
               id="reg-password"
               name="password"
-              placeholder="كلمة السر (12 حرفاً+)"
+              placeholder="كلمة السر (حتى 9 أحرف)"
               value={password}
               onChange={(v) => {
                 setPassword(v);

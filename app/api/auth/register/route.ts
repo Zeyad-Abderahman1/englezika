@@ -136,9 +136,15 @@ export async function POST(request: Request) {
   const isFirstSecondary = grade === 'أولى ثانوي';
   if (!isFirstSecondary && !section) return jsonError('اختر الشعبة');
   const finalSection = isFirstSecondary ? '' : section;
+  if (password.length > 9) {
+    return jsonError('كلمة المرور يجب ألا تتجاوز 9 أحرف');
+  }
+  if (passwordConfirm.length > 9) {
+    return jsonError('تأكيد كلمة المرور يجب ألا يتجاوز 9 أحرف');
+  }
   if (!isStrongPassword(password)) {
     return jsonError(
-      'كلمة المرور يجب أن تكون 12 حرفاً على الأقل، وتحتوي على حرف كبير، وحرف صغير، ورقم، ورمز خاص (!@#$%).'
+      'كلمة المرور يجب أن تكون بين 6 و 9 أحرف، وتحتوي على حرف كبير، وحرف صغير، ورقم، ورمز خاص (!@#$%).'
     );
   }
   if (password !== passwordConfirm) return jsonError('كلمتا السر غير متطابقتين');

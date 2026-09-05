@@ -32,12 +32,14 @@ test('safeInteger clamps numbers between min and max', () => {
   assert.equal(safeInteger('invalid', 5, 0, 10), 5);
 });
 
-test('isStrongPassword enforces 12+ chars, upper, lower, digit, symbol', () => {
-  assert.equal(isStrongPassword('Weak1!'), false);
-  assert.equal(isStrongPassword('alllowercase1!'), false);
-  assert.equal(isStrongPassword('ALLUPPERCASE1!'), false);
-  assert.equal(isStrongPassword('NoSpecialSymbol123'), false);
-  assert.equal(isStrongPassword('ValidP@ssw0rd2026'), true);
+test('isStrongPassword enforces 6-9 chars, upper, lower, digit, symbol', () => {
+  assert.equal(isStrongPassword('Weak1!'), true);
+  assert.equal(isStrongPassword('alllow1!'), false);
+  assert.equal(isStrongPassword('ALLUP1!'), false);
+  assert.equal(isStrongPassword('NoSymbol12'), false);
+  assert.equal(isStrongPassword('ValidP@ssw0rd2026'), false);
+  assert.equal(isStrongPassword('Pass!2026'), true);
+  assert.equal(isStrongPassword('ValidP@ssw0rd2026', 12, 200), true);
 });
 
 test('sanitizeContext redacts sensitive fields like passwords and tokens', () => {

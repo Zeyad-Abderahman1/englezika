@@ -1531,6 +1531,16 @@ export default function StudentDashboard() {
                     setPasswordMsg('');
                     setPasswordErr('');
                     const form = new FormData(event.currentTarget);
+                    const newPass = String(form.get('newPassword') || '');
+                    const newPassConfirm = String(form.get('newPasswordConfirm') || '');
+                    if (newPass.length > 9) {
+                      setPasswordErr('كلمة السر يجب ألا تتجاوز 9 أحرف');
+                      return;
+                    }
+                    if (newPassConfirm.length > 9) {
+                      setPasswordErr('تأكيد كلمة السر يجب ألا يتجاوز 9 أحرف');
+                      return;
+                    }
                     const response = await fetch('/api/auth/change-password', {
                       method: 'POST',
                       headers: { 'content-type': 'application/json' },
@@ -1553,12 +1563,12 @@ export default function StudentDashboard() {
                     />
                   </label>
                   <label>
-                    <span>كلمة السر الجديدة (8 أحرف على الأقل)</span>
+                    <span>كلمة السر الجديدة (حتى 9 أحرف)</span>
                     <input
                       name="newPassword"
                       type="password"
                       required
-                      minLength={8}
+                      minLength={6}
                       autoComplete="new-password"
                     />
                   </label>
@@ -1568,7 +1578,7 @@ export default function StudentDashboard() {
                       name="newPasswordConfirm"
                       type="password"
                       required
-                      minLength={8}
+                      minLength={6}
                       autoComplete="new-password"
                     />
                   </label>

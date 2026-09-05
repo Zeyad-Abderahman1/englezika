@@ -43,8 +43,17 @@ export async function POST(request: Request): Promise<Response> {
     }
     const accountLimit = await checkRateLimit('password-reset-submit-email', email, 10, 300);
     if (!accountLimit.allowed) return rateLimitResponse(accountLimit.resetAfterSeconds);
+    if (typeof newPassword === 'string' && newPassword.length > 9) {
+      return jsonResponse({ error: 'كلمة المرور الجديدة يجب ألا تتجاوز 9 أحرف' }, 400);
+    }
     if (!newPassword || !isStrongPassword(newPassword)) {
-      return jsonResponse({ error: 'كلمة المرور الجديدة يجب أن تكون 12 حرفاً على الأقل' }, 400);
+      return jsonResponse(
+        {
+          error:
+            'كلمة المرور الجديدة يجب أن تكون بين 6 و 9 أحرف، وتحتوي على حرف كبير، وحرف صغير، ورقم، ورمز خاص (!@#$%).',
+        },
+        400
+      );
     }
 
     const result = await consumePasswordResetCode(email, code);

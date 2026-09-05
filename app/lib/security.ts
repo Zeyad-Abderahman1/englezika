@@ -7,10 +7,10 @@ export function safeInteger(value: unknown, fallback: number, min: number, max: 
   return Number.isFinite(parsed) ? Math.min(max, Math.max(min, Math.round(parsed))) : fallback;
 }
 
-export function isStrongPassword(value: string): boolean {
+export function isStrongPassword(value: string, minLength = 6, maxLength = 9): boolean {
   return (
-    value.length >= 12 &&
-    value.length <= 200 &&
+    value.length >= minLength &&
+    value.length <= maxLength &&
     /[a-z]/.test(value) &&
     /[A-Z]/.test(value) &&
     /\d/.test(value) &&
