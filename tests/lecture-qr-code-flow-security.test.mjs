@@ -128,14 +128,53 @@ test('1. generateLectureQRToken produces high-entropy, unique base64url tokens w
 
 test('2. buildLectureQRUrl generates proper canonical redemption URLs with hash fragment', () => {
   const token = 'eqr_example_secure_token_12345';
-  const urlDefault = buildLectureQRUrl(token, 'https://englizeka.com');
-  assert.equal(urlDefault, 'https://englizeka.com/redeem#eqr_example_secure_token_12345');
 
-  const urlTrailingSlash = buildLectureQRUrl(token, 'https://englizeka.com/');
-  assert.equal(urlTrailingSlash, 'https://englizeka.com/redeem#eqr_example_secure_token_12345');
+  // Canonical APP_URL authoritative priority test (production behind Nginx/PM2)
+  const prevAppUrl = process.env.APP_URL;
+  const prevInjected = globalThis.__ENGLIZEKA_ENV__;
+  try {
+    process.env.APP_URL = 'https://englezika.com';
+    if (globalThis.__ENGLIZEKA_ENV__) {
+      globalThis.__ENGLIZEKA_ENV__.APP_URL = 'https://englezika.com';
+    }
 
-  const relativeUrl = buildLectureQRUrl(token, '');
-  assert.equal(relativeUrl, '/redeem#eqr_example_secure_token_12345');
+    const canonicalUrl = buildLectureQRUrl(token, 'http://127.0.0.1:3000');
+    assert.equal(
+      canonicalUrl,
+      'https://englezika.com/redeem#eqr_example_secure_token_12345',
+      'Canonical APP_URL must always take precedence over request/internal baseOrigin'
+    );
+    assert.doesNotMatch(
+      canonicalUrl,
+      /127\.0\.0\.1|localhost/,
+      'QR code URL must never contain localhost or 127.0.0.1 when APP_URL is configured'
+    );
+
+    // Fallback when APP_URL is absent
+    delete process.env.APP_URL;
+    if (globalThis.__ENGLIZEKA_ENV__) {
+      delete globalThis.__ENGLIZEKA_ENV__.APP_URL;
+    }
+
+    const fallbackUrl = buildLectureQRUrl(token, 'http://127.0.0.1:3000');
+    assert.equal(
+      fallbackUrl,
+      'http://127.0.0.1:3000/redeem#eqr_example_secure_token_12345',
+      'baseOrigin should serve as fallback when APP_URL is empty'
+    );
+
+    const relativeUrl = buildLectureQRUrl(token, '');
+    assert.equal(relativeUrl, '/redeem#eqr_example_secure_token_12345');
+  } finally {
+    if (prevAppUrl !== undefined) {
+      process.env.APP_URL = prevAppUrl;
+    } else {
+      delete process.env.APP_URL;
+    }
+    if (prevInjected !== undefined) {
+      globalThis.__ENGLIZEKA_ENV__ = prevInjected;
+    }
+  }
 });
 
 test('3. normalizeLectureQRToken strictly validates tokens and rejects malformed inputs', () => {

@@ -97,7 +97,7 @@ export const lectureQRCodeSuffix = lectureAccessCodeSuffix;
  * Builds the canonical student QR scan URL for a given token.
  */
 export function buildLectureQRUrl(token: string, baseOrigin?: string): string {
-  const origin = (baseOrigin || getPlatformEnv().APP_URL || '').replace(/\/+$/, '');
+  const origin = (getPlatformEnv().APP_URL || baseOrigin || '').replace(/\/+$/, '');
   const cleanToken = token.trim();
   const path = `/redeem#${cleanToken}`;
   return origin ? `${origin}${path}` : path;
