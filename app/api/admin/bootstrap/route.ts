@@ -137,6 +137,8 @@ export async function GET(request: Request) {
       .prepare(
         `SELECT codes.id, codes.video_id AS videoId, codes.display_suffix AS displaySuffix,
          codes.created_at AS createdAt, codes.redeemed_at AS redeemedAt,
+         codes.redeemed_by_student_email AS redeemedByStudentEmail,
+         codes.batch_id AS batchId,
          v.title AS videoTitle, c.title AS courseTitle
          FROM lecture_access_codes codes
          JOIN videos v ON v.id = codes.video_id

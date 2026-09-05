@@ -1,9 +1,10 @@
 import { recordAuditLog } from '../../../../lib/audit';
 import {
-  generateLectureAccessCode,
-  hashLectureAccessCode,
-  lectureAccessCodeSuffix,
-  normalizeLectureAccessCode,
+  buildLectureQRUrl,
+  generateLectureQRToken,
+  hashLectureQRToken,
+  lectureQRCodeSuffix,
+  normalizeLectureQRToken,
 } from '../../../../lib/lecture-access-codes';
 import { getDatabase } from '../../../../lib/platform';
 import type { PreparedStatement } from '../../../../lib/database';
@@ -11,13 +12,13 @@ import { jsonError, requireSameOrigin, safeInteger, safeText } from '../../../..
 import { apiStaff, isStaffResponse } from '../../../../lib/staff-auth';
 
 /**
- * POST /api/admin/access-codes/bulk
+ * POST /api/admin/qr/bulk
  *
- * Generate multiple cryptographic access codes for a video in a single atomic transaction.
+ * Generate multiple single-use cryptographic QR tokens for a video in a single atomic transaction.
  * If any insert fails, the entire batch is rolled back leaving zero partial records.
  *
  * Body: { videoId: string, count: number (1..500) }
- * Returns: { ok: true, batch: { id: string, count: number, createdAt: number }, codes: Array<{ id: string, suffix: string, fullCode: string }> }
+ * Returns: { ok: true, batch: { id: string, count: number, createdAt: number }, qrCodes: Array<{ id, suffix, token, url }> }
  */
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
@@ -43,8 +44,14 @@ export async function POST(request: Request) {
   const batchId = crypto.randomUUID();
   const createdAt = Date.now();
   const staffEmail = staff.email.toLowerCase();
+  const requestOrigin = new URL(request.url).origin;
 
-  const generatedCodes: Array<{ id: string; suffix: string; fullCode: string }> = [];
+  const generatedQRCodes: Array<{
+    id: string;
+    suffix: string;
+    token: string;
+    url: string;
+  }> = [];
   const seenHashes = new Set<string>();
   const statements: PreparedStatement[] = [];
 
@@ -58,32 +65,33 @@ export async function POST(request: Request) {
       .bind(batchId, video.courseId, video.id, count, staffEmail, createdAt)
   );
 
-  // 2. Prepare atomic insertion for each cryptographic access code
+  // 2. Prepare atomic insertion for each cryptographic QR token
   for (let i = 0; i < count; i++) {
-    let fullCode = '';
+    let token = '';
     let codeHash = '';
     let suffix = '';
 
     for (let attempt = 0; attempt < 5; attempt++) {
-      const candidate = generateLectureAccessCode();
-      const normalized = normalizeLectureAccessCode(candidate);
+      const candidate = generateLectureQRToken();
+      const normalized = normalizeLectureQRToken(candidate);
       if (!normalized) continue;
-      const h = await hashLectureAccessCode(normalized);
+      const h = await hashLectureQRToken(normalized);
       if (!seenHashes.has(h)) {
         seenHashes.add(h);
-        fullCode = candidate;
+        token = candidate;
         codeHash = h;
-        suffix = lectureAccessCodeSuffix(normalized);
+        suffix = lectureQRCodeSuffix(normalized);
         break;
       }
     }
 
     if (!codeHash) {
-      return jsonError('تعذر إنشاء دفعة الأكواد الفريدة. حاول مرة أخرى.', 500);
+      return jsonError('تعذر إنشاء رموز QR الفريدة. حاول مرة أخرى.', 500);
     }
 
     const codeId = crypto.randomUUID();
-    generatedCodes.push({ id: codeId, suffix, fullCode });
+    const url = buildLectureQRUrl(token, requestOrigin);
+    generatedQRCodes.push({ id: codeId, suffix, token, url });
 
     statements.push(
       db
@@ -109,12 +117,12 @@ export async function POST(request: Request) {
   try {
     await db.batch(statements);
   } catch {
-    return jsonError('فشل إنشاء دفعة الأكواد في قاعدة البيانات.', 500);
+    return jsonError('فشل إنشاء دفعة رموز QR في قاعدة البيانات.', 500);
   }
 
   await recordAuditLog({
     userEmail: staff.email,
-    action: 'lecture_access_code.bulk_created',
+    action: 'lecture_qr.bulk_created',
     resource: 'video',
     resourceId: video.id,
     details: { courseId: video.courseId, batchId, count },
@@ -122,7 +130,11 @@ export async function POST(request: Request) {
   });
 
   return Response.json(
-    { ok: true, batch: { id: batchId, count, createdAt }, codes: generatedCodes },
+    {
+      ok: true,
+      batch: { id: batchId, count, createdAt },
+      qrCodes: generatedQRCodes,
+    },
     { status: 201, headers: { 'cache-control': 'private, no-store' } }
   );
 }

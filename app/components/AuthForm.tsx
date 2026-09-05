@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Eye,
   EyeOff,
@@ -399,6 +399,16 @@ function ForgotPasswordModal({
 
 function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const rawTarget =
+    searchParams?.get('return_to') ||
+    searchParams?.get('redirect') ||
+    searchParams?.get('next') ||
+    '';
+  const redirectTarget =
+    rawTarget && rawTarget.startsWith('/') && !rawTarget.startsWith('//')
+      ? rawTarget
+      : '/account';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -431,7 +441,7 @@ function LoginForm() {
         setError(data.error || 'خطأ في تسجيل الدخول');
         return;
       }
-      router.push('/account');
+      router.push(redirectTarget);
     } catch {
       setError('تعذر الاتصال. تحقق من الإنترنت.');
     } finally {
@@ -451,7 +461,7 @@ function LoginForm() {
         <div className="auth-form-header">
           <h2 className="auth-form-title">تسجيل الدخول</h2>
           <p className="auth-form-sub">أدخل بياناتك للوصول لحسابك</p>
-          <Link href="/register" className="auth-switch-link">
+          <Link href={rawTarget ? `/register?return_to=${encodeURIComponent(redirectTarget)}` : '/register'} className="auth-switch-link">
             مش عندك حساب؟ <span>سجّل الآن</span>
           </Link>
         </div>
@@ -573,6 +583,16 @@ function LoginForm() {
 
 function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const rawTarget =
+    searchParams?.get('return_to') ||
+    searchParams?.get('redirect') ||
+    searchParams?.get('next') ||
+    '';
+  const redirectTarget =
+    rawTarget && rawTarget.startsWith('/') && !rawTarget.startsWith('//')
+      ? rawTarget
+      : '/account';
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -675,12 +695,12 @@ function RegisterForm() {
       if (!res.ok) {
         setError(data.error || 'حدث خطأ في التسجيل');
         if (data.accountCreated && data.verificationPending) {
-          setTimeout(() => router.push('/account'), 1800);
+          setTimeout(() => router.push(redirectTarget), 1800);
         }
         return;
       }
       setSuccess(true);
-      setTimeout(() => router.push('/account'), 1200);
+      setTimeout(() => router.push(redirectTarget), 1200);
     } catch {
       setError('تعذر الاتصال. تحقق من الإنترنت.');
     } finally {
@@ -705,7 +725,7 @@ function RegisterForm() {
         <p className="auth-form-sub">
           ادخل بياناتك بشكل صحيح وسيتم التواصل معاك خلال ساعات قليلة لتفعيل الحساب !
         </p>
-        <Link href="/login" className="auth-switch-link">
+        <Link href={rawTarget ? `/login?return_to=${encodeURIComponent(redirectTarget)}` : '/login'} className="auth-switch-link">
           يوجد لديك حساب بالفعل؟ <span>ادخل إلى حسابك الآن !</span>
         </Link>
       </div>
@@ -1026,5 +1046,15 @@ function RegisterForm() {
 // ─── Exported Component ───────────────────────────────────────────────────────
 
 export default function AuthForm({ mode }: { mode: 'login' | 'register' }) {
-  return mode === 'register' ? <RegisterForm /> : <LoginForm />;
+  return (
+    <Suspense
+      fallback={
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '32px' }}>
+          <Loader2 size={32} className="spin" />
+        </div>
+      }
+    >
+      {mode === 'register' ? <RegisterForm /> : <LoginForm />}
+    </Suspense>
+  );
 }

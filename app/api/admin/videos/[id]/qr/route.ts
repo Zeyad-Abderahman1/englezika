@@ -1,5 +1,11 @@
 import { recordAuditLog } from '../../../../../lib/audit';
-import { generateLectureAccessCode, hashLectureAccessCode, lectureAccessCodeSuffix, normalizeLectureAccessCode } from '../../../../../lib/lecture-access-codes';
+import {
+  buildLectureQRUrl,
+  generateLectureQRToken,
+  hashLectureQRToken,
+  lectureQRCodeSuffix,
+  normalizeLectureQRToken,
+} from '../../../../../lib/lecture-access-codes';
 import { getDatabase } from '../../../../../lib/platform';
 import { jsonError, requireSameOrigin, safeText } from '../../../../../lib/security';
 import { apiStaff, isStaffResponse } from '../../../../../lib/staff-auth';
@@ -21,10 +27,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!video) return jsonError('المحاضرة غير موجودة', 404);
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const code = generateLectureAccessCode();
-    const normalizedCode = normalizeLectureAccessCode(code);
-    if (!normalizedCode) throw new Error('Generated lecture code did not pass validation');
-    const codeHash = await hashLectureAccessCode(normalizedCode);
+    const token = generateLectureQRToken();
+    const normalized = normalizeLectureQRToken(token);
+    if (!normalized) throw new Error('Generated lecture QR token did not pass validation');
+    const codeHash = await hashLectureQRToken(normalized);
+    const suffix = lectureQRCodeSuffix(normalized);
     const createdAt = Date.now();
     const inserted = await db
       .prepare(
@@ -36,7 +43,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       .bind(
         crypto.randomUUID(),
         codeHash,
-        lectureAccessCodeSuffix(normalizedCode),
+        suffix,
         video.courseId,
         video.id,
         staff.email.toLowerCase(),
@@ -47,18 +54,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     await recordAuditLog({
       userEmail: staff.email,
-      action: 'lecture_access_code.created',
+      action: 'lecture_qr.created',
       resource: 'video',
       resourceId: video.id,
       details: { courseId: video.courseId },
       request,
     });
+
+    const url = buildLectureQRUrl(token, new URL(request.url).origin);
     return Response.json(
-      { code, displaySuffix: lectureAccessCodeSuffix(normalizedCode), createdAt },
+      {
+        token,
+        url,
+        displaySuffix: suffix,
+        createdAt,
+      },
       { status: 201, headers: { 'cache-control': 'private, no-store' } }
     );
   }
 
-  return jsonError('تعذر إنشاء كود آمن الآن. حاول مرة أخرى.', 503);
+  return jsonError('تعذر إنشاء رمز QR آمن الآن. حاول مرة أخرى.', 503);
 }
-

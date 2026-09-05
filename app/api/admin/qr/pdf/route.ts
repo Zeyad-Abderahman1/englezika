@@ -3,18 +3,19 @@ import { getDatabase } from '../../../../lib/platform';
 import { jsonError, requireSameOrigin, safeText } from '../../../../lib/security';
 import { generateAccessCodePDF } from '../../../../lib/pdf-generator';
 import {
-  hashLectureAccessCode,
-  lectureAccessCodeSuffix,
-  normalizeLectureAccessCode,
+  buildLectureQRUrl,
+  hashLectureQRToken,
+  lectureQRCodeSuffix,
+  normalizeLectureQRToken,
 } from '../../../../lib/lecture-access-codes';
 
 /**
- * POST /api/admin/access-codes/pdf
+ * POST /api/admin/qr/pdf
  *
- * Generate a printable PDF of freshly generated access codes for a given video.
- * Plaintext codes exist only in memory upon generation and must be submitted in the request.
+ * Generate a printable PDF of freshly generated QR codes for a given video.
+ * Plaintext tokens exist only in memory upon generation and must be submitted in the request.
  *
- * Body: { videoId: string, codes: string[] | Array<{ fullCode: string }> }
+ * Body: { videoId: string, tokens: string[] | Array<{ token?: string }> }
  * Returns: application/pdf
  */
 export async function POST(request: Request) {
@@ -28,19 +29,25 @@ export async function POST(request: Request) {
   const videoId = safeText(body.videoId, 80);
   if (!videoId) return jsonError('معرف المحاضرة مطلوب', 400);
 
-  if (!Array.isArray(body.codes) || body.codes.length === 0) {
+  const rawTokensList = Array.isArray(body.tokens)
+    ? body.tokens
+    : Array.isArray(body.codes)
+      ? body.codes
+      : null;
+
+  if (!rawTokensList || rawTokensList.length === 0) {
     return Response.json(
       {
-        error: 'PLAINTEXT_CODES_REQUIRED',
+        error: 'PLAINTEXT_TOKENS_REQUIRED',
         message:
-          'لأسباب أمنية لا يتم تخزين الأكواد بصورتها الأصلية. يجب تحميل ملف PDF فور إنشاء الأكواد.',
+          'لأسباب أمنية لا يتم تخزين رموز QR بصورتها الأصلية في الخادم. يجب تحميل ملف PDF فور إنشاء الرموز.',
       },
       { status: 400 }
     );
   }
 
-  if (body.codes.length > 500) {
-    return jsonError('الحد الأقصى لطباعة الأكواد هو 500 كود في الطلب الواحد', 400);
+  if (rawTokensList.length > 500) {
+    return jsonError('الحد الأقصى لطباعة الرموز هو 500 رمز في الطلب الواحد', 400);
   }
 
   const db = getDatabase();
@@ -51,22 +58,24 @@ export async function POST(request: Request) {
     .first<{ id: string; title: string }>();
   if (!video) return jsonError('المحاضرة غير موجودة', 404);
 
-  type ParsedCode = {
+  type ParsedToken = {
     original: string;
     normalized: string;
     hash: string;
     suffix: string;
   };
 
-  const parsedCodes: ParsedCode[] = [];
+  const parsedTokens: ParsedToken[] = [];
 
-  for (const rawItem of body.codes) {
+  for (const rawItem of rawTokensList) {
     let rawString: string | null = null;
     if (typeof rawItem === 'string') {
       rawString = rawItem.trim();
     } else if (typeof rawItem === 'object' && rawItem !== null) {
-      const obj = rawItem as { fullCode?: unknown; code?: unknown };
-      if (typeof obj.fullCode === 'string') {
+      const obj = rawItem as { token?: unknown; fullCode?: unknown; code?: unknown };
+      if (typeof obj.token === 'string') {
+        rawString = obj.token.trim();
+      } else if (typeof obj.fullCode === 'string') {
         rawString = obj.fullCode.trim();
       } else if (typeof obj.code === 'string') {
         rawString = obj.code.trim();
@@ -74,24 +83,24 @@ export async function POST(request: Request) {
     }
 
     if (!rawString) {
-      return jsonError('أكواد غير صالحة', 400);
+      return jsonError('رموز غير صالحة', 400);
     }
 
-    const normalized = normalizeLectureAccessCode(rawString);
+    const normalized = normalizeLectureQRToken(rawString);
     if (!normalized) {
-      return jsonError('أكواد غير صالحة أو غير مطابقة للنمط المطلوب', 400);
+      return jsonError('رموز غير صالحة أو غير مطابقة للنمط المطلوب', 400);
     }
 
-    const hash = await hashLectureAccessCode(normalized);
-    parsedCodes.push({
+    const hash = await hashLectureQRToken(normalized);
+    parsedTokens.push({
       original: rawString,
       normalized,
       hash,
-      suffix: lectureAccessCodeSuffix(normalized),
+      suffix: lectureQRCodeSuffix(normalized),
     });
   }
 
-  const uniqueHashes = Array.from(new Set(parsedCodes.map((c) => c.hash)));
+  const uniqueHashes = Array.from(new Set(parsedTokens.map((c) => c.hash)));
   const placeholders = uniqueHashes.map(() => '?').join(', ');
   const existingRows = await db
     .prepare(
@@ -122,36 +131,38 @@ export async function POST(request: Request) {
     }
   }
 
-  for (const item of parsedCodes) {
+  for (const item of parsedTokens) {
     const dbRow = rowMap.get(item.hash);
     if (!dbRow || dbRow.videoId !== videoId || dbRow.redeemedAt !== null) {
-      return jsonError('أكواد غير صالحة أو غير مخصصة لهذه المحاضرة أو تم استخدامها بالفعل', 400);
+      return jsonError('رموز غير صالحة أو غير مخصصة لهذه المحاضرة أو تم استخدامها بالفعل', 400);
     }
   }
 
-  const codeRows = parsedCodes.map((item, idx) => {
+  const requestOrigin = new URL(request.url).origin;
+  const qrRows = parsedTokens.map((item, idx) => {
     const dbRow = rowMap.get(item.hash)!;
     return {
-      id: dbRow.id || `code-${idx}`,
+      id: dbRow.id || `qr-${idx}`,
       suffix: item.suffix,
-      fullCode: item.original,
+      token: item.original,
+      url: buildLectureQRUrl(item.original, requestOrigin),
       videoTitle: video.title,
     };
   });
 
   let pdfBuffer: Buffer;
   try {
-    pdfBuffer = await generateAccessCodePDF(codeRows, {
-      title: `Access Codes - ${video.title}`,
+    pdfBuffer = await generateAccessCodePDF(qrRows, {
+      title: `Lecture QR Codes - ${video.title}`,
     });
-  } catch (pdfError) {
-    return jsonError('تعذر إنشاء ملف PDF للأكواد', 500);
+  } catch {
+    return jsonError('تعذر إنشاء ملف PDF لرموز QR', 500);
   }
 
   return new Response(pdfBuffer as unknown as BodyInit, {
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="access-codes-${videoId}.pdf"`,
+      'Content-Disposition': `attachment; filename="lecture-qr-codes-${videoId}.pdf"`,
       'Content-Length': String(pdfBuffer.byteLength),
       'Cache-Control': 'no-store',
     },

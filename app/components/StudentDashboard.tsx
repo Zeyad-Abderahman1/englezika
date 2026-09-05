@@ -26,6 +26,7 @@ import {
   Menu,
   Medal,
   Play,
+  QrCode,
   ShieldCheck,
   Upload,
   UserRound,
@@ -38,7 +39,6 @@ async function logout() {
   window.location.assign('/login');
 }
 import EmailVerification from './EmailVerification';
-import LectureCodeRedemption from './LectureCodeRedemption';
 import AssessmentReview, { type ReviewQuestion } from './AssessmentReview';
 import { replaceAbortController, runRecoverableLoad } from '../lib/recoverable-load';
 
@@ -774,8 +774,8 @@ export default function StudentDashboard() {
           )}
         </div>
         <button className={view === 'redeem' ? 'active' : ''} onClick={() => navigate('redeem')}>
-          <KeyRound />
-          <span>كود المحاضرة</span>
+          <QrCode />
+          <span>المحاضرات المفعلة</span>
         </button>
         <button className={view === 'exams' ? 'active' : ''} onClick={() => navigate('exams', '')}>
           <ClipboardCheck />
@@ -858,7 +858,7 @@ export default function StudentDashboard() {
                 : view === 'course'
                   ? activeCourse?.title || 'الكورس'
                   : view === 'redeem'
-                    ? 'استخدام كود المحاضرة'
+                    ? 'المحاضرات المفعلة بالـ QR'
                     : view === 'exams'
                       ? 'الامتحانات'
                       : view === 'assignments'
@@ -990,13 +990,13 @@ export default function StudentDashboard() {
               <section className="student-card granted-lectures-card">
                 <div className="student-card-title">
                   <div>
-                    <KeyRound />
+                    <QrCode />
                     <span>
-                      <small>وصول بكود المحاضرة</small>
+                      <small>وصول برمز QR</small>
                       <strong>المحاضرات المفتوحة لك</strong>
                     </span>
                   </div>
-                  <button onClick={() => navigate('redeem')}>استخدام كود آخر</button>
+                  <button onClick={() => navigate('redeem')}>عرض المحاضرات المفعلة</button>
                 </div>
                 <div className="granted-lecture-list">
                   {data.lectureAccess.map((lecture) => (
@@ -1092,18 +1092,34 @@ export default function StudentDashboard() {
         )}
         {view === 'redeem' && (
           <div className="student-view">
-            <LectureCodeRedemption onRedeemed={load} />
-            {data.lectureAccess.length > 0 && (
-              <section className="student-card granted-lectures-card">
-                <div className="student-card-title">
-                  <div>
-                    <Play />
-                    <span>
-                      <small>وصول دائم</small>
-                      <strong>محاضراتك المفتوحة بالكود</strong>
-                    </span>
-                  </div>
+            <section className="student-card" style={{ padding: '24px', textAlign: 'right' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                <div style={{ width: 44, height: 44, borderRadius: '10px', background: 'rgba(59,130,246,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
+                  <QrCode size={24} />
                 </div>
+                <div>
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>تفعيل المحاضرات عبر QR كود</h2>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--muted, #94a3b8)' }}>
+                    امسح رمز QR المطبوع على كارت المحاضرة بكاميرا هاتفك ليتم فتح المحاضرة فورًا
+                  </p>
+                </div>
+              </div>
+              <div style={{ background: 'var(--surface-overlay, rgba(255,255,255,0.03))', borderRadius: '8px', padding: '12px 16px', fontSize: '0.88rem', color: 'var(--muted, #94a3b8)', border: '1px solid var(--border-color, rgba(255,255,255,0.08))' }}>
+                💡 لم تعد بحاجة لكتابة أكواد يدويًا. كل كارت يحتوي على رمز QR فريد للاستخدام لمرة واحدة، بمجرد مسحه بكاميرا هاتفك ستفتح المحاضرة على حسابك وتظهر في هذه القائمة مباشرة.
+              </div>
+            </section>
+
+            <section className="student-card granted-lectures-card">
+              <div className="student-card-title">
+                <div>
+                  <Play />
+                  <span>
+                    <small>وصول دائم</small>
+                    <strong>محاضراتك المفتوحة ({data.lectureAccess.length})</strong>
+                  </span>
+                </div>
+              </div>
+              {data.lectureAccess.length > 0 ? (
                 <div className="granted-lecture-list">
                   {data.lectureAccess.map((lecture) => (
                     <article key={lecture.videoId}>
@@ -1117,8 +1133,13 @@ export default function StudentDashboard() {
                     </article>
                   ))}
                 </div>
-              </section>
-            )}
+              ) : (
+                <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--muted, #94a3b8)' }}>
+                  <p style={{ margin: 0, fontSize: '0.95rem' }}>لا توجد محاضرات مفعلة عبر رموز QR حتى الآن.</p>
+                  <small style={{ display: 'block', marginTop: '6px' }}>عند مسح كارت المحاضرة، ستظهر هنا مباشرة لمشاهدتها في أي وقت.</small>
+                </div>
+              )}
+            </section>
           </div>
         )}
         {view === 'course' && (

@@ -142,6 +142,8 @@ export type LectureAccessCodeHistory = {
   displaySuffix: string;
   createdAt: number;
   redeemedAt: number | null;
+  redeemedByStudentEmail?: string | null;
+  batchId?: string | null;
   videoTitle: string;
   courseTitle: string;
 };
