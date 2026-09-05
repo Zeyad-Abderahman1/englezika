@@ -29,6 +29,7 @@ export type Course = {
   description: string;
   price: number;
   status: string;
+  thumbnailKey?: string | null;
 };
 
 export type Exam = {

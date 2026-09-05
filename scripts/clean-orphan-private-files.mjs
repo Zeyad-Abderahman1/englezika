@@ -46,6 +46,11 @@ export const STORAGE_REFERENCE_SOURCES = Object.freeze([
     column: 'file_key',
     query: "SELECT file_key AS key FROM lecture_materials WHERE file_key IS NOT NULL AND file_key != ''",
   },
+  {
+    table: 'courses',
+    column: 'thumbnail_key',
+    query: "SELECT thumbnail_key AS key FROM courses WHERE thumbnail_key IS NOT NULL AND thumbnail_key != ''",
+  },
 ]);
 
 function storageRoot(env = process.env) {

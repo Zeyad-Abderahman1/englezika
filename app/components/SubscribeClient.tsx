@@ -1,10 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { LoaderCircle } from 'lucide-react';
+import { BookOpen, LoaderCircle } from 'lucide-react';
 import PaymentFlow from './PaymentFlow';
 
-type Course = { id: string; month: string; grade: string; price: number; lectures: number };
+type Course = {
+  id: string;
+  month: string;
+  grade: string;
+  price: number;
+  lectures: number;
+  thumbnailKey?: string | null;
+};
 
 export default function SubscribeClient({ courseId }: { courseId: string }) {
   const [course, setCourse] = useState<Course | null>(null);
@@ -28,6 +35,22 @@ export default function SubscribeClient({ courseId }: { courseId: string }) {
   return (
     <div className="container subscribe-grid">
       <aside className="order-summary">
+        <div className="subscribe-thumbnail-wrap">
+          {course.thumbnailKey ? (
+            <img
+              src={`/api/courses/${course.id}/thumbnail`}
+              alt={course.month}
+              className="subscribe-thumbnail-img"
+              loading="eager"
+            />
+          ) : (
+            <div className="subscribe-thumbnail-fallback" aria-hidden="true">
+              <span className="course-card-fallback-glow" />
+              <BookOpen size={32} />
+              <span className="course-card-fallback-brand">ENGLIZEKA</span>
+            </div>
+          )}
+        </div>
         <span>ملخص الطلب</span>
         <h2>{course.month}</h2>
         <p>

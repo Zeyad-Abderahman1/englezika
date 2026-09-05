@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Check, FileText, LoaderCircle, Play, ShieldCheck } from 'lucide-react';
+import { BookOpen, Check, FileText, LoaderCircle, Play, ShieldCheck } from 'lucide-react';
 
 type Course = {
   id: string;
@@ -12,6 +12,7 @@ type Course = {
   price: number;
   lectures: number;
   exams: number;
+  thumbnailKey?: string | null;
 };
 
 export default function CourseDetailClient({ courseId }: { courseId: string }) {
@@ -66,6 +67,22 @@ export default function CourseDetailClient({ courseId }: { courseId: string }) {
             </ul>
           </div>
           <aside className="enroll-card">
+            <div className="course-detail-thumbnail-wrap">
+              {course.thumbnailKey ? (
+                <img
+                  src={`/api/courses/${course.id}/thumbnail`}
+                  alt={course.month}
+                  className="course-detail-thumbnail-img"
+                  loading="eager"
+                />
+              ) : (
+                <div className="course-detail-thumbnail-fallback" aria-hidden="true">
+                  <span className="course-card-fallback-glow" />
+                  <BookOpen size={40} />
+                  <span className="course-card-fallback-brand">ENGLIZEKA</span>
+                </div>
+              )}
+            </div>
             <span>سعر الكورس</span>
             <div className="big-price">
               {course.price === 0 ? (

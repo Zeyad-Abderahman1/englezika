@@ -24,6 +24,8 @@ import {
   ClipboardCheck,
   Save,
   Trash2,
+  Upload,
+  Image as ImageIcon,
   X,
   ListOrdered,
 } from 'lucide-react';
@@ -47,6 +49,61 @@ export function CoursesManagerView() {
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [sequenceCourse, setSequenceCourse] = useState<Course | null>(null);
 
+  const [addThumbnailFile, setAddThumbnailFile] = useState<File | null>(null);
+  const [addThumbnailPreview, setAddThumbnailPreview] = useState<string | null>(null);
+  const [addThumbnailError, setAddThumbnailError] = useState<string | null>(null);
+
+  const [editThumbnailFile, setEditThumbnailFile] = useState<File | null>(null);
+  const [editThumbnailPreview, setEditThumbnailPreview] = useState<string | null>(null);
+  const [editThumbnailRemoved, setEditThumbnailRemoved] = useState<boolean>(false);
+  const [editThumbnailError, setEditThumbnailError] = useState<string | null>(null);
+
+  const validateThumbnailFile = (file: File): string | null => {
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      return 'يجب أن تكون الصورة بصيغة JPG أو PNG أو WebP';
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      return 'حجم الصورة يتجاوز الحد المسموح (5 ميجابايت)';
+    }
+    return null;
+  };
+
+  const handleAddThumbnailSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const err = validateThumbnailFile(file);
+    if (err) {
+      setAddThumbnailError(err);
+      return;
+    }
+    setAddThumbnailError(null);
+    setAddThumbnailFile(file);
+    setAddThumbnailPreview(URL.createObjectURL(file));
+  };
+
+  const handleEditThumbnailSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const err = validateThumbnailFile(file);
+    if (err) {
+      setEditThumbnailError(err);
+      return;
+    }
+    setEditThumbnailError(null);
+    setEditThumbnailRemoved(false);
+    setEditThumbnailFile(file);
+    setEditThumbnailPreview(URL.createObjectURL(file));
+  };
+
+  const openEditCourse = (course: Course) => {
+    setEditThumbnailFile(null);
+    setEditThumbnailPreview(null);
+    setEditThumbnailRemoved(false);
+    setEditThumbnailError(null);
+    setEditingCourse(course);
+  };
+
   const courses = useMemo(() => data?.courses || [], [data?.courses]);
 
   const filteredCourses = useMemo(() => {
@@ -69,8 +126,8 @@ export function CoursesManagerView() {
     const values = Object.fromEntries(new FormData(form)) as Record<string, string>;
 
     const ok = await mutate(
-      () =>
-        adminApiRequest('/api/admin/courses', {
+      async () => {
+        const res = (await adminApiRequest('/api/admin/courses', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
@@ -80,12 +137,26 @@ export function CoursesManagerView() {
             price: Number(values.price) || 0,
             status: values.status || 'published',
           }),
-        }),
+        })) as { ok: boolean; id: string };
+
+        if (addThumbnailFile && res.id) {
+          const formData = new FormData();
+          formData.append('file', addThumbnailFile);
+          await adminApiRequest(`/api/admin/courses/${res.id}/thumbnail`, {
+            method: 'POST',
+            body: formData,
+          });
+        }
+        return res;
+      },
       'تم إنشاء الكورس بنجاح'
     );
 
     if (ok) {
       form.reset();
+      setAddThumbnailFile(null);
+      setAddThumbnailPreview(null);
+      setAddThumbnailError(null);
       setIsAddOpen(false);
     }
   };
@@ -97,8 +168,8 @@ export function CoursesManagerView() {
     const values = Object.fromEntries(new FormData(form)) as Record<string, string>;
 
     const ok = await mutate(
-      () =>
-        adminApiRequest(`/api/admin/courses/${editingCourse.id}`, {
+      async () => {
+        const res = await adminApiRequest(`/api/admin/courses/${editingCourse.id}`, {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
@@ -108,12 +179,31 @@ export function CoursesManagerView() {
             price: Number(values.price) || 0,
             status: values.status || 'published',
           }),
-        }),
+        });
+
+        if (editThumbnailRemoved && editingCourse.thumbnailKey) {
+          await adminApiRequest(`/api/admin/courses/${editingCourse.id}/thumbnail`, {
+            method: 'DELETE',
+          });
+        } else if (editThumbnailFile) {
+          const formData = new FormData();
+          formData.append('file', editThumbnailFile);
+          await adminApiRequest(`/api/admin/courses/${editingCourse.id}/thumbnail`, {
+            method: 'POST',
+            body: formData,
+          });
+        }
+        return res;
+      },
       'تم تحديث بيانات الكورس بنجاح'
     );
 
     if (ok) {
       setEditingCourse(null);
+      setEditThumbnailFile(null);
+      setEditThumbnailPreview(null);
+      setEditThumbnailRemoved(false);
+      setEditThumbnailError(null);
     }
   };
 
@@ -227,6 +317,21 @@ export function CoursesManagerView() {
                 key={course.id}
                 className={`admin-course-card ${isFocused ? 'is-focused' : ''}`}
               >
+                <div className="admin-course-card-thumb">
+                  {course.thumbnailKey ? (
+                    <img
+                      src={`/api/courses/${course.id}/thumbnail`}
+                      alt={course.title}
+                      className="admin-course-thumb-img"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="admin-course-thumb-fallback" aria-hidden="true">
+                      <BookOpen size={24} />
+                      <span>Englizeka</span>
+                    </div>
+                  )}
+                </div>
                 <div className="admin-course-card-top">
                   <span className="admin-course-grade-tag">{course.grade}</span>
                   <AdminStatusBadge status={course.status} />
@@ -292,7 +397,7 @@ export function CoursesManagerView() {
                   <button
                     type="button"
                     className="btn btn-outline btn-sm"
-                    onClick={() => setEditingCourse(course)}
+                    onClick={() => openEditCourse(course)}
                   >
                     <PencilLine size={14} /> تعديل الكورس
                   </button>
@@ -375,6 +480,63 @@ export function CoursesManagerView() {
                     className="admin-input"
                   />
                 </label>
+              </div>
+
+              <div className="admin-thumbnail-section">
+                <label className="admin-field-label">
+                  <span>صورة الكورس (16:9 موصى بها)</span>
+                </label>
+                {addThumbnailPreview ? (
+                  <div className="admin-thumbnail-preview-wrap">
+                    <img
+                      src={addThumbnailPreview}
+                      alt="معاينة صورة الكورس"
+                      className="admin-thumbnail-preview-img"
+                    />
+                    <div className="admin-thumbnail-actions">
+                      <label className="btn btn-outline btn-sm">
+                        <Upload size={14} /> تغيير الصورة
+                        <input
+                          type="file"
+                          accept=".jpg,.jpeg,.png,.webp"
+                          className="sr-only"
+                          onChange={handleAddThumbnailSelect}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm text-danger"
+                        onClick={() => {
+                          setAddThumbnailFile(null);
+                          setAddThumbnailPreview(null);
+                          setAddThumbnailError(null);
+                        }}
+                      >
+                        <Trash2 size={14} /> حذف الصورة
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="admin-thumbnail-dropzone">
+                    <label className="btn btn-outline">
+                      <Upload size={16} /> رفع صورة الكورس
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.webp"
+                        className="sr-only"
+                        onChange={handleAddThumbnailSelect}
+                      />
+                    </label>
+                    <span className="admin-field-hint">
+                      الصيغ المقبولة: JPG, PNG, WebP (بحد أقصى 5 ميجابايت)
+                    </span>
+                  </div>
+                )}
+                {addThumbnailError && (
+                  <p className="admin-field-error" role="alert">
+                    {addThumbnailError}
+                  </p>
+                )}
               </div>
 
               <label className="admin-field-label">
@@ -480,6 +642,67 @@ export function CoursesManagerView() {
                     className="admin-input"
                   />
                 </label>
+              </div>
+
+              <div className="admin-thumbnail-section">
+                <label className="admin-field-label">
+                  <span>صورة الكورس (16:9 موصى بها)</span>
+                </label>
+                {!editThumbnailRemoved && (editThumbnailPreview || editingCourse.thumbnailKey) ? (
+                  <div className="admin-thumbnail-preview-wrap">
+                    <img
+                      src={
+                        editThumbnailPreview ||
+                        `/api/courses/${editingCourse.id}/thumbnail`
+                      }
+                      alt="صورة الكورس"
+                      className="admin-thumbnail-preview-img"
+                    />
+                    <div className="admin-thumbnail-actions">
+                      <label className="btn btn-outline btn-sm">
+                        <Upload size={14} /> تغيير الصورة
+                        <input
+                          type="file"
+                          accept=".jpg,.jpeg,.png,.webp"
+                          className="sr-only"
+                          onChange={handleEditThumbnailSelect}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm text-danger"
+                        onClick={() => {
+                          setEditThumbnailFile(null);
+                          setEditThumbnailPreview(null);
+                          setEditThumbnailRemoved(true);
+                          setEditThumbnailError(null);
+                        }}
+                      >
+                        <Trash2 size={14} /> حذف الصورة
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="admin-thumbnail-dropzone">
+                    <label className="btn btn-outline">
+                      <Upload size={16} /> رفع صورة الكورس
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.webp"
+                        className="sr-only"
+                        onChange={handleEditThumbnailSelect}
+                      />
+                    </label>
+                    <span className="admin-field-hint">
+                      الصيغ المقبولة: JPG, PNG, WebP (بحد أقصى 5 ميجابايت)
+                    </span>
+                  </div>
+                )}
+                {editThumbnailError && (
+                  <p className="admin-field-error" role="alert">
+                    {editThumbnailError}
+                  </p>
+                )}
               </div>
 
               <label className="admin-field-label">

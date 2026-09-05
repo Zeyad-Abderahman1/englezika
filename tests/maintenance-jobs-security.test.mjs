@@ -48,6 +48,7 @@ const SCHEMA_COLUMNS = {
   assignment_questions: new Set(['image_file_key']),
   attempts: new Set(['pdf_storage_key']),
   lecture_materials: new Set(['file_key']),
+  courses: new Set(['thumbnail_key']),
 };
 
 class MockOrphanFilesDb {
@@ -60,6 +61,7 @@ class MockOrphanFilesDb {
     assignmentQuestionImages = [],
     attemptPdfs = [],
     lectureMaterials = [],
+    courseThumbnails = [],
     failingTable = null,
     failureError = new Error('Simulated database connection error'),
   } = {}) {
@@ -72,6 +74,7 @@ class MockOrphanFilesDb {
       assignment_questions: assignmentQuestionImages,
       attempts: attemptPdfs,
       lecture_materials: lectureMaterials,
+      courses: courseThumbnails,
     };
     this.failingTable = failingTable;
     this.failureError = failureError;
@@ -127,11 +130,11 @@ test('cleanExamSessions deletes only abandoned/incomplete sessions older than 24
   assert.equal(db.sessions.length, 2);
 });
 
-test('cleanOrphanPrivateFiles: preserves all 8 referenced storage sources and deletes genuine orphans', async () => {
+test('cleanOrphanPrivateFiles: preserves all 9 referenced storage sources and deletes genuine orphans', async () => {
   const testStorageDir = path.resolve('tmp/test-storage-orphan-all-8');
   await rm(testStorageDir, { recursive: true, force: true }).catch(() => {});
 
-  // Create disk directories for all 8 types + orphans
+  // Create disk directories for all 9 types + orphans
   await mkdir(path.join(testStorageDir, 'students'), { recursive: true });
   await mkdir(path.join(testStorageDir, 'assignments'), { recursive: true });
   await mkdir(path.join(testStorageDir, 'submissions'), { recursive: true });
@@ -140,6 +143,7 @@ test('cleanOrphanPrivateFiles: preserves all 8 referenced storage sources and de
   await mkdir(path.join(testStorageDir, 'assignment_questions'), { recursive: true });
   await mkdir(path.join(testStorageDir, 'attempts'), { recursive: true });
   await mkdir(path.join(testStorageDir, 'videos/materials'), { recursive: true });
+  await mkdir(path.join(testStorageDir, 'courses/c1/thumbnail'), { recursive: true });
   await mkdir(path.join(testStorageDir, 'orphans'), { recursive: true });
 
   const referencedFiles = {
@@ -151,9 +155,10 @@ test('cleanOrphanPrivateFiles: preserves all 8 referenced storage sources and de
     assignmentQuestionImages: ['assignment_questions/aq-image-1.png'],
     attemptPdfs: ['attempts/attempt-file-1.pdf'],
     lectureMaterials: ['videos/materials/lecture-notes-1.pdf'],
+    courseThumbnails: ['courses/c1/thumbnail/thumb-1.webp'],
   };
 
-  // Write all 8 referenced files to disk
+  // Write all 9 referenced files to disk
   await writeFile(path.join(testStorageDir, referencedFiles.certificates[0]), 'cert data');
   await writeFile(path.join(testStorageDir, referencedFiles.assignmentTeacherFiles[0]), 'teacher guide');
   await writeFile(path.join(testStorageDir, referencedFiles.assignmentSubmissions[0]), 'student submission');
@@ -162,6 +167,7 @@ test('cleanOrphanPrivateFiles: preserves all 8 referenced storage sources and de
   await writeFile(path.join(testStorageDir, referencedFiles.assignmentQuestionImages[0]), 'assignment question image');
   await writeFile(path.join(testStorageDir, referencedFiles.attemptPdfs[0]), 'attempt pdf');
   await writeFile(path.join(testStorageDir, referencedFiles.lectureMaterials[0]), 'lecture material');
+  await writeFile(path.join(testStorageDir, referencedFiles.courseThumbnails[0]), 'course thumb');
 
   // Write 1 genuine orphan file
   const orphanFile = 'orphans/genuine-orphan.pdf';
@@ -291,8 +297,8 @@ test('cleanOrphanPrivateFiles: FAIL CLOSED - aborts and deletes ZERO files if an
 });
 
 test('cleanOrphanPrivateFiles: STORAGE_REFERENCE_SOURCES strictly match migration schema columns', async () => {
-  // 1. Verify that all 8 required sources are defined in STORAGE_REFERENCE_SOURCES
-  assert.equal(STORAGE_REFERENCE_SOURCES.length, 8);
+  // 1. Verify that all 9 required sources are defined in STORAGE_REFERENCE_SOURCES
+  assert.equal(STORAGE_REFERENCE_SOURCES.length, 9);
 
   const expectedSources = [
     { table: 'users', column: 'birth_certificate_key' },
@@ -303,6 +309,7 @@ test('cleanOrphanPrivateFiles: STORAGE_REFERENCE_SOURCES strictly match migratio
     { table: 'assignment_questions', column: 'image_file_key' },
     { table: 'attempts', column: 'pdf_storage_key' },
     { table: 'lecture_materials', column: 'file_key' },
+    { table: 'courses', column: 'thumbnail_key' },
   ];
 
   for (const expected of expectedSources) {
@@ -328,11 +335,12 @@ test('cleanOrphanPrivateFiles: STORAGE_REFERENCE_SOURCES strictly match migratio
     'assignment_submissions must not define file_key'
   );
 
-  // Verify all 8 column names exist in migration SQL
+  // Verify all 9 column names exist in migration SQL
   assert.ok(combinedSql.includes('birth_certificate_key TEXT'));
   assert.ok(combinedSql.includes('teacher_file_key TEXT'));
   assert.ok(combinedSql.includes('image_file_key TEXT'));
   assert.ok(combinedSql.includes('file_key TEXT NOT NULL'));
+  assert.ok(combinedSql.includes('thumbnail_key TEXT'));
 
   // 3. Schema-sensitive mock database rejects wrong column names
   const strictDb = new MockOrphanFilesDb();

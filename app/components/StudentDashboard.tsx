@@ -55,6 +55,7 @@ type DashboardData = {
     title: string;
     grade: string;
     status: string;
+    thumbnailKey?: string | null;
   }>;
   exams: Array<{
     id: string;
@@ -939,6 +940,20 @@ export default function StudentDashboard() {
                         className={`enrolled-course-card course-tone-${index % 3}`}
                         key={course.id}
                       >
+                        <div className="enrolled-course-card-thumb">
+                          {course.thumbnailKey ? (
+                            <img
+                              src={`/api/courses/${course.courseId}/thumbnail`}
+                              alt={course.title}
+                              className="enrolled-course-thumb-img"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="enrolled-course-thumb-fallback" aria-hidden="true">
+                              <BookOpen size={28} />
+                            </div>
+                          )}
+                        </div>
                         <div className="course-card-top">
                           <span>
                             <BookOpen />

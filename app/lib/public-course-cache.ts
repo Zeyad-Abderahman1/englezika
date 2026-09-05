@@ -9,6 +9,7 @@ export type PublicCourse = {
   available: number;
   lectures: number;
   exams?: number;
+  thumbnailKey?: string | null;
 };
 
 const CACHE_TTL_MS = 60_000;
@@ -23,6 +24,7 @@ async function queryPublishedCourses(): Promise<PublicCourse[]> {
   const result = await getDatabase()
     .prepare(
       `SELECT c.id, c.title AS month, c.grade, c.description, c.price,
+       c.thumbnail_key AS thumbnailKey,
        CASE WHEN c.status = 'published' THEN 1 ELSE 0 END AS available,
        COUNT(v.id) AS lectures
        FROM courses c
@@ -39,6 +41,7 @@ async function queryPublishedCourse(id: string): Promise<PublicCourse | null> {
   return getDatabase()
     .prepare(
       `SELECT c.id, c.title AS month, c.grade, c.description, c.price,
+       c.thumbnail_key AS thumbnailKey,
        CASE WHEN c.status = 'published' THEN 1 ELSE 0 END AS available,
        (SELECT COUNT(*) FROM videos v
         WHERE v.course_id = c.id AND v.status = 'published') AS lectures,

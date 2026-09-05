@@ -109,9 +109,9 @@ export default async function LearnPage({
   }
 
   const course = await db
-    .prepare('SELECT title, grade FROM courses WHERE id = ?')
+    .prepare('SELECT title, grade, thumbnail_key AS thumbnailKey FROM courses WHERE id = ?')
     .bind(courseId)
-    .first<{ title: string; grade: string }>();
+    .first<{ title: string; grade: string; thumbnailKey: string | null }>();
 
   const courseHasSequence = await hasCourseItems(courseId);
   let sequenceUnlockState = null;
@@ -271,9 +271,20 @@ export default async function LearnPage({
   return (
     <main className="portal-page learning-page">
       <div className="container">
-        <div className="learning-heading">
-          <span className="section-label">{course?.grade || 'الكورس'}</span>
-          <h1>{course?.title || 'محتوى الكورس'}</h1>
+        <div className="learning-heading-with-thumbnail">
+          {course?.thumbnailKey && (
+            <div className="learning-course-thumb">
+              <img
+                src={`/api/courses/${courseId}/thumbnail`}
+                alt={course.title}
+                className="learning-thumb-img"
+              />
+            </div>
+          )}
+          <div className="learning-heading">
+            <span className="section-label">{course?.grade || 'الكورس'}</span>
+            <h1>{course?.title || 'محتوى الكورس'}</h1>
+          </div>
         </div>
         {sequenceItems && sequenceItems.length > 0 && (
           <CourseSequenceTree

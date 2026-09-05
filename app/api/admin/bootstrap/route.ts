@@ -36,7 +36,7 @@ export async function GET(request: Request) {
   ] = await Promise.all([
     db
       .prepare(
-        `SELECT id, title, grade, description, price, status, created_at AS createdAt
+        `SELECT id, title, grade, description, price, status, thumbnail_key AS thumbnailKey, created_at AS createdAt
        FROM courses ORDER BY created_at DESC LIMIT ? OFFSET ?`
       )
       .bind(pageSize, offset)

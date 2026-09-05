@@ -39,13 +39,16 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const db = getDatabase();
 
   const course = await db
-    .prepare('SELECT id, title FROM courses WHERE id = ?')
+    .prepare('SELECT id, title, thumbnail_key AS thumbnailKey FROM courses WHERE id = ?')
     .bind(id)
-    .first<{ id: string; title: string }>();
+    .first<{ id: string; title: string; thumbnailKey: string | null }>();
   if (!course) return jsonError('الكورس غير موجود', 404);
 
   // Collect any attached files to clean up from storage after successful commit
   const filesToDelete = new Set<string>();
+  if (course.thumbnailKey) {
+    filesToDelete.add(course.thumbnailKey);
+  }
 
   const [examFiles, questionFiles, attemptFiles, materialFiles, assignmentFiles, subFiles, assignQFiles] =
     await Promise.all([

@@ -39,7 +39,7 @@ export async function GET(request: Request) {
         .bind(email),
       db
         .prepare(
-          `SELECT e.id, e.status, e.created_at AS createdAt, c.id AS courseId, c.title, c.grade
+          `SELECT e.id, e.status, e.created_at AS createdAt, c.id AS courseId, c.title, c.grade, c.thumbnail_key AS thumbnailKey
        FROM enrollments e JOIN courses c ON c.id = e.course_id
        WHERE e.user_email = ? ORDER BY e.created_at DESC LIMIT ? OFFSET ?`
         )

@@ -24,6 +24,7 @@ export default function FeaturedCourses() {
           lectures: Number(course.lectures) || 0,
           price: Number(course.price) || 0,
           available: Boolean(course.available),
+          thumbnailKey: course.thumbnailKey ? String(course.thumbnailKey) : null,
         }));
         setCourses(loaded);
         setLoading(false);

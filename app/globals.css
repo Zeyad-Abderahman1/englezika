@@ -821,11 +821,181 @@ html[data-theme='light'] .course-bottom {
 html[data-theme='light'] .price strong {
   color: var(--text);
 }
+html[data-theme='light'] .course-card-artwork,
+html[data-theme='light'] .course-detail-thumbnail-wrap,
+html[data-theme='light'] .subscribe-thumbnail-wrap,
+html[data-theme='light'] .enrolled-course-card-thumb,
+html[data-theme='light'] .learning-course-thumb {
+  border-color: var(--line);
+  background: #f4f5f7;
+}
+html[data-theme='light'] .course-card-fallback,
+html[data-theme='light'] .course-detail-thumbnail-fallback,
+html[data-theme='light'] .subscribe-thumbnail-fallback,
+html[data-theme='light'] .enrolled-course-thumb-fallback {
+  background: radial-gradient(circle at 50% 35%, rgba(207, 11, 39, 0.1), transparent 70%),
+              linear-gradient(155deg, #fafafa 0%, #edf0f5 100%);
+  color: var(--red);
+}
+html[data-theme='light'] .course-card-fallback-brand {
+  color: rgba(0, 0, 0, 0.45);
+}
 .course-card-head {
   min-height: 45px;
   display: flex;
   justify-content: space-between;
   align-items: start;
+}
+.course-card-artwork {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #121419;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 4px;
+}
+.course-card-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.3s ease;
+}
+.course-card:hover .course-card-thumb-img {
+  transform: scale(1.03);
+}
+.course-card-fallback {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: radial-gradient(circle at 50% 35%, rgba(207, 11, 39, 0.28), transparent 70%),
+              linear-gradient(155deg, #181b22 0%, #0d0f13 100%);
+  color: #fff;
+}
+.course-card-fallback-glow {
+  position: absolute;
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: rgba(207, 11, 39, 0.15);
+  filter: blur(24px);
+  pointer-events: none;
+}
+.course-card-fallback-icon {
+  position: relative;
+  color: var(--red-bright);
+  width: 36px;
+  height: 36px;
+}
+.course-card-fallback-brand {
+  position: relative;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+}
+.course-artwork-badge {
+  position: absolute;
+  top: 10px;
+  inset-inline-start: 10px;
+  z-index: 2;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.course-detail-thumbnail-wrap,
+.subscribe-thumbnail-wrap {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #111419;
+}
+.course-detail-thumbnail-img,
+.subscribe-thumbnail-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.course-detail-thumbnail-fallback,
+.subscribe-thumbnail-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: radial-gradient(circle at 50% 35%, rgba(207, 11, 39, 0.28), transparent 70%),
+              linear-gradient(155deg, #181b22 0%, #0d0f13 100%);
+  color: var(--red-bright);
+}
+.enrolled-course-card-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #111419;
+}
+.enrolled-course-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.enrolled-course-thumb-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 35%, rgba(207, 11, 39, 0.2), transparent 70%),
+              linear-gradient(155deg, #181b22 0%, #0d0f13 100%);
+  color: var(--red-bright);
+}
+.learning-heading-with-thumbnail {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin-bottom: 24px;
+}
+.learning-course-thumb {
+  width: 180px;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  background: #111419;
+}
+.learning-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+@media (max-width: 640px) {
+  .learning-heading-with-thumbnail {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+  .learning-course-thumb {
+    width: 100%;
+    max-width: 340px;
+  }
 }
 .badge {
   display: inline-flex;

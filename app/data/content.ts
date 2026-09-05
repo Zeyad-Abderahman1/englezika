@@ -8,6 +8,7 @@ export type Course = {
   available: boolean;
   badge?: string;
   popular?: boolean;
+  thumbnailKey?: string | null;
 };
 
 export const courses: Course[] = [];
