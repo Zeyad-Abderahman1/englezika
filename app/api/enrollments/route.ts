@@ -30,7 +30,13 @@ export async function POST(request: Request) {
     )
     .bind(user.email.toLowerCase(), courseId)
     .first<{ id: string; status: string }>();
-  const allowRenewal = Boolean(body.renew || body.repurchase);
+  const rawAction = typeof body.action === 'string' ? body.action.trim().toLowerCase() : '';
+  const allowRenewal = Boolean(
+    body.renew ||
+    body.repurchase ||
+    rawAction === 'renew' ||
+    rawAction === 'reactivate'
+  );
   if (existing?.status === 'approved' && !allowRenewal) {
     if (isFree) return Response.json({ ok: true, approved: true, courseId });
     return jsonError('أنت مشترك بالفعل في هذا الكورس', 409);
@@ -65,7 +71,10 @@ export async function POST(request: Request) {
       .run();
   }
 
-  if (status === 'approved') {
+  const shouldReset =
+    status === 'approved' &&
+    (allowRenewal || (existing ? existing.status !== 'approved' : true));
+  if (shouldReset) {
     await resetCourseLectureViewAllowance(user.email.toLowerCase(), courseId);
   }
 

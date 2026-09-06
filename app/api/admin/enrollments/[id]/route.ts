@@ -9,9 +9,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const admin = await apiStaff(request, 'manage_enrollments');
   if (isStaffResponse(admin)) return admin;
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  const rawAction = typeof body.action === 'string' ? body.action.trim().toLowerCase() : '';
+  const isExplicitReactivation =
+    rawAction === 'reactivate' ||
+    rawAction === 'renew' ||
+    Boolean(body.renew) ||
+    Boolean(body.reactivate);
+
   const status = body.status
-    ? String(body.status)
-    : body.action === 'renew' || body.renew
+    ? String(body.status).trim().toLowerCase()
+    : isExplicitReactivation
     ? 'approved'
     : '';
   if (!['approved', 'rejected', 'pending'].includes(status)) return jsonError('حالة غير صالحة');
@@ -20,12 +27,20 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const enrollment = await db
     .prepare(
-      'SELECT user_email AS userEmail, course_id AS courseId, status FROM enrollments WHERE id = ?'
+      'SELECT id, user_email, user_email AS userEmail, course_id, course_id AS courseId, status FROM enrollments WHERE id = ?'
     )
     .bind(id)
-    .first<{ userEmail: string; courseId: string; status: string }>();
+    .first<Record<string, unknown>>();
 
   if (!enrollment) return jsonError('الاشتراك غير موجود', 404);
+
+  const rawUserEmail = String(
+    enrollment.userEmail ?? enrollment.user_email ?? enrollment.useremail ?? ''
+  ).trim().toLowerCase();
+  const rawCourseId = String(
+    enrollment.courseId ?? enrollment.course_id ?? enrollment.courseid ?? ''
+  ).trim();
+  const previousStatus = String(enrollment.status ?? '').trim().toLowerCase();
 
   const now = Date.now();
   await db
@@ -33,9 +48,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .bind(status, now, id)
     .run();
 
-  if (status === 'approved') {
-    await resetCourseLectureViewAllowance(enrollment.userEmail, enrollment.courseId);
+  const shouldResetViews =
+    status === 'approved' &&
+    (isExplicitReactivation || previousStatus !== 'approved');
+
+  let resetChanges = 0;
+  if (shouldResetViews && rawUserEmail && rawCourseId) {
+    const resetResult = await resetCourseLectureViewAllowance(rawUserEmail, rawCourseId);
+    resetChanges = resetResult.changes;
   }
 
-  return Response.json({ ok: true });
+  return Response.json({
+    ok: true,
+    status,
+    reactivated: isExplicitReactivation,
+    viewsReset: shouldResetViews,
+    resetChanges,
+  });
 }

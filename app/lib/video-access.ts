@@ -174,15 +174,21 @@ export async function resetCourseLectureViewAllowance(
   courseId: string
 ): Promise<{ changes: number }> {
   const db = getDatabase();
-  const normalized = normalizedEmail(userEmail);
+  const normalized = userEmail ? userEmail.trim().toLowerCase() : '';
+  const normalizedCourse = courseId ? courseId.trim() : '';
+  if (!normalized || !normalizedCourse) {
+    return { changes: 0 };
+  }
+
   const result = await db
     .prepare(
       `DELETE FROM video_view_sessions
-       WHERE user_email = ? AND video_id IN (
-         SELECT id FROM videos WHERE course_id = ?
-       )`
+       WHERE LOWER(TRIM(user_email)) = ?
+         AND video_id IN (
+           SELECT id FROM videos WHERE TRIM(course_id) = ?
+         )`
     )
-    .bind(normalized, courseId)
+    .bind(normalized, normalizedCourse)
     .run();
 
   const changes =

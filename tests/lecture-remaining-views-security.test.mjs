@@ -9,6 +9,9 @@ class MockViewSessionDatabase {
   studentUsers = new Map();
   grants = new Set();
   enrollmentRows = new Map();
+  staffSessions = new Map();
+  staffUsers = new Map();
+  paymentIntents = new Map();
 
   constructor() {
     this.videos.set('video-limited-3', {
@@ -120,10 +123,43 @@ class MockViewSessionDatabase {
           return { count };
         }
 
+        // Staff lookup
+        if (s.includes('FROM staff_sessions s JOIN staff_users u')) {
+          const [tokenHash] = this.bindings;
+          const session = db.staffSessions.get(tokenHash);
+          if (!session || session.expiresAt <= Date.now()) return null;
+          const user = db.staffUsers.get(session.staffEmail);
+          if (!user || !user.active) return null;
+          return {
+            expiresAt: session.expiresAt,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+            permissions: user.permissions,
+          };
+        }
+
+        // Payment intent lookup
+        if (s.includes('FROM payment_intents WHERE transaction_key = ?')) {
+          const [key] = this.bindings;
+          return db.paymentIntents.get(key) || null;
+        }
+
         // Enrollment by ID lookup
-        if (s.includes('SELECT user_email AS userEmail, course_id AS courseId, status FROM enrollments WHERE id = ?')) {
+        if (s.includes('FROM enrollments WHERE id = ?')) {
           const [id] = this.bindings;
-          return db.enrollmentRows.get(id) || null;
+          const en = db.enrollmentRows.get(id);
+          if (!en) return null;
+          return {
+            id: en.id,
+            userEmail: en.userEmail || en.user_email,
+            user_email: en.userEmail || en.user_email,
+            useremail: en.userEmail || en.user_email,
+            courseId: en.courseId || en.course_id,
+            course_id: en.courseId || en.course_id,
+            courseid: en.courseId || en.course_id,
+            status: en.status,
+          };
         }
 
         return null;
@@ -158,13 +194,25 @@ class MockViewSessionDatabase {
       async run() {
         const s = sql.replace(/\s+/g, ' ').trim();
 
+        // UPDATE staff_sessions
+        if (s.includes('UPDATE staff_sessions')) {
+          return { success: true, meta: { changes: 1 } };
+        }
+
+        // UPDATE payment_intents
+        if (s.includes('UPDATE payment_intents')) {
+          return { success: true, meta: { changes: 1 } };
+        }
+
         // UPDATE enrollments
-        if (s.includes('UPDATE enrollments SET status = ?')) {
-          const [status, now, id] = this.bindings;
-          const en = db.enrollmentRows.get(id);
-          if (en) {
-            en.status = status;
-            en.updatedAt = now;
+        if (s.includes('UPDATE enrollments')) {
+          if (this.bindings.length >= 3) {
+            const [status, now, id] = this.bindings;
+            const target = db.enrollmentRows.get(id);
+            if (target) {
+              target.status = status;
+              target.updatedAt = now;
+            }
           }
           return { success: true, meta: { changes: 1 } };
         }
@@ -175,8 +223,8 @@ class MockViewSessionDatabase {
           const initialLen = db.viewSessions.length;
           db.viewSessions = db.viewSessions.filter((vs) => {
             const v = db.videos.get(vs.videoId);
-            const matchesUser = vs.userEmail === userEmail;
-            const matchesCourse = courseId ? (v && v.courseId === courseId) : true;
+            const matchesUser = vs.userEmail.toLowerCase().trim() === String(userEmail).toLowerCase().trim();
+            const matchesCourse = courseId ? (v && v.courseId.trim() === String(courseId).trim()) : true;
             return !(matchesUser && matchesCourse);
           });
           const changes = initialLen - db.viewSessions.length;
@@ -204,6 +252,15 @@ class MockViewSessionDatabase {
       },
     };
   }
+
+  async batch(statements) {
+    const results = [];
+    for (const stmt of statements) {
+      const res = await stmt.run();
+      results.push(res);
+    }
+    return results;
+  }
 }
 
 // Helpers for remaining views calculation and formatting
@@ -213,6 +270,10 @@ function setupDb(db) {
     VERIFICATION_SECRET: 'test-verification-secret-32-chars-long!',
     VIDEO_RESOLVE_SECRET: 'test-video-resolve-secret-32-chars-long!',
     INITIAL_STAFF_EMAIL: 'teacher@example.test',
+    FAWATERAK_BASE_URL: 'https://app.fawaterk.com',
+    FAWATERAK_CLIENT_ID: 'test-client-id',
+    FAWATERAK_CLIENT_SECRET: 'test-client-secret',
+    FAWATERAK_VENDOR_API_KEY: 'test-vendor-secret',
   };
 }
 
@@ -842,4 +903,309 @@ test('10. After reset the student can start a new playback session again', async
   const dataAfter = await resAfter.json();
   assert.ok(dataAfter.sessionId, 'Fresh session ID returned');
   assert.equal(dataAfter.viewsRemaining, 4, 'viewsRemaining is 4 (5 - 1)');
+});
+
+async function setupAdminSession(db) {
+  const crypto = await import('node:crypto');
+  const token = 'admin-test-token-xyz';
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  db.staffSessions.set(tokenHash, {
+    tokenHash,
+    staffEmail: 'admin@test.com',
+    expiresAt: Date.now() + 86400000,
+  });
+  db.staffUsers.set('admin@test.com', {
+    email: 'admin@test.com',
+    name: 'Admin Teacher',
+    role: 'teacher',
+    permissions: '["manage_enrollments"]',
+    active: 1,
+  });
+  return token;
+}
+
+test('11. Regression: Admin reactivates already-approved enrollment with action=reactivate -> old usage cleared, remaining returns to max_views', async () => {
+  const db = setupMultiLectureMultiCourseEnv();
+  const adminToken = await setupAdminSession(db);
+  const crypto = await import('node:crypto');
+  const rawToken = 'student1-fresh-token';
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  db.studentSessions.set(tokenHash, {
+    tokenHash,
+    userEmail: 'student1@test.com',
+    expiresAt: Date.now() + 86400000,
+  });
+
+  // Enrollment already approved
+  assert.equal(db.enrollmentRows.get('enr-s1-c1').status, 'approved');
+
+  // Student 1 exhausts all 5 views on Lecture A (course-1)
+  for (let i = 0; i < 5; i++) {
+    db.viewSessions.push({
+      id: `s-1a-exhaust-${i}`,
+      videoId: 'video-1a',
+      userEmail: 'student1@test.com',
+      status: 'expired',
+      expiresAt: Date.now() - 1000,
+    });
+  }
+
+  // Student is blocked before reactivation
+  const makeStartReq = () =>
+    new Request('http://localhost:3000/api/student/videos/video-1a/view-session/start', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'http://localhost:3000',
+        cookie: `englizeka_student=${rawToken};`,
+      },
+      body: '{}',
+    });
+
+  const { POST: startViewSession } = await import('../app/api/student/videos/[id]/view-session/start/route.ts');
+  const resBlocked = await startViewSession(makeStartReq(), { params: Promise.resolve({ id: 'video-1a' }) });
+  assert.equal(resBlocked.status, 403, 'Student blocked before reactivation');
+  const blockedData = await resBlocked.json();
+  assert.equal(blockedData.error, 'لقد استنفدت عدد المشاهدات المسموحة لهذه المحاضرة');
+
+  // Admin reactivates enrollment: action = 'reactivate'
+  const { PATCH: adminPatchEnrollment } = await import('../app/api/admin/enrollments/[id]/route.ts');
+  const patchReq = new Request('http://localhost:3000/api/admin/enrollments/enr-s1-c1', {
+    method: 'PATCH',
+    headers: {
+      'content-type': 'application/json',
+      origin: 'http://localhost:3000',
+      cookie: `englizeka_staff=${adminToken};`,
+    },
+    body: JSON.stringify({ status: 'approved', action: 'reactivate' }),
+  });
+
+  const patchRes = await adminPatchEnrollment(patchReq, { params: Promise.resolve({ id: 'enr-s1-c1' }) });
+  assert.equal(patchRes.status, 200, 'Admin reactivate succeeds');
+  const patchData = await patchRes.json();
+  assert.equal(patchData.ok, true);
+  assert.equal(patchData.viewsReset, true, 'viewsReset must be true on explicit reactivation');
+
+  // Student can now start new session and has full remaining views
+  const resAfter = await startViewSession(makeStartReq(), { params: Promise.resolve({ id: 'video-1a' }) });
+  assert.equal(resAfter.status, 200, 'Student can view lecture after admin reactivation');
+  const afterData = await resAfter.json();
+  assert.equal(afterData.viewsRemaining, 4, 'Remaining views is maxViews - 1 (5 - 1 = 4)');
+});
+
+test('12. Admin ordinary enrollment metadata edit on already-approved enrollment does NOT reset views', async () => {
+  const db = setupMultiLectureMultiCourseEnv();
+  const adminToken = await setupAdminSession(db);
+
+  // Student 1 has consumed 3 views on Lecture A
+  for (let i = 0; i < 3; i++) {
+    db.viewSessions.push({
+      id: `s-1a-used-${i}`,
+      videoId: 'video-1a',
+      userEmail: 'student1@test.com',
+      status: 'expired',
+      expiresAt: Date.now() - 1000,
+    });
+  }
+
+  // Admin sends regular PATCH without action='reactivate'
+  const { PATCH: adminPatchEnrollment } = await import('../app/api/admin/enrollments/[id]/route.ts');
+  const patchReq = new Request('http://localhost:3000/api/admin/enrollments/enr-s1-c1', {
+    method: 'PATCH',
+    headers: {
+      'content-type': 'application/json',
+      origin: 'http://localhost:3000',
+      cookie: `englizeka_staff=${adminToken};`,
+    },
+    body: JSON.stringify({ status: 'approved' }),
+  });
+
+  const patchRes = await adminPatchEnrollment(patchReq, { params: Promise.resolve({ id: 'enr-s1-c1' }) });
+  assert.equal(patchRes.status, 200);
+  const patchData = await patchRes.json();
+  assert.equal(patchData.viewsReset, false, 'viewsReset must be false for normal edit to approved enrollment');
+
+  // Used views remain 3
+  const used = db.viewSessions.filter((vs) => vs.videoId === 'video-1a' && vs.userEmail === 'student1@test.com').length;
+  assert.equal(used, 3, 'Used views must remain 3');
+});
+
+test('13. Course reactivation resets second lecture independently, while other courses and students remain unaffected', async () => {
+  const db = setupMultiLectureMultiCourseEnv();
+  const adminToken = await setupAdminSession(db);
+
+  // Student 1 in Course 1:
+  // Lecture 1A (maxViews=5): 5 views consumed (0 remaining)
+  for (let i = 0; i < 5; i++) {
+    db.viewSessions.push({ id: `s1-1a-${i}`, videoId: 'video-1a', userEmail: 'student1@test.com', status: 'expired', expiresAt: Date.now() - 1000 });
+  }
+  // Lecture 1B (maxViews=5): 3 views consumed (2 remaining)
+  for (let i = 0; i < 3; i++) {
+    db.viewSessions.push({ id: `s1-1b-${i}`, videoId: 'video-1b', userEmail: 'student1@test.com', status: 'expired', expiresAt: Date.now() - 1000 });
+  }
+
+  // Student 1 in Course 2:
+  // Lecture 2A (maxViews=4): 2 views consumed (2 remaining)
+  for (let i = 0; i < 2; i++) {
+    db.viewSessions.push({ id: `s1-2a-${i}`, videoId: 'video-2a', userEmail: 'student1@test.com', status: 'expired', expiresAt: Date.now() - 1000 });
+  }
+
+  // Student 2 in Course 1:
+  // Lecture 1A: 4 views consumed (1 remaining)
+  for (let i = 0; i < 4; i++) {
+    db.viewSessions.push({ id: `s2-1a-${i}`, videoId: 'video-1a', userEmail: 'student2@test.com', status: 'expired', expiresAt: Date.now() - 1000 });
+  }
+
+  // Admin reactivates Student 1 in Course 1
+  const { PATCH: adminPatchEnrollment } = await import('../app/api/admin/enrollments/[id]/route.ts');
+  const patchReq = new Request('http://localhost:3000/api/admin/enrollments/enr-s1-c1', {
+    method: 'PATCH',
+    headers: {
+      'content-type': 'application/json',
+      origin: 'http://localhost:3000',
+      cookie: `englizeka_staff=${adminToken};`,
+    },
+    body: JSON.stringify({ status: 'approved', action: 'reactivate' }),
+  });
+  await adminPatchEnrollment(patchReq, { params: Promise.resolve({ id: 'enr-s1-c1' }) });
+
+  // Verify Student 1 in Course 1:
+  const s1Used1A = db.viewSessions.filter((vs) => vs.videoId === 'video-1a' && vs.userEmail === 'student1@test.com').length;
+  const s1Used1B = db.viewSessions.filter((vs) => vs.videoId === 'video-1b' && vs.userEmail === 'student1@test.com').length;
+  assert.equal(s1Used1A, 0, 'Lecture 1A used views reset to 0');
+  assert.equal(calculateRemainingViews(5, s1Used1A), 5, 'Lecture 1A remaining views is 5');
+  assert.equal(s1Used1B, 0, 'Lecture 1B used views reset to 0 independently');
+  assert.equal(calculateRemainingViews(5, s1Used1B), 5, 'Lecture 1B remaining views is its own max_views (5)');
+
+  // Verify Student 1 Course 2 is UNAFFECTED:
+  const s1Used2A = db.viewSessions.filter((vs) => vs.videoId === 'video-2a' && vs.userEmail === 'student1@test.com').length;
+  assert.equal(s1Used2A, 2, 'Course 2 Lecture 2A used views untouched (2)');
+  assert.equal(calculateRemainingViews(4, s1Used2A), 2, 'Course 2 remaining views untouched (2)');
+
+  // Verify Student 2 is UNAFFECTED:
+  const s2Used1A = db.viewSessions.filter((vs) => vs.videoId === 'video-1a' && vs.userEmail === 'student2@test.com').length;
+  assert.equal(s2Used1A, 4, 'Student 2 used views untouched (4)');
+  assert.equal(calculateRemainingViews(5, s2Used1A), 1, 'Student 2 remaining views untouched (1)');
+
+  // Verify max_views configurations are unchanged:
+  assert.equal(db.videos.get('video-1a').maxViews, 5);
+  assert.equal(db.videos.get('video-1b').maxViews, 5);
+  assert.equal(db.videos.get('video-2a').maxViews, 4);
+});
+
+test('14. Confirmed paid renewal webhook calls shared reset helper and clears lecture views', async () => {
+  const db = setupMultiLectureMultiCourseEnv();
+  const { POST: webhookPost } = await import('../app/api/payments/fawaterak/webhook/route.ts');
+  const { signFawaterakWebhook } = await import('../app/lib/fawaterak.ts');
+
+  // Student 1 has consumed 5 views on Lecture 1A
+  for (let i = 0; i < 5; i++) {
+    db.viewSessions.push({
+      id: `s-1a-pay-${i}`,
+      videoId: 'video-1a',
+      userEmail: 'student1@test.com',
+      status: 'expired',
+      expiresAt: Date.now() - 1000,
+    });
+  }
+
+  // Setup payment intent for renewal
+  const txKey = 'tx-key-renewal-123';
+  const txId = 'tx-id-renewal-999';
+  const payMethod = 'Fawry';
+  db.paymentIntents.set(txKey, {
+    id: 'pi-123',
+    enrollmentId: 'enr-s1-c1',
+    userEmail: 'student1@test.com',
+    courseId: 'course-1',
+    amountMinor: 50000,
+    currency: 'EGP',
+    status: 'created',
+    transactionId: null,
+  });
+
+  const signature = await signFawaterakWebhook(txId, txKey, payMethod, 'test-vendor-secret');
+  const payload = {
+    transaction_key: txKey,
+    transaction_id: txId,
+    payment_method: payMethod,
+    transactionHashKey: signature,
+    status: 'paid',
+    paidAmount: '500.00',
+    paidCurrency: 'EGP',
+  };
+  const payloadStr = JSON.stringify(payload);
+
+  const webhookReq = new Request('http://localhost:3000/api/payments/fawaterak/webhook', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'content-length': String(Buffer.byteLength(payloadStr)),
+    },
+    body: payloadStr,
+  });
+
+  const res = await webhookPost(webhookReq);
+  assert.equal(res.status, 200);
+
+  // Consumed views are reset
+  const used = db.viewSessions.filter((vs) => vs.videoId === 'video-1a' && vs.userEmail === 'student1@test.com').length;
+  assert.equal(used, 0, 'Views reset upon confirmed payment');
+});
+
+test('15. Failed or pending payment webhook does NOT reset lecture views', async () => {
+  const db = setupMultiLectureMultiCourseEnv();
+  const { POST: webhookPost } = await import('../app/api/payments/fawaterak/webhook/route.ts');
+  const { signFawaterakWebhook } = await import('../app/lib/fawaterak.ts');
+
+  // Student 1 has consumed 3 views
+  for (let i = 0; i < 3; i++) {
+    db.viewSessions.push({
+      id: `s-1a-payfail-${i}`,
+      videoId: 'video-1a',
+      userEmail: 'student1@test.com',
+      status: 'expired',
+      expiresAt: Date.now() - 1000,
+    });
+  }
+
+  const txKey = 'tx-key-failed-123';
+  const txId = 'tx-id-fail-888';
+  const payMethod = 'Fawry';
+  db.paymentIntents.set(txKey, {
+    id: 'pi-failed',
+    enrollmentId: 'enr-s1-c1',
+    userEmail: 'student1@test.com',
+    courseId: 'course-1',
+    amountMinor: 50000,
+    currency: 'EGP',
+    status: 'created',
+    transactionId: null,
+  });
+
+  const signature = await signFawaterakWebhook(txId, txKey, payMethod, 'test-vendor-secret');
+  const payload = {
+    transaction_key: txKey,
+    transaction_id: txId,
+    payment_method: payMethod,
+    transactionHashKey: signature,
+    status: 'failed',
+    errorMessage: 'Payment declined',
+  };
+  const payloadStr = JSON.stringify(payload);
+
+  const failReq = new Request('http://localhost:3000/api/payments/fawaterak/webhook', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'content-length': String(Buffer.byteLength(payloadStr)),
+    },
+    body: payloadStr,
+  });
+
+  const res = await webhookPost(failReq);
+  assert.equal(res.status, 200);
+
+  const used = db.viewSessions.filter((vs) => vs.videoId === 'video-1a' && vs.userEmail === 'student1@test.com').length;
+  assert.equal(used, 3, 'Used views must remain 3 on failed payment');
 });
