@@ -45,7 +45,18 @@ export async function POST(
     )
     .bind(email, video.courseId)
     .first();
-  if (!enrollment) return jsonError('غير مصرح بالدخول', 403);
+
+  let hasAccess = Boolean(enrollment);
+  if (!hasAccess) {
+    const grant = await db
+      .prepare(
+        'SELECT 1 FROM student_video_access_grants WHERE video_id = ? AND student_email = ? LIMIT 1'
+      )
+      .bind(id, email)
+      .first();
+    hasAccess = Boolean(grant);
+  }
+  if (!hasAccess) return jsonError('غير مصرح بالدخول', 403);
 
   // Reuse existing active session if still valid
   const existing = await db

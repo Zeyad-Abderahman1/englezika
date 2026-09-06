@@ -31,20 +31,38 @@ export async function GET(
     )
     .bind(email, video.courseId)
     .first();
-  if (!enrollment) {
+
+  let hasAccess = Boolean(enrollment);
+  let hasGrant = false;
+  if (!hasAccess) {
+    const grant = await db
+      .prepare(
+        'SELECT 1 FROM student_video_access_grants WHERE video_id = ? AND student_email = ? LIMIT 1'
+      )
+      .bind(id, email)
+      .first();
+    if (grant) {
+      hasAccess = true;
+      hasGrant = true;
+    }
+  }
+
+  if (!hasAccess) {
     return Response.json({ error: 'غير مصرح بالدخول' }, { status: 403 });
   }
 
-  const courseHasSequence = await hasCourseItems(video.courseId);
-  if (courseHasSequence) {
-    const unlockState = await getCourseSequenceUnlockState(video.courseId, email);
-    const key = `video:${id}`;
-    const state = unlockState.get(key);
-    if (state && !state.unlocked) {
-      return Response.json(
-        { error: 'يجب إكمال العناصر السابقة في تسلسل التعلم أولاً' },
-        { status: 403 }
-      );
+  if (!hasGrant) {
+    const courseHasSequence = await hasCourseItems(video.courseId);
+    if (courseHasSequence) {
+      const unlockState = await getCourseSequenceUnlockState(video.courseId, email);
+      const key = `video:${id}`;
+      const state = unlockState.get(key);
+      if (state && !state.unlocked) {
+        return Response.json(
+          { error: 'يجب إكمال العناصر السابقة في تسلسل التعلم أولاً' },
+          { status: 403 }
+        );
+      }
     }
   }
 

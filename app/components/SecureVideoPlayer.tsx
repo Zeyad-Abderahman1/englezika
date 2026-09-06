@@ -62,7 +62,25 @@ type ResolvedSource = {
   sourceUrl: string;
   completionToken: string;
   error?: string;
+  isUnauthorized?: boolean;
 };
+
+function getFullscreenElement(): Element | null {
+  if (typeof document === 'undefined') return null;
+  const doc = document as unknown as {
+    fullscreenElement?: Element | null;
+    webkitFullscreenElement?: Element | null;
+    mozFullScreenElement?: Element | null;
+    msFullscreenElement?: Element | null;
+  };
+  return (
+    doc.fullscreenElement ||
+    doc.webkitFullscreenElement ||
+    doc.mozFullScreenElement ||
+    doc.msFullscreenElement ||
+    null
+  );
+}
 
 function formatTime(seconds: number): string {
   if (!isFinite(seconds) || seconds < 0) return '0:00';
@@ -98,7 +116,13 @@ export default function SecureVideoPlayer({
   const [youtubePlaying, setYoutubePlaying] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(() => {
+    const init =
+      videos.find((video) => video.id === initialVideoId && video.unlocked) ||
+      videos.find((video) => video.unlocked) ||
+      videos[0];
+    return init?.durationSeconds || 0;
+  });
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubPosition, setScrubPosition] = useState(0);
   const [hasEnded, setHasEnded] = useState(false);
@@ -140,11 +164,37 @@ export default function SecureVideoPlayer({
   }, []);
 
   const toggleFullscreen = useCallback(async () => {
-    if (document.fullscreenElement) {
-      await document.exitFullscreen();
-      return;
+    try {
+      const fsEl = getFullscreenElement();
+      if (fsEl) {
+        const doc = document as unknown as {
+          exitFullscreen?: () => Promise<void>;
+          webkitExitFullscreen?: () => Promise<void>;
+          mozCancelFullScreen?: () => Promise<void>;
+          msExitFullscreen?: () => Promise<void>;
+        };
+        if (typeof doc.exitFullscreen === 'function') {
+          await doc.exitFullscreen();
+        } else if (typeof doc.webkitExitFullscreen === 'function') {
+          await doc.webkitExitFullscreen();
+        }
+        return;
+      }
+      const el = videoFrameRef.current as unknown as {
+        requestFullscreen?: () => Promise<void>;
+        webkitRequestFullscreen?: () => Promise<void>;
+        mozRequestFullScreen?: () => Promise<void>;
+        msRequestFullscreen?: () => Promise<void>;
+      } | null;
+      if (!el) return;
+      if (typeof el.requestFullscreen === 'function') {
+        await el.requestFullscreen();
+      } else if (typeof el.webkitRequestFullscreen === 'function') {
+        await el.webkitRequestFullscreen();
+      }
+    } catch {
+      // Browser fullscreen rejection
     }
-    await videoFrameRef.current?.requestFullscreen();
   }, []);
 
   const showSecurityOverlay = useCallback(() => {
@@ -281,6 +331,16 @@ export default function SecureVideoPlayer({
     }
   }, []);
 
+  // Reset duration and clear security messages when active video changes
+  useEffect(() => {
+    const currentLesson = lessons.find((v) => v.id === activeId);
+    setDuration(currentLesson?.durationSeconds || 0);
+    setCurrentTime(0);
+    setHasEnded(false);
+    setSecurityMessage('');
+    setYoutubePlaying(false);
+  }, [activeId, lessons]);
+
   // Cleanup heartbeat on unmount or video change
   useEffect(() => {
     return () => {
@@ -305,7 +365,21 @@ export default function SecureVideoPlayer({
           completionToken?: string;
           error?: string;
         };
-        if (!response.ok || !result.kind || !result.sourceUrl || !result.completionToken) {
+        if (!response.ok) {
+          const isUnauthorized = response.status === 401 || response.status === 403;
+          const errorMsg =
+            result.error || (isUnauthorized ? 'غير مصرح بالدخول' : 'تعذر تجهيز مصدر الفيديو');
+          setResolved({
+            videoId: activeId,
+            kind: 'youtube',
+            sourceUrl: '',
+            completionToken: '',
+            error: errorMsg,
+            isUnauthorized,
+          });
+          return;
+        }
+        if (!result.kind || !result.sourceUrl || !result.completionToken) {
           throw new Error(result.error || 'تعذر تجهيز مصدر الفيديو');
         }
         setResolved({
@@ -313,7 +387,9 @@ export default function SecureVideoPlayer({
           kind: result.kind,
           sourceUrl: result.sourceUrl,
           completionToken: result.completionToken,
+          isUnauthorized: false,
         });
+        setSecurityMessage('');
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -323,6 +399,7 @@ export default function SecureVideoPlayer({
           sourceUrl: '',
           completionToken: '',
           error: error instanceof Error ? error.message : 'تعذر تجهيز مصدر الفيديو',
+          isUnauthorized: false,
         });
       });
     return () => controller.abort();
@@ -388,10 +465,28 @@ export default function SecureVideoPlayer({
         const rData = data as { rate?: number };
         if (typeof rData.rate === 'number') setPlaybackSpeed(rData.rate);
       }
+      if (data.type === 'englizeka-video-error') {
+        const errData = data as { errorCode?: number };
+        setYoutubePlaying(false);
+        stopHeartbeat();
+        setResolved((prev) =>
+          prev && prev.videoId === activeId
+            ? {
+                ...prev,
+                error: 'حدث خطأ أثناء تشغيل الفيديو (' + (errData.errorCode || 'خطأ') + ')',
+                isUnauthorized: false,
+              }
+            : prev
+        );
+      }
       if (data.type === 'englizeka-video-progress') {
         if (!scrubbingRef.current) {
-          setCurrentTime(typeof data.currentTime === 'number' ? data.currentTime : 0);
-          setDuration(typeof data.duration === 'number' ? data.duration : 0);
+          if (typeof data.currentTime === 'number' && !isNaN(data.currentTime)) {
+            setCurrentTime(data.currentTime);
+          }
+          if (typeof data.duration === 'number' && data.duration > 0 && !isNaN(data.duration)) {
+            setDuration(data.duration);
+          }
         }
       }
     };
@@ -407,15 +502,21 @@ export default function SecureVideoPlayer({
   );
 
   useEffect(() => {
-    const syncFullscreen = () =>
-      setIsFullscreen(document.fullscreenElement === videoFrameRef.current);
+    const syncFullscreen = () => {
+      const fsEl = getFullscreenElement();
+      setIsFullscreen(fsEl === videoFrameRef.current);
+    };
     document.addEventListener('fullscreenchange', syncFullscreen);
-    return () => document.removeEventListener('fullscreenchange', syncFullscreen);
+    document.addEventListener('webkitfullscreenchange', syncFullscreen);
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreen);
+      document.removeEventListener('webkitfullscreenchange', syncFullscreen);
+    };
   }, []);
 
   useEffect(() => {
     const protectOnVisibilityChange = () => {
-      if (document.hidden && resolved?.videoId === activeId && resolved.kind === 'youtube') {
+      if (document.hidden && youtubePlaying && resolved?.videoId === activeId && resolved.kind === 'youtube') {
         showSecurityOverlay();
         stopHeartbeat();
       }
@@ -424,7 +525,7 @@ export default function SecureVideoPlayer({
     return () => {
       document.removeEventListener('visibilitychange', protectOnVisibilityChange);
     };
-  }, [activeId, resolved, showSecurityOverlay, stopHeartbeat]);
+  }, [activeId, resolved, showSecurityOverlay, stopHeartbeat, youtubePlaying]);
 
   const seekTo = useCallback(
     (seconds: number) => {
@@ -539,19 +640,26 @@ export default function SecureVideoPlayer({
               {!activeSource ? (
                 <div className="video-source-state" role="status">
                   <LoaderCircle className="spin" />
-                  <strong>جاري تجهيز الفيديو الآمن...</strong>
-                  <small>يتم التحقق من اشتراكك قبل تشغيل كل محاضرة.</small>
+                  <strong>جاري تجهيز الفيديو...</strong>
+                  <small>لحظات ويتم تشغيل المحاضرة</small>
                 </div>
               ) : activeSource.error ? (
                 <div className="video-source-state" role="alert">
                   <LockKeyhole />
                   <strong>{activeSource.error}</strong>
-                  <button
-                    className="btn btn-outline"
-                    onClick={() => setResolveAttempt((v) => v + 1)}
-                  >
-                    <RefreshCw /> إعادة المحاولة
-                  </button>
+                  {activeSource.isUnauthorized ? (
+                    <small>يرجى التأكد من صلاحية الاشتراك أو الكود المستخدم.</small>
+                  ) : (
+                    <button
+                      className="btn btn-outline"
+                      onClick={() => {
+                        setSecurityMessage('');
+                        setResolveAttempt((v) => v + 1);
+                      }}
+                    >
+                      <RefreshCw /> إعادة المحاولة
+                    </button>
+                  )}
                 </div>
               ) : (
                 <>
@@ -561,7 +669,8 @@ export default function SecureVideoPlayer({
                     className="youtube-player-host"
                     src={activeSource.sourceUrl}
                     title={active.title}
-                    allow="autoplay; encrypted-media"
+                    allow="autoplay; encrypted-media; fullscreen"
+                    allowFullScreen={true}
                     referrerPolicy="strict-origin-when-cross-origin"
                     sandbox="allow-scripts allow-same-origin allow-presentation"
                   />

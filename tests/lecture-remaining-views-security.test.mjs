@@ -7,6 +7,7 @@ class MockViewSessionDatabase {
   viewSessions = [];
   studentSessions = new Map();
   studentUsers = new Map();
+  grants = new Set();
 
   constructor() {
     this.videos.set('video-limited-3', {
@@ -88,6 +89,13 @@ class MockViewSessionDatabase {
           const [email, courseId] = this.bindings;
           const en = db.enrollments.get(`${email}:${courseId}`);
           return en ? { 1: 1 } : null;
+        }
+
+        // Grant check
+        if (s.includes('FROM student_video_access_grants WHERE video_id = ? AND student_email = ?')) {
+          const [videoId, email] = this.bindings;
+          const hasGrant = db.grants.has(`${email}:${videoId}`);
+          return hasGrant ? { 1: 1 } : null;
         }
 
         // Existing active session check
@@ -457,4 +465,47 @@ test('Security: Unenrolled student cannot start viewing session', async () => {
   assert.equal(res.status, 403);
   const data = await res.json();
   assert.equal(data.error, 'غير مصرح بالدخول');
+});
+
+test('Student with individual video access grant can start viewing session without full course enrollment', async () => {
+  const db = new MockViewSessionDatabase();
+  setupDb(db);
+
+  const crypto = await import('node:crypto');
+  const rawToken = 'grant-student-token-456';
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+  db.studentSessions.set(tokenHash, {
+    tokenHash,
+    userEmail: 'grant-student@test.com',
+    expiresAt: Date.now() + 86400000,
+  });
+
+  db.studentUsers.set('grant-student@test.com', {
+    email: 'grant-student@test.com',
+    name: 'طالب كود QR',
+    role: 'student',
+    status: 'active',
+    isVerified: 1,
+  });
+
+  // Not enrolled in course-1, but has individual grant for video-limited-3
+  db.grants.add('grant-student@test.com:video-limited-3');
+
+  const { POST } = await import('../app/api/student/videos/[id]/view-session/start/route.ts');
+  const req = new Request('http://localhost:3000/api/student/videos/video-limited-3/view-session/start', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: 'http://localhost:3000',
+      cookie: `englizeka_student=${rawToken};`,
+    },
+    body: '{}',
+  });
+
+  const res = await POST(req, { params: Promise.resolve({ id: 'video-limited-3' }) });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.ok(data.sessionId);
+  assert.equal(data.viewsRemaining, 2);
 });
