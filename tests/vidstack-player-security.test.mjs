@@ -414,3 +414,93 @@ test('Vidstack Player Security: 10. No custom giant pause overlay or obsolete pl
     'No .video-surface-click-layer in app/globals.css'
   );
 });
+
+test('Vidstack Player Security: 11. Provider verification uses isYouTubeProvider and onProviderChange', async () => {
+  const playerSource = await readFile('app/components/SecureVideoPlayer.tsx', 'utf-8');
+
+  assert.ok(
+    playerSource.includes('isYouTubeProvider'),
+    'Imports and utilizes isYouTubeProvider'
+  );
+  assert.ok(
+    playerSource.includes('onProviderChange={handleProviderChange}'),
+    'MediaPlayer binds onProviderChange'
+  );
+  assert.ok(
+    playerSource.includes('isYouTubeProvider(provider)'),
+    'Validates provider via isYouTubeProvider(provider)'
+  );
+});
+
+test('Vidstack Player Security: 12. extractYouTubeId safely extracts 11-char ID from all YouTube formats', async () => {
+  const { extractYouTubeId, toVidstackYouTubeSource } = await import('../app/lib/youtube.ts');
+
+  // Standard clean ID
+  assert.equal(extractYouTubeId('dQw4w9WgXcQ'), 'dQw4w9WgXcQ');
+  assert.equal(toVidstackYouTubeSource('dQw4w9WgXcQ'), 'youtube/dQw4w9WgXcQ');
+
+  // Watch URL
+  assert.equal(extractYouTubeId('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), 'dQw4w9WgXcQ');
+  assert.equal(extractYouTubeId('https://www.youtube.com/watch?feature=shared&v=dQw4w9WgXcQ'), 'dQw4w9WgXcQ');
+
+  // Short URL
+  assert.equal(extractYouTubeId('https://youtu.be/dQw4w9WgXcQ'), 'dQw4w9WgXcQ');
+
+  // Embed URL
+  assert.equal(extractYouTubeId('https://www.youtube.com/embed/dQw4w9WgXcQ'), 'dQw4w9WgXcQ');
+
+  // Shorts URL
+  assert.equal(extractYouTubeId('https://www.youtube.com/shorts/dQw4w9WgXcQ'), 'dQw4w9WgXcQ');
+
+  // Prefixed
+  assert.equal(extractYouTubeId('youtube/dQw4w9WgXcQ'), 'dQw4w9WgXcQ');
+
+  // Whitespace
+  assert.equal(extractYouTubeId('  dQw4w9WgXcQ  '), 'dQw4w9WgXcQ');
+
+  // Internal endpoints must NEVER match as YouTube IDs
+  assert.equal(extractYouTubeId('/api/videos/123/embed?token=abc'), null);
+  assert.equal(extractYouTubeId(''), null);
+  assert.equal(extractYouTubeId(null), null);
+  assert.equal(extractYouTubeId(undefined), null);
+});
+
+test('Vidstack Player Security: 13. /resolve returns valid Vidstack source format and never internal /embed as media source', async () => {
+  const db = new MockPlayerSecurityDatabase();
+  setupTestEnv(db);
+
+  const { GET } = await import('../app/api/videos/[id]/resolve/route.ts');
+  const authReq = new Request('http://localhost:3000/api/videos/vid-auth-test/resolve', {
+    method: 'GET',
+    headers: {
+      origin: 'http://localhost:3000',
+      cookie: 'englizeka_student=session-token-enrolled-student;',
+    },
+  });
+  const authRes = await GET(authReq, { params: Promise.resolve({ id: 'vid-auth-test' }) });
+  assert.equal(authRes.status, 200);
+  const data = await authRes.json();
+
+  // Must have 11-char youtubeId and normalized videoSource
+  assert.equal(data.youtubeId, 'dQw4w9WgXcQ');
+  assert.equal(data.videoSource, 'youtube/dQw4w9WgXcQ');
+  assert.equal(data.sourceUrl, 'youtube/dQw4w9WgXcQ');
+});
+
+test('Vidstack Player Security: 14. Provider error diagnostics prevent infinite loading and display friendly Arabic error', async () => {
+  const playerSource = await readFile('app/components/SecureVideoPlayer.tsx', 'utf-8');
+
+  // Error diagnostics
+  assert.ok(
+    playerSource.includes('providerError'),
+    'Maintains providerError state'
+  );
+  assert.ok(
+    playerSource.includes('هذا الفيديو غير متاح للتضمين من YouTube'),
+    'Handles embedding restriction (code 150/101)'
+  );
+  assert.ok(
+    playerSource.includes('فيديو YouTube غير موجود أو تم حذفه'),
+    'Handles missing/deleted video (code 100/2)'
+  );
+});

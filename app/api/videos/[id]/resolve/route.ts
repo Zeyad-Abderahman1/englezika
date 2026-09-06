@@ -5,6 +5,7 @@ import {
   createVideoCompletionToken,
   VIDEO_EMBED_TOKEN_TTL_MS,
 } from '../../../../lib/video-access';
+import { extractYouTubeId } from '../../../../lib/youtube';
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await apiVerifiedUser(request);
@@ -24,12 +25,20 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     access.video.durationSeconds
   );
 
+  const youtubeId =
+    extractYouTubeId(access.video.youtubeId) ||
+    extractYouTubeId(access.video.sourceUrl);
+
+  const normalizedVidstackSource = youtubeId ? `youtube/${youtubeId}` : '';
   const token = await createVideoEmbedToken(user.email, id);
+
   return Response.json(
     {
       kind: 'youtube',
-      youtubeId: access.video.youtubeId,
-      sourceUrl: `/api/videos/${encodeURIComponent(id)}/embed?token=${encodeURIComponent(token)}`,
+      youtubeId,
+      videoSource: normalizedVidstackSource,
+      sourceUrl: normalizedVidstackSource || `/api/videos/${encodeURIComponent(id)}/embed?token=${encodeURIComponent(token)}`,
+      embedUrl: `/api/videos/${encodeURIComponent(id)}/embed?token=${encodeURIComponent(token)}`,
       completionToken,
       expiresIn: Math.round(VIDEO_EMBED_TOKEN_TTL_MS / 1000),
     },

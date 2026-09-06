@@ -21,12 +21,14 @@ import '@vidstack/react/player/styles/default/layouts/video.css';
 import {
   MediaPlayer,
   MediaProvider,
+  isYouTubeProvider,
   type MediaPlayerInstance,
 } from '@vidstack/react';
 import {
   defaultLayoutIcons,
   DefaultVideoLayout,
 } from '@vidstack/react/player/layouts/default';
+import { extractYouTubeId } from '../lib/youtube';
 
 export type PrerequisiteExam = {
   id: string;
@@ -81,6 +83,7 @@ export default function SecureVideoPlayer({
   const [resolveAttempt, setResolveAttempt] = useState(0);
   const [completionMessage, setCompletionMessage] = useState('');
   const [securityMessage, setSecurityMessage] = useState('');
+  const [providerError, setProviderError] = useState('');
   const [youtubePlaying, setYoutubePlaying] = useState(false);
 
   const playerRef = useRef<MediaPlayerInstance>(null);
@@ -225,7 +228,9 @@ export default function SecureVideoPlayer({
   // Reset state when active video changes
   useEffect(() => {
     setSecurityMessage('');
+    setProviderError('');
     setYoutubePlaying(false);
+    setResolved(null);
   }, [activeId]);
 
   // Cleanup heartbeat on unmount or video change
@@ -249,6 +254,7 @@ export default function SecureVideoPlayer({
         const result = (await response.json().catch(() => ({}))) as {
           kind?: 'youtube';
           youtubeId?: string | null;
+          videoSource?: string | null;
           sourceUrl?: string;
           completionToken?: string;
           error?: string;
@@ -267,18 +273,38 @@ export default function SecureVideoPlayer({
           });
           return;
         }
-        if (!result.sourceUrl || !result.completionToken) {
+        if (!result.completionToken) {
           throw new Error(result.error || 'تعذر تجهيز مصدر الفيديو');
         }
+
+        // Safely extract 11-char YouTube ID. Never pass internal /embed endpoints to Vidstack.
+        const resolvedYtId =
+          extractYouTubeId(result.youtubeId) ||
+          extractYouTubeId(result.videoSource) ||
+          extractYouTubeId(result.sourceUrl);
+
+        if (!resolvedYtId) {
+          setResolved({
+            videoId: activeId,
+            kind: 'youtube',
+            sourceUrl: '',
+            completionToken: '',
+            error: 'مصدر الفيديو غير متوفر أو غير صالح',
+            isUnauthorized: false,
+          });
+          return;
+        }
+
         setResolved({
           videoId: activeId,
-          kind: result.kind || 'youtube',
-          youtubeId: result.youtubeId || null,
-          sourceUrl: result.sourceUrl,
+          kind: 'youtube',
+          youtubeId: resolvedYtId,
+          sourceUrl: `youtube/${resolvedYtId}`,
           completionToken: result.completionToken,
           isUnauthorized: false,
         });
         setSecurityMessage('');
+        setProviderError('');
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -312,9 +338,27 @@ export default function SecureVideoPlayer({
     void completeLesson(activeId);
   }, [activeId, completeLesson, stopHeartbeat]);
 
-  const handleError = useCallback(() => {
+  const handleProviderChange = useCallback((provider: unknown) => {
+    if (provider && isYouTubeProvider(provider)) {
+      setProviderError('');
+    } else if (provider) {
+      setProviderError('مزود تشغيل الفيديو غير مدعوم');
+    }
+  }, []);
+
+  const handleError = useCallback((detail: unknown) => {
     setYoutubePlaying(false);
     stopHeartbeat();
+    const message = (detail as { message?: string })?.message || '';
+    if (message.includes('150') || message.includes('101')) {
+      setProviderError('هذا الفيديو غير متاح للتضمين من YouTube');
+    } else if (message.includes('100') || message.includes('2')) {
+      setProviderError('فيديو YouTube غير موجود أو تم حذفه');
+    } else if (message) {
+      setProviderError(`تعذر تشغيل فيديو YouTube (${message})`);
+    } else {
+      setProviderError('تعذر تحميل مشغل الفيديو من YouTube');
+    }
   }, [stopHeartbeat]);
 
   const handleFullscreenChange = useCallback((isFullscreen: boolean) => {
@@ -375,12 +419,28 @@ export default function SecureVideoPlayer({
                     className="btn btn-outline"
                     onClick={() => {
                       setSecurityMessage('');
+                      setProviderError('');
                       setResolveAttempt((v) => v + 1);
                     }}
                   >
                     <RefreshCw /> إعادة المحاولة
                   </button>
                 )}
+              </div>
+            ) : providerError ? (
+              <div className="video-source-state" role="alert">
+                <LockKeyhole />
+                <strong>{providerError}</strong>
+                <button
+                  className="btn btn-outline"
+                  onClick={() => {
+                    setSecurityMessage('');
+                    setProviderError('');
+                    setResolveAttempt((v) => v + 1);
+                  }}
+                >
+                  <RefreshCw /> إعادة المحاولة
+                </button>
               </div>
             ) : activeSource.youtubeId ? (
               <MediaPlayer
@@ -394,6 +454,7 @@ export default function SecureVideoPlayer({
                 onPause={handlePause}
                 onEnd={handleEnded}
                 onError={handleError}
+                onProviderChange={handleProviderChange}
                 onFullscreenChange={handleFullscreenChange}
                 className="englizeka-vidstack-player"
               >

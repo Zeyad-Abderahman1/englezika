@@ -7,6 +7,7 @@ import {
   verifySignedVideoCompletionToken,
 } from './video-token';
 import { hasCourseItems, getCourseSequenceUnlockState } from './course-sequence';
+import { extractYouTubeId } from './youtube';
 
 export { VIDEO_EMBED_TOKEN_TTL_MS };
 
@@ -15,6 +16,7 @@ export type AuthorizedVideo = {
   courseId: string;
   sourceType: string;
   youtubeId: string | null;
+  sourceUrl: string | null;
   durationSeconds: number;
   title: string;
   prerequisiteExamId: string | null;
@@ -75,6 +77,7 @@ export async function authorizeVideoAccess(
   const video = await db
     .prepare(
       `SELECT v.id, v.course_id AS courseId, v.source_type AS sourceType,
+       v.source_url AS sourceUrl,
        v.youtube_id AS youtubeId, v.duration_seconds AS durationSeconds, v.title,
        v.prerequisite_exam_id AS prerequisiteExamId, v.minimum_score AS minimumScore,
        CASE WHEN EXISTS (
@@ -92,6 +95,8 @@ export async function authorizeVideoAccess(
   if (!video || (!Number(video.hasEnrollmentAccess) && !Number(video.hasIndividualGrant))) {
     return { ok: false, status: 403, error: 'هذه المحاضرة غير متاحة لهذا الحساب' };
   }
+
+  video.youtubeId = extractYouTubeId(video.youtubeId) || extractYouTubeId(video.sourceUrl);
 
   if (Number(video.hasIndividualGrant)) return { ok: true, video };
 
