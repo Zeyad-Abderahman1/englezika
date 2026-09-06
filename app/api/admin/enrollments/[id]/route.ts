@@ -43,26 +43,65 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const previousStatus = String(enrollment.status ?? '').trim().toLowerCase();
 
   const now = Date.now();
-  await db
-    .prepare('UPDATE enrollments SET status = ?, updated_at = ? WHERE id = ?')
-    .bind(status, now, id)
-    .run();
 
-  const shouldResetViews =
-    status === 'approved' &&
-    (isExplicitReactivation || previousStatus !== 'approved');
+  if (isExplicitReactivation) {
+    if (!rawUserEmail || !rawCourseId) {
+      return jsonError('بيانات الاشتراك غير مكتملة', 400);
+    }
 
-  let resetChanges = 0;
+    // Execute in one transaction: refresh enrollment entitlement and delete/reset video_view_sessions
+    await db.batch([
+      db
+        .prepare('UPDATE enrollments SET status = ?, updated_at = ? WHERE id = ?')
+        .bind('approved', now, id),
+      db
+        .prepare(
+          `DELETE FROM video_view_sessions
+           WHERE LOWER(TRIM(user_email)) = LOWER(?)
+             AND video_id IN (
+               SELECT id FROM videos WHERE TRIM(course_id) = ?
+             )`
+        )
+        .bind(rawUserEmail, rawCourseId),
+    ]);
+
+    return Response.json({
+      ok: true,
+      status: 'approved',
+      action: 'reactivate',
+      viewsReset: true,
+    });
+  }
+
+  // Ordinary edits: reset ONLY if transitioning from non-approved to approved
+  const shouldResetViews = previousStatus !== 'approved' && status === 'approved';
+
   if (shouldResetViews && rawUserEmail && rawCourseId) {
-    const resetResult = await resetCourseLectureViewAllowance(rawUserEmail, rawCourseId);
-    resetChanges = resetResult.changes;
+    await db.batch([
+      db
+        .prepare('UPDATE enrollments SET status = ?, updated_at = ? WHERE id = ?')
+        .bind(status, now, id),
+      db
+        .prepare(
+          `DELETE FROM video_view_sessions
+           WHERE LOWER(TRIM(user_email)) = LOWER(?)
+             AND video_id IN (
+               SELECT id FROM videos WHERE TRIM(course_id) = ?
+             )`
+        )
+        .bind(rawUserEmail, rawCourseId),
+    ]);
+  } else {
+    await db
+      .prepare('UPDATE enrollments SET status = ?, updated_at = ? WHERE id = ?')
+      .bind(status, now, id)
+      .run();
   }
 
   return Response.json({
     ok: true,
     status,
-    reactivated: isExplicitReactivation,
+    reactivated: false,
     viewsReset: shouldResetViews,
-    resetChanges,
   });
 }

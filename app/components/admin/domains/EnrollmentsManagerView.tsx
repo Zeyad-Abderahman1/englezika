@@ -60,8 +60,7 @@ export function EnrollmentsManagerView() {
 
   const handleUpdateStatus = async (
     enrollment: Enrollment,
-    newStatus: 'approved' | 'rejected' | 'pending',
-    action?: 'reactivate' | 'renew'
+    newStatus: 'approved' | 'rejected' | 'pending'
   ) => {
     if (newStatus === 'rejected') {
       openConfirm({
@@ -84,26 +83,6 @@ export function EnrollmentsManagerView() {
       return;
     }
 
-    if (action === 'reactivate' || (enrollment.status === 'approved' && newStatus === 'approved')) {
-      openConfirm({
-        title: 'تجديد المشاهدات وإعادة تفعيل الاشتراك',
-        message: `هل أنت متأكد من تجديد مشاهدات المحاضرات وإعادة تفعيل الاشتراك للطالب «${enrollment.userEmail}» في كورس «${enrollment.courseTitle}»؟ سيتم تصفير استهلاك المشاهدات السابقة للمحاضرات.`,
-        confirmLabel: 'تأكيد التجديد',
-        onConfirm: async () => {
-          await mutate(
-            () =>
-              adminApiRequest(`/api/admin/enrollments/${enrollment.id}`, {
-                method: 'PATCH',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ status: 'approved', action: 'reactivate' }),
-              }),
-            'تم تجديد مشاهدات المحاضرات وتفعيل الاشتراك بنجاح'
-          );
-        },
-      });
-      return;
-    }
-
     const message =
       newStatus === 'approved'
         ? 'تم تفعيل الاشتراك وفتح محتوى الكورس للطالب'
@@ -117,6 +96,18 @@ export function EnrollmentsManagerView() {
           body: JSON.stringify({ status: newStatus }),
         }),
       message
+    );
+  };
+
+  const handleReactivate = async (enrollment: Enrollment) => {
+    await mutate(
+      () =>
+        adminApiRequest(`/api/admin/enrollments/${enrollment.id}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'reactivate' }),
+        }),
+      'تم تجديد الاشتراك وتصفير استهلاك المشاهدات بنجاح'
     );
   };
 
@@ -281,7 +272,7 @@ export function EnrollmentsManagerView() {
                           type="button"
                           className="btn btn-outline btn-sm"
                           disabled={busy}
-                          onClick={() => handleUpdateStatus(item, 'approved', 'reactivate')}
+                          onClick={() => handleReactivate(item)}
                           title="تجديد مشاهدات المحاضرات لهذا الطالب في هذا الكورس"
                         >
                           <RotateCcw size={13} /> تجديد المشاهدات

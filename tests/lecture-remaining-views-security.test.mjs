@@ -950,6 +950,24 @@ test('11. Regression: Admin reactivates already-approved enrollment with action=
     });
   }
 
+  // Same student has sessions in course-2
+  db.viewSessions.push({
+    id: 's-2a-other-course',
+    videoId: 'video-2a',
+    userEmail: 'student1@test.com',
+    status: 'expired',
+    expiresAt: Date.now() - 1000,
+  });
+
+  // Another student has sessions in course-1
+  db.viewSessions.push({
+    id: 's-1a-other-student',
+    videoId: 'video-1a',
+    userEmail: 'student2@test.com',
+    status: 'expired',
+    expiresAt: Date.now() - 1000,
+  });
+
   // Student is blocked before reactivation
   const makeStartReq = () =>
     new Request('http://localhost:3000/api/student/videos/video-1a/view-session/start', {
@@ -968,7 +986,7 @@ test('11. Regression: Admin reactivates already-approved enrollment with action=
   const blockedData = await resBlocked.json();
   assert.equal(blockedData.error, 'لقد استنفدت عدد المشاهدات المسموحة لهذه المحاضرة');
 
-  // Admin reactivates enrollment: action = 'reactivate'
+  // Admin reactivates enrollment sending exact payload { action: 'reactivate' }
   const { PATCH: adminPatchEnrollment } = await import('../app/api/admin/enrollments/[id]/route.ts');
   const patchReq = new Request('http://localhost:3000/api/admin/enrollments/enr-s1-c1', {
     method: 'PATCH',
@@ -977,7 +995,7 @@ test('11. Regression: Admin reactivates already-approved enrollment with action=
       origin: 'http://localhost:3000',
       cookie: `englizeka_staff=${adminToken};`,
     },
-    body: JSON.stringify({ status: 'approved', action: 'reactivate' }),
+    body: JSON.stringify({ action: 'reactivate' }),
   });
 
   const patchRes = await adminPatchEnrollment(patchReq, { params: Promise.resolve({ id: 'enr-s1-c1' }) });
@@ -985,6 +1003,27 @@ test('11. Regression: Admin reactivates already-approved enrollment with action=
   const patchData = await patchRes.json();
   assert.equal(patchData.ok, true);
   assert.equal(patchData.viewsReset, true, 'viewsReset must be true on explicit reactivation');
+
+  // Old session rows for student1 in course-1 are deleted
+  const s1c1Sessions = db.viewSessions.filter(
+    (vs) => vs.userEmail === 'student1@test.com' && vs.videoId === 'video-1a'
+  );
+  assert.equal(s1c1Sessions.length, 0, 'Old session rows for that course are deleted/reset');
+
+  // Same student's other course remains untouched
+  const s1c2Sessions = db.viewSessions.filter(
+    (vs) => vs.userEmail === 'student1@test.com' && vs.videoId === 'video-2a'
+  );
+  assert.equal(s1c2Sessions.length, 1, "Same student's other course remains untouched");
+
+  // Another student's rows remain untouched
+  const s2c1Sessions = db.viewSessions.filter(
+    (vs) => vs.userEmail === 'student2@test.com' && vs.videoId === 'video-1a'
+  );
+  assert.equal(s2c1Sessions.length, 1, "Another student's rows remain untouched");
+
+  // Video max_views remains 5
+  assert.equal(db.videos.get('video-1a').maxViews, 5, 'videos.max_views remains 5');
 
   // Student can now start new session and has full remaining views
   const resAfter = await startViewSession(makeStartReq(), { params: Promise.resolve({ id: 'video-1a' }) });
