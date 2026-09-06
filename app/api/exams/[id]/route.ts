@@ -53,8 +53,8 @@ async function assertExamUnlocked(
   return { ok: true };
 }
 
-export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await apiVerifiedUser();
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const user = await apiVerifiedUser(request);
   if (isResponse(user)) return user;
   const { id } = await params;
   const email = user.email.toLowerCase();
@@ -74,6 +74,15 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     )
     .bind(id, email)
     .first<{ id: string; startedAt: number; expiresAt: number; status: string }>();
+  if (session?.status === 'terminated') {
+    return Response.json(
+      {
+        terminated: true,
+        error: 'تم إنهاء الامتحان. تم تسجيل مغادرة صفحة الامتحان للمرة الثانية.',
+      },
+      { status: 403 }
+    );
+  }
   if (!session || session.status !== 'active' || Number(session.expiresAt) <= Date.now()) {
     return jsonError('ابدأ الامتحان من حسابك أولاً', 409);
   }

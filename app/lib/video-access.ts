@@ -21,6 +21,7 @@ export type AuthorizedVideo = {
   title: string;
   prerequisiteExamId: string | null;
   minimumScore: number;
+  maxViews?: number;
   hasEnrollmentAccess: number;
   hasIndividualGrant: number;
 };
@@ -80,6 +81,7 @@ export async function authorizeVideoAccess(
        v.source_url AS sourceUrl,
        v.youtube_id AS youtubeId, v.duration_seconds AS durationSeconds, v.title,
        v.prerequisite_exam_id AS prerequisiteExamId, v.minimum_score AS minimumScore,
+       v.max_views AS maxViews,
        CASE WHEN EXISTS (
          SELECT 1 FROM enrollments e
          WHERE e.course_id = v.course_id AND e.user_email = ? AND e.status = 'approved'

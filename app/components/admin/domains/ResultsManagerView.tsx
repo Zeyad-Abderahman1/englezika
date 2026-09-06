@@ -12,6 +12,7 @@
 
 import { useState, useMemo } from 'react';
 import {
+  AlertTriangle,
   BarChart3,
   PencilLine,
   Save,
@@ -78,6 +79,20 @@ export function ResultsManagerView() {
   };
 
   const renderGradingBadge = (method: string) => {
+    if (method === 'focus_violation' || method === 'terminated_focus') {
+      return (
+        <span
+          className="admin-grading-method-badge method-terminated"
+          style={{
+            backgroundColor: 'rgba(239, 68, 68, 0.12)',
+            color: '#ef4444',
+            borderColor: 'rgba(239, 68, 68, 0.3)',
+          }}
+        >
+          <AlertTriangle size={13} /> تم الإنهاء لمغادرة الامتحان
+        </span>
+      );
+    }
     if (method === 'teacher_review') {
       return (
         <span className="admin-grading-method-badge method-teacher">

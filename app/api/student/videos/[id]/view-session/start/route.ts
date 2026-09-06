@@ -91,19 +91,45 @@ export async function POST(
     const currentViews = Number(viewCount?.count || 0);
 
     if (currentViews >= maxViews) {
-      return jsonError('لقد استنفدت عدد المشاهدات المسموحة لهذه المحاضرة', 403);
+      return Response.json(
+        {
+          error: 'لقد استنفدت عدد المشاهدات المسموحة لهذه المحاضرة',
+          code: 'VIEW_LIMIT_REACHED',
+        },
+        { status: 403 }
+      );
     }
 
     // Create new session — expires in 30 minutes; heartbeat extends by 30 min each time
     const sessionId = crypto.randomUUID();
     const expiresAt = now + 30 * 60 * 1000;
-    await db
+    const insertResult = await db
       .prepare(
         `INSERT INTO video_view_sessions (id, video_id, user_email, session_token, started_at, last_active_at, expires_at, created_at, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')`
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'active'
+         WHERE (
+           SELECT COUNT(*) FROM video_view_sessions
+           WHERE video_id = ? AND user_email = ? AND status IN ('active', 'expired', 'submitted')
+         ) < ?`
       )
-      .bind(sessionId, id, email, sessionId, now, now, expiresAt, now)
+      .bind(sessionId, id, email, sessionId, now, now, expiresAt, now, id, email, maxViews)
       .run();
+
+    if (
+      insertResult &&
+      'meta' in insertResult &&
+      insertResult.meta &&
+      typeof (insertResult.meta as { changes?: number }).changes === 'number' &&
+      (insertResult.meta as { changes?: number }).changes === 0
+    ) {
+      return Response.json(
+        {
+          error: 'لقد استنفدت عدد المشاهدات المسموحة لهذه المحاضرة',
+          code: 'VIEW_LIMIT_REACHED',
+        },
+        { status: 403 }
+      );
+    }
 
     return Response.json({
       sessionId,

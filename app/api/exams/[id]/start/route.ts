@@ -30,7 +30,7 @@ async function assertExamUnlocked(
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
-  const user = await apiVerifiedUser();
+  const user = await apiVerifiedUser(request);
   if (isResponse(user)) return user;
   if (!requestBodyWithinLimit(request, 8 * 1024)) return jsonError('حجم الطلب غير صالح', 413);
   const { id } = await params;
@@ -56,6 +56,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   );
   if (sessionResult.kind === 'attempt_limit') {
     return jsonError('انتهى عدد المحاولات المتاحة لهذا الاختبار', 409);
+  }
+  if (sessionResult.kind === 'terminated') {
+    return Response.json(
+      {
+        terminated: true,
+        error: 'تم إنهاء الامتحان. تم تسجيل مغادرة صفحة الامتحان للمرة الثانية.',
+      },
+      { status: 403 }
+    );
   }
   if (sessionResult.kind === 'busy') return jsonError('جاري تسليم هذا الامتحان', 409);
   return Response.json({ session: sessionResult.session });

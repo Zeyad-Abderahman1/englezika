@@ -6,6 +6,7 @@ import {
   Award,
   CheckCircle2,
   ClipboardCheck,
+  Download,
   Eye,
   EyeOff,
   LoaderCircle,
@@ -144,11 +145,27 @@ export default function SecureVideoPlayer({
         body: '{}',
       });
       if (!response.ok) {
-        const errorData = (await response.json().catch(() => ({}))) as { error?: string };
+        const errorData = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          code?: string;
+        };
         if (response.status === 403) {
-          setSecurityMessage(errorData.error || 'لقد استنفدت عدد المشاهدات المسموحة لهذه المحاضرة');
+          const msg =
+            errorData.error || 'لقد استنفدت عدد المشاهدات المسموحة لهذه المحاضرة';
+          setSecurityMessage(msg);
           setYoutubePlaying(false);
           playerRef.current?.pause();
+          stopHeartbeat();
+          viewSessionRef.current = null;
+          setResolved({
+            videoId,
+            kind: 'youtube',
+            sourceUrl: '',
+            youtubeId: null,
+            completionToken: '',
+            error: msg,
+            isUnauthorized: true,
+          });
           setLessons((prev) =>
             prev.map((item) =>
               item.id === videoId
@@ -258,11 +275,32 @@ export default function SecureVideoPlayer({
           sourceUrl?: string;
           completionToken?: string;
           error?: string;
+          code?: string;
+          activeSession?: { sessionId: string; expiresAt: number } | null;
         };
         if (!response.ok) {
           const isUnauthorized = response.status === 401 || response.status === 403;
+          const isExhausted =
+            result.code === 'VIEW_LIMIT_REACHED' ||
+            Boolean(result.error && result.error.includes('استنفدت'));
           const errorMsg =
             result.error || (isUnauthorized ? 'غير مصرح بالدخول' : 'تعذر تجهيز مصدر الفيديو');
+          if (isExhausted) {
+            setLessons((prev) =>
+              prev.map((item) =>
+                item.id === activeId
+                  ? {
+                      ...item,
+                      remainingViews: 0,
+                      usedViews:
+                        typeof item.maxViews === 'number' && item.maxViews > 0
+                          ? item.maxViews
+                          : item.usedViews,
+                    }
+                  : item
+              )
+            );
+          }
           setResolved({
             videoId: activeId,
             kind: 'youtube',
@@ -275,6 +313,13 @@ export default function SecureVideoPlayer({
         }
         if (!result.completionToken) {
           throw new Error(result.error || 'تعذر تجهيز مصدر الفيديو');
+        }
+
+        if (result.activeSession?.sessionId && result.activeSession?.expiresAt) {
+          viewSessionRef.current = {
+            sessionId: result.activeSession.sessionId,
+            expiresAt: Number(result.activeSession.expiresAt),
+          };
         }
 
         // Safely extract 11-char YouTube ID. Never pass internal /embed endpoints to Vidstack.
@@ -402,7 +447,13 @@ export default function SecureVideoPlayer({
       <section className="secure-player-card">
         {active?.unlocked ? (
           <div className="video-player-container">
-            {!activeSource ? (
+            {active.remainingViews === 0 && !viewSessionRef.current ? (
+              <div className="video-source-state video-exhausted-state" role="alert">
+                <EyeOff size={44} />
+                <strong>لقد استنفدت عدد المشاهدات المسموحة لهذه المحاضرة</strong>
+                <small>تم استخدام جميع مرات المشاهدة المتاحة لحسابك على هذه المحاضرة.</small>
+              </div>
+            ) : !activeSource ? (
               <div className="video-source-state" role="status">
                 <LoaderCircle className="spin" />
                 <strong>جاري تجهيز الفيديو...</strong>
@@ -562,6 +613,7 @@ export default function SecureVideoPlayer({
             </span>
           </div>
         </div>
+        <LectureMaterials videoId={activeId} />
         {completionMessage && (
           <div className="lesson-complete-message">
             <CheckCircle2 /> {completionMessage}
@@ -679,6 +731,139 @@ export default function SecureVideoPlayer({
           ))}
         </div>
       </aside>
+    </div>
+  );
+}
+
+type MaterialItem = {
+  id: string;
+  fileName: string;
+  fileSize: number;
+};
+
+function LectureMaterials({ videoId }: { videoId: string }) {
+  const [materialsCache, setMaterialsCache] = useState<Record<string, MaterialItem[]>>({});
+  const [loadingVideoId, setLoadingVideoId] = useState<string | null>(null);
+  const [errorVideoId, setErrorVideoId] = useState<string | null>(null);
+  const [retryTrigger, setRetryTrigger] = useState(0);
+
+  useEffect(() => {
+    if (!videoId) return;
+    if (materialsCache[videoId] !== undefined) return;
+
+    let ignore = false;
+    setLoadingVideoId(videoId);
+    setErrorVideoId(null);
+
+    fetch(`/api/student/videos/${encodeURIComponent(videoId)}/materials`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+    })
+      .then(async (res) => {
+        if (ignore) return;
+        if (res.status === 403) {
+          setMaterialsCache((prev) => ({ ...prev, [videoId]: [] }));
+          setErrorVideoId(videoId);
+          return;
+        }
+        if (!res.ok) {
+          setErrorVideoId(videoId);
+          return;
+        }
+        const data = (await res.json().catch(() => ({}))) as { materials?: MaterialItem[] };
+        const list = Array.isArray(data.materials) ? data.materials : [];
+        setMaterialsCache((prev) => ({ ...prev, [videoId]: list }));
+        setErrorVideoId(null);
+      })
+      .catch(() => {
+        if (!ignore) {
+          setErrorVideoId(videoId);
+        }
+      })
+      .finally(() => {
+        if (!ignore) {
+          setLoadingVideoId((curr) => (curr === videoId ? null : curr));
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [videoId, retryTrigger, materialsCache]);
+
+  const currentMaterials = materialsCache[videoId];
+  const isLoading = loadingVideoId === videoId && currentMaterials === undefined;
+  const hasError = errorVideoId === videoId && currentMaterials === undefined;
+
+  if (isLoading) {
+    return (
+      <div
+        className="lecture-materials-bar"
+        role="status"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          padding: '0.75rem 0',
+          color: 'var(--text-secondary, #888)',
+        }}
+      >
+        <LoaderCircle className="spin" size={16} />
+        <span style={{ fontSize: '0.875rem' }}>جاري تجهيز مرفقات المحاضرة...</span>
+      </div>
+    );
+  }
+
+  if (hasError) {
+    return (
+      <div className="lecture-materials-bar" style={{ padding: '0.75rem 0' }}>
+        <button
+          type="button"
+          className="btn btn-outline"
+          onClick={() => {
+            setErrorVideoId(null);
+            setRetryTrigger((c) => c + 1);
+          }}
+          style={{ fontSize: '0.875rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+        >
+          <RefreshCw size={14} /> إعادة محاولة تحميل المرفقات
+        </button>
+      </div>
+    );
+  }
+
+  if (!currentMaterials || currentMaterials.length === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      className="lecture-materials-bar"
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '0.75rem',
+        padding: '0.75rem 0',
+      }}
+    >
+      {currentMaterials.map((material) => {
+        const sizeLabel =
+          material.fileSize > 1_048_576
+            ? `${Math.round(material.fileSize / 1_048_576)} ميجابايت`
+            : `${Math.round(material.fileSize / 1024)} كيلوبايت`;
+        return (
+          <a
+            key={material.id}
+            href={`/api/student/videos/${encodeURIComponent(videoId)}/materials?download=${encodeURIComponent(material.id)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn btn-outline"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
+          >
+            <Download size={16} /> تحميل المحاضرة ({sizeLabel})
+          </a>
+        );
+      })}
     </div>
   );
 }

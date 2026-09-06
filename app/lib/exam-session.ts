@@ -8,7 +8,10 @@ export type ExamSession = {
 };
 
 export type ExamSessionStart =
-  { kind: 'ready'; session: ExamSession } | { kind: 'attempt_limit' } | { kind: 'busy' };
+  | { kind: 'ready'; session: ExamSession }
+  | { kind: 'attempt_limit' }
+  | { kind: 'busy' }
+  | { kind: 'terminated'; session?: ExamSession };
 
 async function loadSession(db: Database, examId: string, email: string) {
   return db
@@ -37,6 +40,13 @@ export async function startOrResumeExamSession(
   now = Date.now()
 ): Promise<ExamSessionStart> {
   let session = await loadSession(db, examId, email);
+  if (session?.status === 'terminated') {
+    const safeMaximum = Number.isSafeInteger(maxAttempts) && maxAttempts > 0 ? maxAttempts : 1;
+    if ((await attemptCount(db, examId, email)) >= safeMaximum) {
+      return { kind: 'attempt_limit' };
+    }
+    return { kind: 'terminated', session };
+  }
   if (session?.status === 'active' && session.expiresAt > now) {
     return { kind: 'ready', session };
   }

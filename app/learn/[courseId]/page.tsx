@@ -7,38 +7,6 @@ import CourseSequenceTree from '../../components/CourseSequenceTree';
 import { requireStudentUser } from '../../lib/student-session';
 import { hasCourseItems, getCourseSequenceUnlockState } from '../../lib/course-sequence';
 
-async function LectureMaterials({ videoId }: { videoId: string }) {
-  const db = getDatabase();
-  const materials = await db
-    .prepare(
-      'SELECT id, title AS fileName, file_size AS fileSize FROM lecture_materials WHERE video_id = ? ORDER BY created_at'
-    )
-    .bind(videoId)
-    .all<{ id: string; fileName: string; fileSize: number }>();
-  if (!materials.results.length) return null;
-  return (
-    <div className="lecture-materials-bar">
-      {materials.results.map((material) => {
-        const sizeLabel =
-          material.fileSize > 1_048_576
-            ? `${Math.round(material.fileSize / 1_048_576)} ميجابايت`
-            : `${Math.round(material.fileSize / 1024)} كيلوبايت`;
-        return (
-          <a
-            key={material.id}
-            href={`/api/student/videos/${videoId}/materials?download=${material.id}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn btn-outline"
-          >
-            تحميل المحاضرة ({sizeLabel})
-          </a>
-        );
-      })}
-    </div>
-  );
-}
-
 export const metadata: Metadata = { title: 'مشاهدة الكورس' };
 export const dynamic = 'force-dynamic';
 
@@ -299,7 +267,6 @@ export default async function LearnPage({
           initialVideoId={initialVideoId}
           allowSequentialUnlock={Boolean(enrollment)}
         />
-        {initialVideoId && <LectureMaterials videoId={initialVideoId} />}
       </div>
     </main>
   );

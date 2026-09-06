@@ -7,13 +7,13 @@ export default function nextConfig(): NextConfig {
 
   const contentSecurityPolicy = [
     "default-src 'self'",
-    `script-src 'self' 'unsafe-inline'${isProduction ? '' : " 'unsafe-eval'"}`,
+    `script-src 'self' 'unsafe-inline' https://www.youtube.com https://s.ytimg.com${isProduction ? '' : " 'unsafe-eval'"}`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
-    "img-src 'self' data: blob:",
+    "img-src 'self' data: blob: https://i.ytimg.com https://*.ggpht.com",
     "media-src 'self' blob:",
-    `connect-src 'self'${isProduction ? '' : ' ws: http:'}`,
-    "frame-src 'self'",
+    `connect-src 'self' https://www.youtube.com https://*.googlevideo.com${isProduction ? '' : ' ws: http:'}`,
+    "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

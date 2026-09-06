@@ -9,10 +9,10 @@ import { hasCourseItems, getCourseSequenceUnlockState } from '../../../../../lib
  * Enforces course sequence lock — same authorization as video access.
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await apiVerifiedUser();
+  const user = await apiVerifiedUser(request);
   if (isResponse(user)) return user;
 
   const { id } = await params;
@@ -73,13 +73,7 @@ export async function GET(
     .bind(id)
     .all<{ id: string; storageKey: string; fileName: string; fileSize: number }>();
 
-  if (!materials.results.length) {
-    return Response.json({ error: 'لا توجد مادة مرفقة' }, { status: 404 });
-  }
-
-  const storage = getPrivateStorage();
-
-  const url = new URL(_request.url);
+  const url = new URL(request.url);
   const downloadId = url.searchParams.get('download');
 
   if (downloadId) {
@@ -88,6 +82,7 @@ export async function GET(
       return Response.json({ error: 'الملف غير موجود' }, { status: 404 });
     }
 
+    const storage = getPrivateStorage();
     const file = await storage.get(material.storageKey);
     if (!file) {
       return Response.json({ error: 'الملف غير موجود في التخزين' }, { status: 404 });
