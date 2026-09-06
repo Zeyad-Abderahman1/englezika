@@ -37,13 +37,14 @@ export async function POST(request: Request) {
     .first<CourseRow>();
   if (!course || course.price <= 0) return jsonError('الكورس غير متاح للدفع', 404);
 
+  const allowRenewal = Boolean(body.renew || body.repurchase);
   const approved = await db
     .prepare(
       "SELECT id FROM enrollments WHERE user_email = ? AND course_id = ? AND status = 'approved' LIMIT 1"
     )
     .bind(user.email.toLowerCase(), courseId)
     .first<{ id: string }>();
-  if (approved) return jsonError('أنت مشترك بالفعل في هذا الكورس', 409);
+  if (approved && !allowRenewal) return jsonError('أنت مشترك بالفعل في هذا الكورس', 409);
 
   const student = await db
     .prepare(
@@ -57,7 +58,9 @@ export async function POST(request: Request) {
   const now = Date.now();
   const existingEnrollment = await db
     .prepare(
-      "SELECT id FROM enrollments WHERE user_email = ? AND course_id = ? AND status != 'approved' ORDER BY created_at DESC LIMIT 1"
+      allowRenewal
+        ? "SELECT id FROM enrollments WHERE user_email = ? AND course_id = ? ORDER BY created_at DESC LIMIT 1"
+        : "SELECT id FROM enrollments WHERE user_email = ? AND course_id = ? AND status != 'approved' ORDER BY created_at DESC LIMIT 1"
     )
     .bind(user.email.toLowerCase(), courseId)
     .first<{ id: string }>();

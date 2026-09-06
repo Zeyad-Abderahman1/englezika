@@ -8,6 +8,7 @@ class MockViewSessionDatabase {
   studentSessions = new Map();
   studentUsers = new Map();
   grants = new Set();
+  enrollmentRows = new Map();
 
   constructor() {
     this.videos.set('video-limited-3', {
@@ -119,6 +120,12 @@ class MockViewSessionDatabase {
           return { count };
         }
 
+        // Enrollment by ID lookup
+        if (s.includes('SELECT user_email AS userEmail, course_id AS courseId, status FROM enrollments WHERE id = ?')) {
+          const [id] = this.bindings;
+          return db.enrollmentRows.get(id) || null;
+        }
+
         return null;
       },
       async all() {
@@ -150,6 +157,32 @@ class MockViewSessionDatabase {
       },
       async run() {
         const s = sql.replace(/\s+/g, ' ').trim();
+
+        // UPDATE enrollments
+        if (s.includes('UPDATE enrollments SET status = ?')) {
+          const [status, now, id] = this.bindings;
+          const en = db.enrollmentRows.get(id);
+          if (en) {
+            en.status = status;
+            en.updatedAt = now;
+          }
+          return { success: true, meta: { changes: 1 } };
+        }
+
+        // DELETE FROM video_view_sessions
+        if (s.includes('DELETE FROM video_view_sessions')) {
+          const [userEmail, courseId] = this.bindings;
+          const initialLen = db.viewSessions.length;
+          db.viewSessions = db.viewSessions.filter((vs) => {
+            const v = db.videos.get(vs.videoId);
+            const matchesUser = vs.userEmail === userEmail;
+            const matchesCourse = courseId ? (v && v.courseId === courseId) : true;
+            return !(matchesUser && matchesCourse);
+          });
+          const changes = initialLen - db.viewSessions.length;
+          return { success: true, meta: { changes } };
+        }
+
         // INSERT INTO video_view_sessions
         if (s.includes('INSERT INTO video_view_sessions')) {
           const [id, videoId, userEmail, sessionToken, startedAt, lastActiveAt, expiresAt, createdAt] =
@@ -165,9 +198,9 @@ class MockViewSessionDatabase {
             createdAt,
             status: 'active',
           });
-          return { success: true };
+          return { success: true, meta: { changes: 1 } };
         }
-        return { success: true };
+        return { success: true, meta: { changes: 0 } };
       },
     };
   }
@@ -508,4 +541,305 @@ test('Student with individual video access grant can start viewing session witho
   const data = await res.json();
   assert.ok(data.sessionId);
   assert.equal(data.viewsRemaining, 2);
+});
+
+// ============================================================================
+// PER-LECTURE SCOPING & COURSE RENEWAL RESET TESTS
+// ============================================================================
+
+function setupMultiLectureMultiCourseEnv() {
+  const db = new MockViewSessionDatabase();
+  setupDb(db);
+
+  // Course 1
+  db.videos.set('video-1a', {
+    id: 'video-1a',
+    courseId: 'course-1',
+    title: 'محاضرة 1 أ',
+    maxViews: 5,
+    status: 'published',
+  });
+  db.videos.set('video-1b', {
+    id: 'video-1b',
+    courseId: 'course-1',
+    title: 'محاضرة 1 ب',
+    maxViews: 5,
+    status: 'published',
+  });
+  db.videos.set('video-1c', {
+    id: 'video-1c',
+    courseId: 'course-1',
+    title: 'محاضرة 1 ج',
+    maxViews: 5,
+    status: 'published',
+  });
+
+  // Course 2
+  db.videos.set('video-2a', {
+    id: 'video-2a',
+    courseId: 'course-2',
+    title: 'محاضرة 2 أ',
+    maxViews: 4,
+    status: 'published',
+  });
+
+  // Enrollments
+  db.enrollments.set('student1@test.com:course-1', { userEmail: 'student1@test.com', courseId: 'course-1', status: 'approved' });
+  db.enrollments.set('student1@test.com:course-2', { userEmail: 'student1@test.com', courseId: 'course-2', status: 'approved' });
+  db.enrollments.set('student2@test.com:course-1', { userEmail: 'student2@test.com', courseId: 'course-1', status: 'approved' });
+
+  db.enrollmentRows.set('enr-s1-c1', { id: 'enr-s1-c1', userEmail: 'student1@test.com', courseId: 'course-1', status: 'approved' });
+  db.enrollmentRows.set('enr-s1-c2', { id: 'enr-s1-c2', userEmail: 'student1@test.com', courseId: 'course-2', status: 'approved' });
+  db.enrollmentRows.set('enr-s2-c1', { id: 'enr-s2-c1', userEmail: 'student2@test.com', courseId: 'course-1', status: 'approved' });
+
+  // Users & Sessions
+  for (const email of ['student1@test.com', 'student2@test.com']) {
+    db.studentUsers.set(email, { email, name: email, role: 'student', status: 'active', isVerified: 1 });
+  }
+
+  return db;
+}
+
+test('1. Lecture A usage does not affect Lecture B', async () => {
+  const db = setupMultiLectureMultiCourseEnv();
+  // Student 1 watches Lecture A 3 times
+  for (let i = 0; i < 3; i++) {
+    db.viewSessions.push({
+      id: `s-1a-${i}`,
+      videoId: 'video-1a',
+      userEmail: 'student1@test.com',
+      status: 'expired',
+      expiresAt: Date.now() - 1000,
+    });
+  }
+
+  // Check counts
+  const usedA = db.viewSessions.filter((vs) => vs.videoId === 'video-1a' && vs.userEmail === 'student1@test.com').length;
+  const usedB = db.viewSessions.filter((vs) => vs.videoId === 'video-1b' && vs.userEmail === 'student1@test.com').length;
+  assert.equal(usedA, 3);
+  assert.equal(usedB, 0, 'Lecture B usage remains 0 when Lecture A is watched');
+
+  const remA = calculateRemainingViews(5, usedA);
+  const remB = calculateRemainingViews(5, usedB);
+  assert.equal(remA, 2);
+  assert.equal(remB, 5, 'Lecture B has all 5 views remaining');
+});
+
+test('2. Lecture B usage does not affect Lecture A', async () => {
+  const db = setupMultiLectureMultiCourseEnv();
+  // Student 1 watches Lecture A 2 times
+  for (let i = 0; i < 2; i++) {
+    db.viewSessions.push({ id: `s-1a-${i}`, videoId: 'video-1a', userEmail: 'student1@test.com', status: 'expired', expiresAt: Date.now() - 1000 });
+  }
+  // Student 1 watches Lecture B 4 times
+  for (let i = 0; i < 4; i++) {
+    db.viewSessions.push({ id: `s-1b-${i}`, videoId: 'video-1b', userEmail: 'student1@test.com', status: 'expired', expiresAt: Date.now() - 1000 });
+  }
+
+  const usedA = db.viewSessions.filter((vs) => vs.videoId === 'video-1a' && vs.userEmail === 'student1@test.com').length;
+  const usedB = db.viewSessions.filter((vs) => vs.videoId === 'video-1b' && vs.userEmail === 'student1@test.com').length;
+  assert.equal(usedA, 2, 'Lecture A still has 2 used views');
+  assert.equal(usedB, 4, 'Lecture B has 4 used views');
+  assert.equal(calculateRemainingViews(5, usedA), 3);
+  assert.equal(calculateRemainingViews(5, usedB), 1);
+});
+
+test('3. Student 1 usage does not affect Student 2', async () => {
+  const db = setupMultiLectureMultiCourseEnv();
+  // Student 1 exhausts Lecture A (5 views)
+  for (let i = 0; i < 5; i++) {
+    db.viewSessions.push({ id: `s-s1-${i}`, videoId: 'video-1a', userEmail: 'student1@test.com', status: 'expired', expiresAt: Date.now() - 1000 });
+  }
+
+  const usedS1 = db.viewSessions.filter((vs) => vs.videoId === 'video-1a' && vs.userEmail === 'student1@test.com').length;
+  const usedS2 = db.viewSessions.filter((vs) => vs.videoId === 'video-1a' && vs.userEmail === 'student2@test.com').length;
+  assert.equal(usedS1, 5);
+  assert.equal(usedS2, 0, 'Student 2 has not used any views on Lecture A');
+  assert.equal(calculateRemainingViews(5, usedS1), 0);
+  assert.equal(calculateRemainingViews(5, usedS2), 5);
+});
+
+test('4. Course 1 usage does not affect Course 2', async () => {
+  const db = setupMultiLectureMultiCourseEnv();
+  // Student 1 uses views in Course 1
+  for (let i = 0; i < 3; i++) {
+    db.viewSessions.push({ id: `s-c1-${i}`, videoId: 'video-1a', userEmail: 'student1@test.com', status: 'expired', expiresAt: Date.now() - 1000 });
+  }
+
+  const usedC1 = db.viewSessions.filter((vs) => vs.videoId === 'video-1a' && vs.userEmail === 'student1@test.com').length;
+  const usedC2 = db.viewSessions.filter((vs) => vs.videoId === 'video-2a' && vs.userEmail === 'student1@test.com').length;
+  assert.equal(usedC1, 3);
+  assert.equal(usedC2, 0, 'Course 2 video has 0 used views');
+  assert.equal(calculateRemainingViews(4, usedC2), 4);
+});
+
+test('5. Reactivating Course 1 resets ALL lecture view counts for that student in Course 1', async () => {
+  const db = setupMultiLectureMultiCourseEnv();
+  const { resetCourseLectureViewAllowance } = await import('../app/lib/video-access.ts');
+
+  // Before renewal:
+  // Lecture A: 5 used (0 remaining)
+  for (let i = 0; i < 5; i++) {
+    db.viewSessions.push({ id: `s-1a-${i}`, videoId: 'video-1a', userEmail: 'student1@test.com', status: 'expired', expiresAt: Date.now() - 1000 });
+  }
+  // Lecture B: 3 used (2 remaining)
+  for (let i = 0; i < 3; i++) {
+    db.viewSessions.push({ id: `s-1b-${i}`, videoId: 'video-1b', userEmail: 'student1@test.com', status: 'expired', expiresAt: Date.now() - 1000 });
+  }
+  // Lecture C: 1 used (4 remaining)
+  db.viewSessions.push({ id: 's-1c-0', videoId: 'video-1c', userEmail: 'student1@test.com', status: 'expired', expiresAt: Date.now() - 1000 });
+
+  // Reactivate Course 1 for Student 1
+  const result = await resetCourseLectureViewAllowance('student1@test.com', 'course-1');
+  assert.equal(result.changes, 9, 'Reset 9 view session records in Course 1');
+
+  // After renewal: all lectures in Course 1 have 5 of 5 remaining
+  for (const vid of ['video-1a', 'video-1b', 'video-1c']) {
+    const used = db.viewSessions.filter((vs) => vs.videoId === vid && vs.userEmail === 'student1@test.com').length;
+    assert.equal(used, 0, `${vid} has 0 used views after renewal`);
+    assert.equal(calculateRemainingViews(5, used), 5, `${vid} has 5 of 5 remaining`);
+    assert.equal(formatRemainingViewsText(5, 5), 'متبقي لك 5 من 5 مشاهدات');
+  }
+});
+
+test('6. Reactivating Course 1 does NOT reset Course 2', async () => {
+  const db = setupMultiLectureMultiCourseEnv();
+  const { resetCourseLectureViewAllowance } = await import('../app/lib/video-access.ts');
+
+  // Student 1 uses 2 views in Course 2
+  for (let i = 0; i < 2; i++) {
+    db.viewSessions.push({ id: `s-2a-${i}`, videoId: 'video-2a', userEmail: 'student1@test.com', status: 'expired', expiresAt: Date.now() - 1000 });
+  }
+  // Student 1 uses 3 views in Course 1
+  for (let i = 0; i < 3; i++) {
+    db.viewSessions.push({ id: `s-1a-${i}`, videoId: 'video-1a', userEmail: 'student1@test.com', status: 'expired', expiresAt: Date.now() - 1000 });
+  }
+
+  // Reactivate Course 1 only
+  await resetCourseLectureViewAllowance('student1@test.com', 'course-1');
+
+  // Course 1 is reset
+  const usedC1 = db.viewSessions.filter((vs) => vs.videoId === 'video-1a' && vs.userEmail === 'student1@test.com').length;
+  assert.equal(usedC1, 0, 'Course 1 views reset to 0');
+
+  // Course 2 is NOT reset
+  const usedC2 = db.viewSessions.filter((vs) => vs.videoId === 'video-2a' && vs.userEmail === 'student1@test.com').length;
+  assert.equal(usedC2, 2, 'Course 2 view count remains 2 (not reset)');
+  assert.equal(calculateRemainingViews(4, usedC2), 2, 'Course 2 still has 2 of 4 remaining');
+});
+
+test('7. Reactivating Student 1 does NOT reset Student 2', async () => {
+  const db = setupMultiLectureMultiCourseEnv();
+  const { resetCourseLectureViewAllowance } = await import('../app/lib/video-access.ts');
+
+  // Student 1 uses 4 views in Course 1
+  for (let i = 0; i < 4; i++) {
+    db.viewSessions.push({ id: `s-s1-${i}`, videoId: 'video-1a', userEmail: 'student1@test.com', status: 'expired', expiresAt: Date.now() - 1000 });
+  }
+  // Student 2 uses 3 views in Course 1
+  for (let i = 0; i < 3; i++) {
+    db.viewSessions.push({ id: `s-s2-${i}`, videoId: 'video-1a', userEmail: 'student2@test.com', status: 'expired', expiresAt: Date.now() - 1000 });
+  }
+
+  // Reactivate Course 1 for Student 1 only
+  await resetCourseLectureViewAllowance('student1@test.com', 'course-1');
+
+  const usedS1 = db.viewSessions.filter((vs) => vs.videoId === 'video-1a' && vs.userEmail === 'student1@test.com').length;
+  const usedS2 = db.viewSessions.filter((vs) => vs.videoId === 'video-1a' && vs.userEmail === 'student2@test.com').length;
+
+  assert.equal(usedS1, 0, 'Student 1 views reset to 0');
+  assert.equal(usedS2, 3, 'Student 2 views remain 3 (unaffected by Student 1 reset)');
+  assert.equal(calculateRemainingViews(5, usedS2), 2, 'Student 2 still has 2 remaining');
+});
+
+test('8. Old active playback sessions for that course are invalidated/reset', async () => {
+  const db = setupMultiLectureMultiCourseEnv();
+  const { resetCourseLectureViewAllowance } = await import('../app/lib/video-access.ts');
+
+  // Student 1 has an active playback session in Course 1
+  db.viewSessions.push({
+    id: 'active-sess-1',
+    videoId: 'video-1a',
+    userEmail: 'student1@test.com',
+    sessionToken: 'tok-active-1',
+    status: 'active',
+    expiresAt: Date.now() + 1800000,
+    startedAt: Date.now() - 1000,
+    lastActiveAt: Date.now(),
+  });
+
+  // Reactivate Course 1
+  await resetCourseLectureViewAllowance('student1@test.com', 'course-1');
+
+  // Verify active session was removed/invalidated
+  const activeSess = db.viewSessions.find(
+    (vs) => vs.videoId === 'video-1a' && vs.userEmail === 'student1@test.com' && vs.status === 'active'
+  );
+  assert.equal(activeSess, undefined, 'Old active playback session has been removed on course reactivation');
+});
+
+test('9. max_views values configured by teacher remain unchanged', async () => {
+  const db = setupMultiLectureMultiCourseEnv();
+  const { resetCourseLectureViewAllowance } = await import('../app/lib/video-access.ts');
+
+  const origMaxViews1A = db.videos.get('video-1a').maxViews;
+  const origMaxViews1B = db.videos.get('video-1b').maxViews;
+  const origMaxViews2A = db.videos.get('video-2a').maxViews;
+
+  await resetCourseLectureViewAllowance('student1@test.com', 'course-1');
+
+  assert.equal(db.videos.get('video-1a').maxViews, origMaxViews1A, 'video-1a maxViews untouched');
+  assert.equal(db.videos.get('video-1b').maxViews, origMaxViews1B, 'video-1b maxViews untouched');
+  assert.equal(db.videos.get('video-2a').maxViews, origMaxViews2A, 'video-2a maxViews untouched');
+});
+
+test('10. After reset the student can start a new playback session again', async () => {
+  const db = setupMultiLectureMultiCourseEnv();
+  const { resetCourseLectureViewAllowance } = await import('../app/lib/video-access.ts');
+  const { POST } = await import('../app/api/student/videos/[id]/view-session/start/route.ts');
+
+  const crypto = await import('node:crypto');
+  const rawToken = 'student1-fresh-token';
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  db.studentSessions.set(tokenHash, {
+    tokenHash,
+    userEmail: 'student1@test.com',
+    expiresAt: Date.now() + 86400000,
+  });
+
+  // Before reset: exhaust all 5 views
+  for (let i = 0; i < 5; i++) {
+    db.viewSessions.push({
+      id: `s-1a-exhaust-${i}`,
+      videoId: 'video-1a',
+      userEmail: 'student1@test.com',
+      status: 'expired',
+      expiresAt: Date.now() - 1000,
+    });
+  }
+
+  const makeReq = () =>
+    new Request('http://localhost:3000/api/student/videos/video-1a/view-session/start', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'http://localhost:3000',
+        cookie: `englizeka_student=${rawToken};`,
+      },
+      body: '{}',
+    });
+
+  // Attempt before reset -> blocked with 403
+  const resBefore = await POST(makeReq(), { params: Promise.resolve({ id: 'video-1a' }) });
+  assert.equal(resBefore.status, 403, 'Exhausted student blocked with 403 before reset');
+
+  // Reactivate / Renew Course 1
+  await resetCourseLectureViewAllowance('student1@test.com', 'course-1');
+
+  // Attempt after reset -> succeeds with 200 and viewsRemaining = 4 (out of 5)
+  const resAfter = await POST(makeReq(), { params: Promise.resolve({ id: 'video-1a' }) });
+  assert.equal(resAfter.status, 200, 'Student can start playback session after reset');
+  const dataAfter = await resAfter.json();
+  assert.ok(dataAfter.sessionId, 'Fresh session ID returned');
+  assert.equal(dataAfter.viewsRemaining, 4, 'viewsRemaining is 4 (5 - 1)');
 });

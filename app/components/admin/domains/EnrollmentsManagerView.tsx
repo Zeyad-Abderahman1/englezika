@@ -245,7 +245,7 @@ export function EnrollmentsManagerView() {
                   </td>
                   <td className="text-end">
                     <div className="admin-row-actions">
-                      {item.status !== 'approved' && (
+                      {item.status !== 'approved' ? (
                         <button
                           type="button"
                           className="btn btn-primary btn-sm"
@@ -254,6 +254,16 @@ export function EnrollmentsManagerView() {
                           title="تفعيل اشتراك الطالب"
                         >
                           <Check size={14} /> تفعيل
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm"
+                          disabled={busy}
+                          onClick={() => handleUpdateStatus(item, 'approved')}
+                          title="تجديد مشاهدات المحاضرات لهذا الطالب في هذا الكورس"
+                        >
+                          <RotateCcw size={13} /> تجديد المشاهدات
                         </button>
                       )}
 

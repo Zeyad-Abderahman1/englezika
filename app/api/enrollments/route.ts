@@ -2,6 +2,7 @@ import { apiVerifiedUser, isResponse } from '../../lib/api-auth';
 import { getDatabase } from '../../lib/platform';
 import { checkRateLimit, rateLimitResponse } from '../../lib/rate-limit';
 import { jsonError, requireSameOrigin, safeText } from '../../lib/security';
+import { resetCourseLectureViewAllowance } from '../../lib/video-access';
 
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
@@ -29,7 +30,8 @@ export async function POST(request: Request) {
     )
     .bind(user.email.toLowerCase(), courseId)
     .first<{ id: string; status: string }>();
-  if (existing?.status === 'approved') {
+  const allowRenewal = Boolean(body.renew || body.repurchase);
+  if (existing?.status === 'approved' && !allowRenewal) {
     if (isFree) return Response.json({ ok: true, approved: true, courseId });
     return jsonError('أنت مشترك بالفعل في هذا الكورس', 409);
   }
@@ -62,6 +64,11 @@ export async function POST(request: Request) {
       )
       .run();
   }
+
+  if (status === 'approved') {
+    await resetCourseLectureViewAllowance(user.email.toLowerCase(), courseId);
+  }
+
   return Response.json({
     ok: true,
     approved: isFree,

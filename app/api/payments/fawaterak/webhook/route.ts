@@ -3,6 +3,7 @@ import { amountToMinorUnits } from '../../../../lib/fawaterak-crypto';
 import { verifyFawaterakWebhook } from '../../../../lib/fawaterak';
 import { getDatabase } from '../../../../lib/platform';
 import { safeText } from '../../../../lib/security';
+import { resetCourseLectureViewAllowance } from '../../../../lib/video-access';
 
 type PaymentIntentRow = {
   id: string;
@@ -96,6 +97,13 @@ export async function POST(request: Request) {
         .bind(paymentMethod || 'Fawaterak', transactionId, now, paymentIntent.enrollmentId, paymentIntent.id),
     ]);
     if (transition[0]?.meta.changes !== 1) return Response.json({ status: 'ok' });
+    const enr = await db
+      .prepare('SELECT course_id AS courseId, user_email AS userEmail FROM enrollments WHERE id = ?')
+      .bind(paymentIntent.enrollmentId)
+      .first<{ courseId: string; userEmail: string }>();
+    if (enr) {
+      await resetCourseLectureViewAllowance(enr.userEmail, enr.courseId);
+    }
     await recordAuditLog({
       userEmail: paymentIntent.userEmail,
       action: 'payment.approved',

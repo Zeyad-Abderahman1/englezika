@@ -164,3 +164,31 @@ export async function authorizeVideoAccess(
   }
   return { ok: true, video };
 }
+
+/**
+ * Resets a student's lecture viewing allowance and invalidates any active sessions
+ * for all videos belonging to a specific course upon course renewal/reactivation.
+ */
+export async function resetCourseLectureViewAllowance(
+  userEmail: string,
+  courseId: string
+): Promise<{ changes: number }> {
+  const db = getDatabase();
+  const normalized = normalizedEmail(userEmail);
+  const result = await db
+    .prepare(
+      `DELETE FROM video_view_sessions
+       WHERE user_email = ? AND video_id IN (
+         SELECT id FROM videos WHERE course_id = ?
+       )`
+    )
+    .bind(normalized, courseId)
+    .run();
+
+  const changes =
+    result && 'meta' in result && typeof (result.meta as { changes?: number })?.changes === 'number'
+      ? (result.meta as { changes?: number }).changes || 0
+      : 0;
+
+  return { changes };
+}
