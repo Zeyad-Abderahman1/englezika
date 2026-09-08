@@ -209,15 +209,13 @@ describe('mobile student registration origin & CSRF security', () => {
     assert.equal(body.error, 'طلب غير مسموح', 'CSRF attempt must return طلب غير مسموح');
   });
 
-  test('registration endpoint POST route accepts valid mobile request', async () => {
+  test('1. apex origin accepted: registration endpoint accepts request from https://englezika.com', async () => {
     process.env.NODE_ENV = 'production';
     process.env.APP_URL = 'https://englezika.com';
     globalThis.__ENGLIZEKA_ENV__ = {
       DB: fakeDatabase(),
     };
 
-    // Simulated mobile request to register endpoint without multipart body
-    // (Should pass requireSameOrigin check and reach content-type validation, NOT 403)
     const mobileRequest = new Request('http://127.0.0.1:3000/api/auth/register', {
       method: 'POST',
       headers: {
@@ -232,13 +230,55 @@ describe('mobile student registration origin & CSRF security', () => {
     });
 
     const response = await registerHandler(mobileRequest);
-    // Origin check passed, so the response is NOT 403 'طلب غير مسموح'
-    assert.notEqual(
-      response.status,
-      403,
-      'Valid mobile request must pass origin check and not return 403'
-    );
+    assert.notEqual(response.status, 403, 'Apex origin must not be rejected with 403');
     const body = await response.json();
-    assert.notEqual(body.error, 'طلب غير مسموح');
+    assert.notEqual(body.error, 'طلب غير مسموح', 'Apex origin must not receive طلب غير مسموح');
+  });
+
+  test('2. www origin accepted: registration endpoint accepts request from https://www.englezika.com', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.APP_URL = 'https://englezika.com';
+    globalThis.__ENGLIZEKA_ENV__ = {
+      DB: fakeDatabase(),
+    };
+
+    const mobileRequest = new Request('http://127.0.0.1:3000/api/auth/register', {
+      method: 'POST',
+      headers: {
+        origin: 'https://www.englezika.com',
+        referer: 'https://www.englezika.com/register',
+        host: 'www.englezika.com',
+        'x-forwarded-host': 'www.englezika.com',
+        'x-forwarded-proto': 'https',
+        'user-agent':
+          'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1',
+      },
+    });
+
+    const response = await registerHandler(mobileRequest);
+    assert.notEqual(response.status, 403, 'WWW origin must not be rejected with 403');
+    const body = await response.json();
+    assert.notEqual(body.error, 'طلب غير مسموح', 'WWW origin must not receive طلب غير مسموح');
+  });
+
+  test('3. foreign origin rejected: registration endpoint rejects foreign origin', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.APP_URL = 'https://englezika.com';
+
+    const foreignRequest = new Request('http://127.0.0.1:3000/api/auth/register', {
+      method: 'POST',
+      headers: {
+        origin: 'https://evil-bank.com',
+        referer: 'https://evil-bank.com/attack',
+        host: 'englezika.com',
+        'x-forwarded-host': 'englezika.com',
+        'x-forwarded-proto': 'https',
+      },
+    });
+
+    const response = await registerHandler(foreignRequest);
+    assert.equal(response.status, 403, 'Foreign origin must be rejected with 403');
+    const body = await response.json();
+    assert.equal(body.error, 'طلب غير مسموح', 'Foreign origin must receive طلب غير مسموح');
   });
 });

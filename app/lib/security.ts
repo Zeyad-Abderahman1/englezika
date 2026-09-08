@@ -94,14 +94,15 @@ export async function readBoundedJson<T = Record<string, unknown>>(
   }
 }
 
-const CANONICAL_PRODUCTION_ORIGINS = new Set([
+export const CANONICAL_PRODUCTION_ORIGIN = 'https://englezika.com';
+export const LEGITIMATE_PRODUCTION_ORIGINS = new Set([
   'https://englezika.com',
   'https://www.englezika.com',
 ]);
 
 function isAllowedOrigin(originUrl: URL, request: Request): boolean {
   // 1. Production canonical domains (always HTTPS)
-  if (CANONICAL_PRODUCTION_ORIGINS.has(originUrl.origin)) {
+  if (LEGITIMATE_PRODUCTION_ORIGINS.has(originUrl.origin)) {
     return true;
   }
 
