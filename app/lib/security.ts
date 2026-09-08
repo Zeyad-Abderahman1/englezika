@@ -94,26 +94,136 @@ export async function readBoundedJson<T = Record<string, unknown>>(
   }
 }
 
-export function requireSameOrigin(request: Request): Response | null {
-  const origin = request.headers.get('origin');
-  if (!origin) return null;
-  const requestUrl = new URL(request.url);
-  try {
-    const originUrl = new URL(origin);
+const CANONICAL_PRODUCTION_ORIGINS = new Set([
+  'https://englezika.com',
+  'https://www.englezika.com',
+]);
 
-    if (process.env.NODE_ENV === 'production') {
-      const appUrl = process.env.APP_URL?.trim();
-      if (appUrl && originUrl.origin === new URL(appUrl).origin) return null;
+function isAllowedOrigin(originUrl: URL, request: Request): boolean {
+  // 1. Production canonical domains (always HTTPS)
+  if (CANONICAL_PRODUCTION_ORIGINS.has(originUrl.origin)) {
+    return true;
+  }
+
+  // 2. Configured APP_URL environment variable
+  const appUrl = (
+    (globalThis as unknown as { __ENGLIZEKA_ENV__?: { APP_URL?: string } }).__ENGLIZEKA_ENV__?.APP_URL ||
+    process.env.APP_URL
+  )?.trim();
+
+  if (appUrl) {
+    try {
+      const parsedAppUrl = new URL(appUrl);
+      if (originUrl.origin === parsedAppUrl.origin) {
+        return true;
+      }
+      // Tolerate www vs non-www for configured APP_URL with same scheme and port
+      if (originUrl.protocol === parsedAppUrl.protocol && originUrl.port === parsedAppUrl.port) {
+        if (parsedAppUrl.hostname.startsWith('www.')) {
+          if (originUrl.hostname === parsedAppUrl.hostname.slice(4)) return true;
+        } else if (originUrl.hostname === `www.${parsedAppUrl.hostname}`) {
+          return true;
+        }
+      }
+    } catch {
+      // Ignore invalid APP_URL
     }
+  }
 
-    if (originUrl.host === requestUrl.host) return null;
-    const localHostnames = new Set(['127.0.0.1', 'localhost', '[::1]']);
+  const requestUrl = new URL(request.url);
+  const forwardedHost = request.headers.get('x-forwarded-host')?.trim()?.split(',')[0]?.trim();
+  const hostHeader = request.headers.get('host')?.trim();
+  const forwardedProto = request.headers.get('x-forwarded-proto')?.trim()?.toLowerCase();
+
+  // In production, enforce HTTPS and only allow authorized domain hosts
+  if (process.env.NODE_ENV === 'production') {
+    const isHttps =
+      originUrl.protocol === 'https:' &&
+      (forwardedProto === 'https' || isSecureRequest(request));
+
+    if (isHttps) {
+      const incomingHost = forwardedHost || hostHeader;
+      if (incomingHost && originUrl.host === incomingHost) {
+        if (
+          incomingHost === 'englezika.com' ||
+          incomingHost === 'www.englezika.com' ||
+          (appUrl && new URL(appUrl).host === incomingHost)
+        ) {
+          return true;
+        }
+      }
+      if (originUrl.host === requestUrl.host) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Non-production / development / test runner
+  if (originUrl.host === requestUrl.host) return true;
+  if (hostHeader && originUrl.host === hostHeader) return true;
+  if (forwardedHost && originUrl.host === forwardedHost) return true;
+
+  const localHostnames = new Set(['127.0.0.1', 'localhost', '[::1]']);
+  if (
+    localHostnames.has(originUrl.hostname) &&
+    (localHostnames.has(requestUrl.hostname) ||
+      (hostHeader && localHostnames.has(hostHeader.split(':')[0])) ||
+      (forwardedHost && localHostnames.has(forwardedHost.split(':')[0])))
+  ) {
     if (
-      process.env.NODE_ENV !== 'production' &&
-      originUrl.port === requestUrl.port &&
-      localHostnames.has(originUrl.hostname) &&
-      localHostnames.has(requestUrl.hostname)
+      originUrl.port === requestUrl.port ||
+      (hostHeader?.includes(':') && originUrl.port === hostHeader.split(':')[1])
     ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function requireSameOrigin(request: Request): Response | null {
+  const rawOrigin = request.headers.get('origin')?.trim();
+  const rawReferer = request.headers.get('referer')?.trim();
+
+  // If neither origin nor referer is provided, allow request (non-browser clients / unit tests)
+  if (!rawOrigin && !rawReferer) {
+    return null;
+  }
+
+  // When origin is missing or 'null' (e.g. mobile sandbox/webview), use referer
+  let candidate = rawOrigin;
+  if (!candidate || candidate === 'null') {
+    if (rawReferer) {
+      try {
+        candidate = new URL(rawReferer).origin;
+      } catch {
+        return jsonError('طلب غير مسموح', 403);
+      }
+    } else if (candidate === 'null') {
+      return jsonError('طلب غير مسموح', 403);
+    } else {
+      return null;
+    }
+  }
+
+  try {
+    const originUrl = new URL(candidate);
+    if (isAllowedOrigin(originUrl, request)) {
+      // If referer is also present, ensure it does not come from a foreign origin
+      if (rawReferer) {
+        try {
+          const refererUrl = new URL(rawReferer);
+          if (
+            (refererUrl.protocol === 'http:' || refererUrl.protocol === 'https:') &&
+            !isAllowedOrigin(refererUrl, request)
+          ) {
+            return jsonError('طلب غير مسموح', 403);
+          }
+        } catch {
+          return jsonError('طلب غير مسموح', 403);
+        }
+      }
       return null;
     }
   } catch {
