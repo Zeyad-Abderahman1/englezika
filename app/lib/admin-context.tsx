@@ -290,6 +290,9 @@ interface AdminContextValue {
   sidebarOpen: boolean;
   promptModal: PromptModalState;
   confirmDialog: ConfirmDialogState;
+  aiDrawerOpen: boolean;
+  setAiDrawerOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
+  aiEnabled: boolean;
   setSidebarOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   setError: (err: string) => void;
   setNotice: (not: string) => void;
@@ -332,6 +335,17 @@ export function AdminProvider({
   const [busy, setBusy] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [light, setLight] = useState(false);
+  const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/admin/ai/status')
+      .then((res) => res.json())
+      .then((statusData) => {
+        if (statusData?.enabled) setAiEnabled(true);
+      })
+      .catch(() => {});
+  }, []);
 
   // Theme synchronization
   useEffect(() => {
@@ -454,6 +468,9 @@ export function AdminProvider({
     sidebarOpen,
     promptModal,
     confirmDialog,
+    aiDrawerOpen,
+    setAiDrawerOpen,
+    aiEnabled,
     setSidebarOpen,
     setError,
     setNotice,
