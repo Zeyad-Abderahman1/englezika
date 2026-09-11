@@ -5,6 +5,7 @@
  *
  * Sticky topbar for the admin application containing page contextual identity,
  * theme toggle, manual data refresh, user role indicator, and mobile drawer trigger.
+ * On mobile, the topbar is compact: [hamburger] [title] [theme toggle] [refresh]
  */
 
 import { Menu, MoonStar, RefreshCw, Sun, ShieldCheck } from 'lucide-react';
@@ -40,7 +41,6 @@ export function AdminTopbar({ title }: AdminTopbarProps) {
       </div>
 
       <div className="admin-topbar-end">
-        {/* Role & User indicator */}
         <div className="admin-topbar-user">
           <span className="admin-topbar-user-icon">
             <ShieldCheck size={16} />
@@ -51,7 +51,6 @@ export function AdminTopbar({ title }: AdminTopbarProps) {
           </div>
         </div>
 
-        {/* Refresh button */}
         <button
           type="button"
           className="btn btn-ghost admin-topbar-action-btn"
@@ -64,7 +63,6 @@ export function AdminTopbar({ title }: AdminTopbarProps) {
           <span className="admin-btn-text">تحديث</span>
         </button>
 
-        {/* Theme Toggle */}
         <button
           type="button"
           className={`theme-toggle ${light ? 'is-light' : 'is-dark'}`}

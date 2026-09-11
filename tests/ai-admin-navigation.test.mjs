@@ -10,12 +10,14 @@ const rootDir = path.resolve(__dirname, '..');
 
 test('AI Assistant Navigation & Admin Page Suite', async (t) => {
   await t.test('1. Sidebar contains "المساعد الذكي" pointing to /admin/ai with manage_courses permission', () => {
+    const navSource = fs.readFileSync(path.join(rootDir, 'app/components/admin/shell/admin-navigation.ts'), 'utf8');
     const sidebarSource = fs.readFileSync(path.join(rootDir, 'app/components/admin/shell/AdminSidebar.tsx'), 'utf8');
 
-    assert.ok(sidebarSource.includes('label: \'المساعد الذكي\''), 'Sidebar must contain label "المساعد الذكي"');
-    assert.ok(sidebarSource.includes('href: \'/admin/ai\''), 'Sidebar must contain route /admin/ai');
-    assert.ok(sidebarSource.includes('Sparkles'), 'Sidebar must use Sparkles icon for AI Assistant');
-    assert.ok(sidebarSource.includes('permission: \'manage_courses\''), 'AI Assistant nav item must require manage_courses permission');
+    assert.ok(navSource.includes('label: \'المساعد الذكي\''), 'Shared nav must contain label "المساعد الذكي"');
+    assert.ok(navSource.includes('href: \'/admin/ai\''), 'Shared nav must contain route /admin/ai');
+    assert.ok(navSource.includes('Sparkles'), 'Shared nav must use Sparkles icon for AI Assistant');
+    assert.ok(navSource.includes('permission: \'manage_courses\''), 'AI Assistant nav item must require manage_courses permission');
+    assert.ok(sidebarSource.includes("from './admin-navigation'"), 'Sidebar must import from shared navigation module');
   });
 
   await t.test('2. Sidebar active state correctly resolves for /admin/ai', () => {

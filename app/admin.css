@@ -21,6 +21,12 @@
   overflow-x: clip;
 }
 
+@supports (height: 100dvh) {
+  .admin-app-layout {
+    min-height: 100dvh;
+  }
+}
+
 /* ── Desktop Left Sidebar Container ─────────────────────────────────────────── */
 
 .admin-desktop-sidebar-container {
@@ -185,6 +191,57 @@
 @media (max-width: 480px) {
   .admin-btn-text {
     display: none;
+  }
+}
+
+/* ── Mobile Topbar Compact ────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .admin-topbar {
+    min-height: 52px;
+    padding: 8px 12px;
+    padding-top: calc(8px + env(safe-area-inset-top, 0px));
+    gap: 8px;
+  }
+
+  .admin-topbar-start {
+    gap: 8px;
+  }
+
+  .admin-topbar-page-identity {
+    display: none;
+  }
+
+  .admin-hamburger-btn {
+    display: inline-flex;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 10px;
+  }
+
+  .admin-topbar-end {
+    gap: 6px;
+  }
+
+  .admin-topbar-action-btn {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px;
+  }
+
+  .theme-toggle {
+    width: 52px;
+    height: 30px;
+    flex: 0 0 52px;
+  }
+
+  .theme-thumb {
+    width: 24px;
+    height: 24px;
+  }
+
+  .theme-toggle.is-light .theme-thumb {
+    transform: translateX(22px);
   }
 }
 
@@ -390,6 +447,7 @@
   inset: 0;
   z-index: 1000;
   display: flex;
+  justify-content: flex-end;
 }
 
 .admin-mobile-backdrop {
@@ -402,15 +460,25 @@
 
 .admin-mobile-drawer {
   position: relative;
-  width: min(320px, 85vw);
-  height: 100%;
+  width: min(86vw, 340px);
+  height: 100dvh;
+  height: 100vh;
   background: var(--surface);
   border-inline-end: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   z-index: 1001;
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
-  animation: adminSlideInLeft 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: adminSlideInFromEnd 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@supports (height: 100dvh) {
+  .admin-mobile-drawer {
+    height: 100dvh;
+  }
 }
 
 .admin-mobile-drawer-header {
@@ -419,6 +487,7 @@
   justify-content: space-between;
   padding: 14px 18px;
   border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
 }
 
 .admin-mobile-drawer-title {
@@ -433,16 +502,150 @@
   padding: 6px;
   cursor: pointer;
   border-radius: 6px;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.admin-mobile-drawer-content {
+/* ── Mobile Nav Body (scrollable navigation) ─────────────────────────────── */
+
+.admin-mobile-nav-body {
   flex: 1;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 0;
 }
 
-.admin-mobile-drawer-content .admin-sidebar {
-  min-height: auto;
-  height: 100%;
+.admin-mobile-nav-group {
+  padding: 4px 0;
+}
+
+.admin-mobile-nav-group-title {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 10px 18px 4px;
+}
+
+.admin-mobile-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.admin-mobile-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 18px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.18s, color 0.18s;
+}
+
+.admin-mobile-nav-item:hover,
+.admin-mobile-nav-item:active {
+  background: var(--surface-2);
+}
+
+.admin-mobile-nav-item.active {
+  background: var(--red);
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.admin-mobile-nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+}
+
+.admin-mobile-nav-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-mobile-nav-badge {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--red);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.admin-mobile-nav-item.active .admin-mobile-nav-badge {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+/* ── Mobile Drawer Footer ────────────────────────────────────────────────── */
+
+.admin-mobile-drawer-footer {
+  flex-shrink: 0;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+}
+
+.admin-mobile-user-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+}
+
+.admin-mobile-user-icon {
+  flex-shrink: 0;
+  color: var(--red);
+}
+
+.admin-mobile-user-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-mobile-logout-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.2s, color 0.2s;
+}
+
+.admin-mobile-logout-btn:hover {
+  background: rgba(207, 11, 39, 0.12);
+  color: var(--red-bright);
+  border-color: rgba(207, 11, 39, 0.35);
 }
 
 @keyframes adminFadeIn {
@@ -450,7 +653,7 @@
   to { opacity: 1; }
 }
 
-@keyframes adminSlideInLeft {
+@keyframes adminSlideInFromEnd {
   from { transform: translateX(100%); }
   to { transform: translateX(0); }
 }
