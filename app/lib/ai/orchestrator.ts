@@ -8,7 +8,8 @@ import { executeTool } from './tool-executor';
 import { createConfirmationRequest } from './confirmation.server';
 import { generateActionPreview, type ConfirmationPreview } from './preview-generator';
 import type { StaffActor } from './tool-executor';
-import { getRepairPlanPrompt, SAFE_FALLBACK_REPLY } from './planner-prompt';
+import { getRepairPlanPrompt, getEmptyActionRepairPrompt, SAFE_FALLBACK_REPLY } from './planner-prompt';
+import { resolveSafeReadIntent, isConversationalMessage } from './read-intent-resolver';
 
 export const MAX_MESSAGE_LENGTH = 2000;
 export const MAX_STORED_MESSAGES = 20;
@@ -318,7 +319,7 @@ export async function orchestrateAdminChat(
     recentHistory: history.slice(-6).map((m) => `${m.role}: ${m.content}`),
   };
 
-  const planResult: PlanResult & { isInvalidToolPlan?: boolean } = await queue.enqueue(
+  const planResult: PlanResult & { isInvalidToolPlan?: boolean; isEmptyActionRecovery?: boolean } = await queue.enqueue(
     async (signal) => {
       const initialPlan = await provider.generatePlan(rawMessage, planContext, {
         signal: options.signal || signal,
@@ -353,6 +354,45 @@ export async function orchestrateAdminChat(
           planText: SAFE_FALLBACK_REPLY,
           actions: [],
           explanation: 'Plan contains unregistered tools that could not be repaired.',
+          isInvalidToolPlan: true,
+        };
+      }
+
+      // Empty-action recovery: planner returned zero actions
+      if (rawActions.length === 0 && !isConversationalMessage(rawMessage)) {
+        // Attempt ONE bounded empty-action repair replan
+        const emptyRepairPrompt = getEmptyActionRepairPrompt(rawMessage);
+        try {
+          const repairedPlan = await provider.generatePlan(emptyRepairPrompt, planContext, {
+            signal: options.signal || signal,
+          });
+          const repairedActions = Array.isArray(repairedPlan?.actions) ? repairedPlan.actions : [];
+          const validRepaired = repairedActions.filter((a) => isRegisteredTool(a.tool));
+
+          if (validRepaired.length > 0) {
+            // Repair succeeded with valid registered actions
+            return { ...repairedPlan, actions: validRepaired };
+          }
+        } catch {
+          // If repair fails, fall through to deterministic fallback
+        }
+
+        // Deterministic safe read-only fallback
+        const safeIntent = resolveSafeReadIntent(rawMessage);
+        if (safeIntent) {
+          return {
+            planText: '',
+            actions: [{ tool: safeIntent.tool, parameters: safeIntent.parameters }],
+            explanation: 'Deterministic safe read-only fallback resolved intent.',
+            isEmptyActionRecovery: true,
+          };
+        }
+
+        // Not a read-only intent: return safe clarification
+        return {
+          planText: SAFE_FALLBACK_REPLY,
+          actions: [],
+          explanation: 'Empty-action plan could not be recovered.',
           isInvalidToolPlan: true,
         };
       }

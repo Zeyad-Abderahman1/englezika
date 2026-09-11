@@ -42,6 +42,8 @@ RULES:
 - Never translate, rename, or invent tool names (e.g. displayCourses, showCourses, getCourses, fetchCourses, viewCourses are STRICTLY FORBIDDEN).
 - For viewing, listing, or showing all courses, use "list_courses".
 - Read-only requests must use read-only tools.
+- A request to show, list, view, or retrieve data REQUIRES a tool action. Do NOT return only planText with empty actions for data requests.
+- planText is NOT a substitute for tool execution.
 - If no tool matches the request, return "actions": [].
 `;
 }
@@ -54,6 +56,21 @@ You MUST return a corrected plan using ONLY the canonical tools:
 - For course search: use "search_courses"
 - For lectures: use "get_lecture_details" or "add_lecture"
 Never invent tool names like ${unknownTools.join(', ')}.
+Original request: "${originalInstruction}"
+Output valid JSON: { "planText": string, "actions": [{ "tool": string, "parameters": object }], "explanation": string }`;
+}
+
+export function getEmptyActionRepairPrompt(originalInstruction: string): string {
+  return `You returned no actions, but the user requested an operation.
+Return the correct canonical registered tool action.
+Use ONLY the listed tool identifiers:
+- For viewing, listing, or showing courses: use "list_courses"
+- For course details: use "get_course"
+- For course structure: use "get_course_structure"
+- For searching courses: use "search_courses"
+- For lecture details: use "get_lecture_details"
+- For assessment details: use "get_assessment_details"
+planText alone is NOT a valid response to a data request.
 Original request: "${originalInstruction}"
 Output valid JSON: { "planText": string, "actions": [{ "tool": string, "parameters": object }], "explanation": string }`;
 }

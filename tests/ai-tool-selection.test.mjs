@@ -382,4 +382,205 @@ describe('AI Planner Tool-Selection & Canonical Registry Enforcement Suite', () 
     assert.equal(AI_GATE_MAX_TOTAL, 3);
   });
 
+  test('O. Empty-action plan for actionable Arabic request triggers bounded repair and resolves to list_courses', async () => {
+    const db = new MockToolSelectionDb();
+    let generationAttempts = 0;
+    const mockProvider = new MockAiProvider({
+      planHandler: (prompt) => {
+        generationAttempts++;
+        if (generationAttempts === 1) {
+          // Initial plan: model returns zero actions
+          return { planText: 'عرض الكورسات الحالية', actions: [] };
+        }
+        // Repair: model successfully produces list_courses
+        return { planText: 'Here are the courses', actions: [{ tool: 'list_courses', parameters: {} }] };
+      },
+    });
+
+    const result = await orchestrateAdminChat({
+      actor: teacherActor,
+      message: 'اعرض لي الكورسات الموجودة حاليًا مع اسم كل كورس وحالته فقط. لا تنشئ أو تعدل أو تحذف أي شيء.',
+      provider: mockProvider,
+      secret: TEST_SECRET,
+      db,
+    });
+
+    assert.equal(generationAttempts, 2, 'Must perform exactly 1 bounded empty-action repair attempt');
+    assert.equal(result.requiresConfirmation, false, 'Read-only tool must NOT require confirmation');
+    assert.equal(result.actionsExecuted?.length, 1);
+    assert.equal(result.actionsExecuted[0].tool, 'list_courses');
+    assert.ok(result.reply.includes('Unit 1: The Basics'), 'Must include real course title');
+    assert.ok(result.reply.includes('منشور'), 'Must include published status');
+    assert.ok(result.reply.includes('Unit 2: Past Simple'));
+    assert.ok(result.reply.includes('مسودة'), 'Must include draft status');
+    assert.equal(db.confirmations.size, 0, 'No confirmation records');
+  });
+
+  test('P. Empty-action plan where repair also fails falls back to deterministic read-only resolver for list_courses', async () => {
+    const db = new MockToolSelectionDb();
+    let generationAttempts = 0;
+    const mockProvider = new MockAiProvider({
+      planHandler: (prompt) => {
+        generationAttempts++;
+        // Both initial and repair return zero actions
+        return { planText: 'عرض الكورسات', actions: [] };
+      },
+    });
+
+    const result = await orchestrateAdminChat({
+      actor: teacherActor,
+      message: 'اعرض لي الكورسات الموجودة حاليًا',
+      provider: mockProvider,
+      secret: TEST_SECRET,
+      db,
+    });
+
+    assert.equal(generationAttempts, 2, 'Must perform exactly 1 bounded repair attempt after empty initial');
+    assert.equal(result.requiresConfirmation, false);
+    assert.equal(result.actionsExecuted?.length, 1, 'Deterministic fallback must resolve to list_courses');
+    assert.equal(result.actionsExecuted[0].tool, 'list_courses');
+    assert.ok(result.reply.includes('Unit 1: The Basics'));
+    assert.ok(result.reply.includes('منشور'));
+    assert.equal(db.confirmations.size, 0);
+  });
+
+  test('Q. Deterministic fallback NEVER resolves a mutation — "احذف الكورس الأول" with empty plans returns safe clarification', async () => {
+    const db = new MockToolSelectionDb();
+    let generationAttempts = 0;
+    const mockProvider = new MockAiProvider({
+      planHandler: (prompt) => {
+        generationAttempts++;
+        return { planText: 'حذف الكورس', actions: [] };
+      },
+    });
+
+    const result = await orchestrateAdminChat({
+      actor: teacherActor,
+      message: 'احذف الكورس الأول',
+      provider: mockProvider,
+      secret: TEST_SECRET,
+      db,
+    });
+
+    assert.equal(generationAttempts, 2, 'Must attempt repair once for non-conversational request');
+    assert.equal(result.requiresConfirmation, false, 'Must NOT invent a confirmation for an inferred mutation');
+    assert.equal(result.actionsExecuted?.length, 0, 'Must NOT execute any tool');
+    assert.equal(result.reply, SAFE_FALLBACK_REPLY, 'Must return safe clarification');
+    assert.equal(db.confirmations.size, 0, 'Must NOT create any confirmation record');
+  });
+
+  test('R. Greetings remain conversation-only — "مرحبا" with empty actions does NOT trigger repair', async () => {
+    const db = new MockToolSelectionDb();
+    let generationAttempts = 0;
+    const mockProvider = new MockAiProvider({
+      planHandler: (prompt) => {
+        generationAttempts++;
+        return { planText: 'أهلاً! كيف يمكنني مساعدتك اليوم؟', actions: [] };
+      },
+    });
+
+    const result = await orchestrateAdminChat({
+      actor: teacherActor,
+      message: 'مرحبا',
+      provider: mockProvider,
+      secret: TEST_SECRET,
+      db,
+    });
+
+    assert.equal(generationAttempts, 1, 'Must NOT attempt repair for conversational message');
+    assert.equal(result.requiresConfirmation, false);
+    assert.equal(result.actionsExecuted?.length, 0, 'Must NOT execute any tool');
+    assert.ok(result.reply.includes('أهلاً'), 'Must return conversational response');
+    assert.equal(db.confirmations.size, 0);
+  });
+
+  test('S. "ماذا يمكنك أن تفعل؟" must NOT trigger empty-action repair', async () => {
+    const db = new MockToolSelectionDb();
+    let generationAttempts = 0;
+    const mockProvider = new MockAiProvider({
+      planHandler: (prompt) => {
+        generationAttempts++;
+        return { planText: 'يمكنني مساعدتك في إدارة الكورسات والامتحانات.', actions: [] };
+      },
+    });
+
+    const result = await orchestrateAdminChat({
+      actor: teacherActor,
+      message: 'ماذا يمكنك أن تفعل؟',
+      provider: mockProvider,
+      secret: TEST_SECRET,
+      db,
+    });
+
+    assert.equal(generationAttempts, 1, 'Must NOT attempt repair for capability question');
+    assert.equal(result.actionsExecuted?.length, 0);
+    assert.ok(result.reply.includes('يمكنني'), 'Must return descriptive response');
+  });
+
+  test('T. Provider call count: successful initial plan = 1 call, no repair', async () => {
+    const db = new MockToolSelectionDb();
+    let generationAttempts = 0;
+    const mockProvider = new MockAiProvider({
+      planHandler: (prompt) => {
+        generationAttempts++;
+        return { planText: 'Listing courses', actions: [{ tool: 'list_courses', parameters: {} }] };
+      },
+    });
+
+    await orchestrateAdminChat({
+      actor: teacherActor,
+      message: 'اعرض لي الكورسات',
+      provider: mockProvider,
+      secret: TEST_SECRET,
+      db,
+    });
+
+    assert.equal(generationAttempts, 1, 'Successful initial plan must use exactly 1 planning call');
+  });
+
+  test('U. English empty-action plan "Show me the current courses" resolves via repair or fallback', async () => {
+    const db = new MockToolSelectionDb();
+    const mockProvider = new MockAiProvider({
+      mockPlans: [
+        { planText: 'Showing courses', actions: [] },
+        { planText: 'Here are the courses', actions: [{ tool: 'list_courses', parameters: {} }] },
+      ],
+    });
+
+    const result = await orchestrateAdminChat({
+      actor: teacherActor,
+      message: 'Show me the current courses and their status',
+      provider: mockProvider,
+      secret: TEST_SECRET,
+      db,
+    });
+
+    assert.equal(result.requiresConfirmation, false);
+    assert.equal(result.actionsExecuted?.length, 1);
+    assert.equal(result.actionsExecuted[0].tool, 'list_courses');
+    assert.ok(result.reply.includes('Unit 1: The Basics'));
+  });
+
+  test('V. list_courses output does not expose course IDs', async () => {
+    const db = new MockToolSelectionDb();
+    const mockProvider = new MockAiProvider({
+      mockPlan: { planText: '', actions: [{ tool: 'list_courses', parameters: {} }] },
+    });
+
+    const result = await orchestrateAdminChat({
+      actor: teacherActor,
+      message: 'اعرض الكورسات',
+      provider: mockProvider,
+      secret: TEST_SECRET,
+      db,
+    });
+
+    assert.ok(!result.reply.includes('c_1'), 'Course IDs must not be exposed in normal list response');
+    assert.ok(!result.reply.includes('c_2'), 'Course IDs must not be exposed in normal list response');
+    assert.ok(result.reply.includes('Unit 1: The Basics'));
+    assert.ok(result.reply.includes('منشور'));
+    assert.ok(result.reply.includes('مسودة'));
+  });
+
 });
+
