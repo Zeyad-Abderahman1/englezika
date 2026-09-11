@@ -65,7 +65,9 @@ export async function POST(request: Request) {
       ...result,
     });
   } catch (error: any) {
+    const status =
+      error?.code === 'AI_QUEUE_SATURATED' || error?.code === 'QUEUE_SATURATED' ? 429 : 500;
     const errorMsg = error?.message || 'تعذر معالجة محادثة المساعد الذكي';
-    return jsonError(errorMsg, 500);
+    return jsonError(errorMsg, status);
   }
 }

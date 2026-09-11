@@ -91,7 +91,12 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     const message = error?.message || 'تعذر توليد التقييم من المستند';
-    const status = message.includes('ممسوح ضوئياً') || message.includes('Scanned PDF') ? 422 : 500;
+    const status =
+      error?.code === 'AI_QUEUE_SATURATED' || error?.code === 'QUEUE_SATURATED'
+        ? 429
+        : message.includes('ممسوح ضوئياً') || message.includes('Scanned PDF')
+        ? 422
+        : 500;
     return jsonError(message, status);
   } finally {
     // 4. Immediate cleanup: delete temporary upload file

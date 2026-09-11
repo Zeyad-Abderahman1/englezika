@@ -111,17 +111,31 @@ export class QueueSaturatedError extends Error {
   }
 }
 
+export interface AiQueueOptions {
+  maxWaiting?: number;
+  resourceGuard?: ResourceGuard;
+  useGlobalGate?: boolean;
+  workerId?: string;
+  gateDb?: any;
+}
+
 export class AiQueue {
   readonly maxConcurrent: number = 1;
   readonly maxWaiting: number;
   private running: number = 0;
   private queue: Array<QueueJob<unknown>> = [];
   private resourceGuard: ResourceGuard;
+  private useGlobalGate: boolean;
+  private workerId?: string;
+  private gateDb?: any;
 
-  constructor(options: { maxWaiting?: number; resourceGuard?: ResourceGuard } = {}) {
+  constructor(options: AiQueueOptions = {}) {
     this.maxWaiting = options.maxWaiting ?? 2;
     this.resourceGuard =
       options.resourceGuard ?? new ResourceGuard({ maxQueueLength: this.maxWaiting });
+    this.useGlobalGate = options.useGlobalGate ?? false;
+    this.workerId = options.workerId;
+    this.gateDb = options.gateDb;
   }
 
   getStats() {
@@ -220,8 +234,21 @@ export class AiQueue {
     }
 
     try {
-      const result = await job.task(abortController.signal);
-      job.resolve(result);
+      let result: unknown;
+      if (this.useGlobalGate) {
+        const { withGlobalAiGate } = await import('./ai-global-gate.server');
+        result = await withGlobalAiGate(
+          (gateSignal) => job.task(gateSignal),
+          {
+            signal: abortController.signal,
+            workerId: this.workerId,
+            db: this.gateDb,
+          }
+        );
+      } else {
+        result = await job.task(abortController.signal);
+      }
+      job.resolve(result as any);
     } catch (err: unknown) {
       job.reject(err);
     } finally {
@@ -238,7 +265,10 @@ let globalAiQueue: AiQueue | null = null;
 
 export function getGlobalAiQueue(): AiQueue {
   if (!globalAiQueue) {
-    globalAiQueue = new AiQueue({ maxWaiting: 2 });
+    globalAiQueue = new AiQueue({
+      maxWaiting: 2,
+      useGlobalGate: Boolean(process.env.DATABASE_URL),
+    });
   }
   return globalAiQueue;
 }
