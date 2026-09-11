@@ -614,3 +614,440 @@
   background: #fef3c7;
   color: #78350f;
 }
+
+/* ==========================================================================
+   Full-Page AI Workspace Layout & Responsive Additions
+   ========================================================================== */
+
+.ai-workspace-wrapper {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.ai-workspace-card {
+  background: var(--surface, #0f172a);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: clamp(520px, calc(100vh - 160px), 860px);
+}
+
+.ai-workspace-header {
+  padding: 1.25rem 1.75rem;
+  background: rgba(15, 23, 42, 0.85);
+  border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.ai-workspace-header-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.ai-workspace-header-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+  flex-shrink: 0;
+}
+
+.ai-workspace-title {
+  font-size: 1.25rem;
+  font-weight: 800;
+  margin: 0;
+  color: var(--text, #f8fafc);
+}
+
+.ai-workspace-subtitle {
+  font-size: 0.82rem;
+  color: var(--muted, #94a3b8);
+  margin: 0.25rem 0 0 0;
+}
+
+.ai-workspace-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ai-workspace-status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 20px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.ai-workspace-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
+
+.ai-workspace-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  background: rgba(15, 23, 42, 0.5);
+  padding: 0 1.5rem;
+  gap: 0.75rem;
+  overflow-x: auto;
+}
+
+.ai-workspace-tab {
+  padding: 0.85rem 1.25rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted, #94a3b8);
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.ai-workspace-tab.active {
+  color: #38bdf8;
+  border-bottom-color: #38bdf8;
+}
+
+.ai-workspace-tab-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.ai-workspace-messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: clamp(1rem, 2vw, 1.75rem);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 380px;
+  max-height: calc(100vh - 340px);
+}
+
+.ai-workspace-messages-container .ai-message-bubble {
+  max-width: min(850px, 85%);
+}
+
+.ai-workspace-footer {
+  padding: 1rem 1.5rem 1.25rem;
+  background: rgba(15, 23, 42, 0.9);
+  border-top: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.ai-workspace-quick-prompts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.ai-workspace-quick-label {
+  font-size: 0.8rem;
+  color: var(--muted, #94a3b8);
+  font-weight: 700;
+  margin-inline-end: 0.25rem;
+}
+
+/* ── PDF Assessment Controls in Workspace ───────────────────────────────── */
+
+.ai-pdf-header-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.75rem 1rem;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 10px;
+  color: #93c5fd;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.ai-dropzone.has-file {
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.05);
+}
+
+.ai-dropzone-title {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text, #f8fafc);
+}
+
+.ai-dropzone-subtitle {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted, #94a3b8);
+}
+
+.ai-dropzone-file-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  padding: 0.35rem 0.75rem;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 20px;
+  color: #34d399;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.ai-pdf-controls-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.25rem;
+}
+
+@media (max-width: 768px) {
+  .ai-pdf-controls-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ai-pdf-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.ai-pdf-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--muted, #94a3b8);
+}
+
+.ai-pdf-count-badge {
+  color: #38bdf8;
+  font-weight: 800;
+}
+
+.ai-pdf-select {
+  width: 100%;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.ai-pdf-select:focus {
+  border-color: #38bdf8;
+}
+
+.ai-pdf-range {
+  width: 100%;
+  accent-color: #38bdf8;
+  height: 6px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.ai-pdf-range-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--muted, #94a3b8);
+}
+
+.ai-difficulty-selector {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ai-difficulty-btn {
+  flex: 1;
+  font-size: 0.82rem;
+  padding: 0.55rem;
+}
+
+.ai-pdf-submit-btn {
+  width: 100%;
+  padding: 0.85rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+/* ── Disabled State Fallback Card ───────────────────────────────────────── */
+
+.ai-workspace-disabled-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 480px;
+  padding: 2rem 1rem;
+  width: 100%;
+}
+
+.ai-workspace-disabled-card {
+  max-width: 520px;
+  background: var(--surface, #0f172a);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+  border-radius: 16px;
+  padding: 2.5rem 2rem;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ai-workspace-disabled-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+}
+
+.ai-workspace-disabled-title {
+  font-size: 1.25rem;
+  font-weight: 800;
+  margin: 0 0 0.75rem 0;
+  color: var(--text, #f8fafc);
+}
+
+.ai-workspace-disabled-desc {
+  font-size: 0.9rem;
+  color: var(--muted, #94a3b8);
+  line-height: 1.6;
+  margin: 0 0 1.5rem 0;
+}
+
+.ai-workspace-disabled-actions {
+  display: flex;
+  justify-content: center;
+}
+
+/* ── Workspace Loading State ────────────────────────────────────────────── */
+
+.ai-workspace-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 480px;
+  padding: 2rem;
+}
+
+.ai-workspace-loading-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  color: var(--muted, #94a3b8);
+  font-size: 0.95rem;
+}
+
+/* ── Drawer Compatibility Helpers ───────────────────────────────────────── */
+
+.ai-drawer-header-bar {
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(15, 23, 42, 0.85);
+  border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+}
+
+.ai-drawer-inner-workspace {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Light Mode Workspace Overrides ─────────────────────────────────────── */
+
+[data-theme='light'] .ai-workspace-card,
+[data-theme='light'] .ai-workspace-disabled-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme='light'] .ai-workspace-header,
+[data-theme='light'] .ai-workspace-footer,
+[data-theme='light'] .ai-drawer-header-bar {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme='light'] .ai-workspace-title,
+[data-theme='light'] .ai-workspace-disabled-title,
+[data-theme='light'] .ai-dropzone-title {
+  color: #0f172a;
+}
+
+[data-theme='light'] .ai-workspace-subtitle,
+[data-theme='light'] .ai-workspace-disabled-desc,
+[data-theme='light'] .ai-dropzone-subtitle {
+  color: #64748b;
+}
+
+[data-theme='light'] .ai-pdf-select {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+[data-theme='light'] .ai-quick-chip {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #334155;
+}
+
+[data-theme='light'] .ai-quick-chip:hover {
+  background: #e0f2fe;
+  border-color: #38bdf8;
+  color: #0284c7;
+}
+

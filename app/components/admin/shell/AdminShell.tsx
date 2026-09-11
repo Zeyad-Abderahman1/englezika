@@ -16,7 +16,6 @@ import { AdminTopbar } from './AdminTopbar';
 import { AdminMobileNav } from './AdminMobileNav';
 import { AdminPromptModal } from './AdminPromptModal';
 import { AdminConfirmDialog } from './AdminConfirmDialog';
-import { AIAssistantDrawer } from '../ai/AIAssistantDrawer';
 
 interface AdminShellProps {
   children: ReactNode;
@@ -24,7 +23,7 @@ interface AdminShellProps {
 }
 
 export function AdminShell({ children, pageTitle }: AdminShellProps) {
-  const { notice, error, setNotice, setError, loading, aiDrawerOpen, setAiDrawerOpen, aiEnabled } = useAdmin();
+  const { notice, error, setNotice, setError, loading } = useAdmin();
 
   if (loading) {
     return (
@@ -92,14 +91,6 @@ export function AdminShell({ children, pageTitle }: AdminShellProps) {
       {/* ── Global Dynamic Modals ────────────────────────────────────────────── */}
       <AdminPromptModal />
       <AdminConfirmDialog />
-
-      {/* ── AI Assistant Drawer (Only rendered when AI enabled) ─────────────── */}
-      {aiEnabled && (
-        <AIAssistantDrawer
-          isOpen={aiDrawerOpen}
-          onClose={() => setAiDrawerOpen(false)}
-        />
-      )}
     </div>
   );
 }

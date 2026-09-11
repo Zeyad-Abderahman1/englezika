@@ -7,7 +7,7 @@
  * theme toggle, manual data refresh, user role indicator, and mobile drawer trigger.
  */
 
-import { Menu, MoonStar, RefreshCw, Sun, ShieldCheck, Sparkles } from 'lucide-react';
+import { Menu, MoonStar, RefreshCw, Sun, ShieldCheck } from 'lucide-react';
 import { useAdmin } from '../../../lib/admin-context';
 
 interface AdminTopbarProps {
@@ -15,7 +15,7 @@ interface AdminTopbarProps {
 }
 
 export function AdminTopbar({ title }: AdminTopbarProps) {
-  const { admin, isTeacher, light, toggleTheme, refreshData, busy, setSidebarOpen, aiEnabled, setAiDrawerOpen } = useAdmin();
+  const { admin, isTeacher, light, toggleTheme, refreshData, busy, setSidebarOpen } = useAdmin();
 
   const roleLabel = isTeacher ? 'مدرس — صلاحية كاملة' : 'مساعد';
 
@@ -50,25 +50,6 @@ export function AdminTopbar({ title }: AdminTopbarProps) {
             <small className="admin-topbar-user-role">{roleLabel}</small>
           </div>
         </div>
-
-        {/* AI Assistant Button (Only visible when AI_ASSISTANT_ENABLED=true) */}
-        {aiEnabled && (
-          <button
-            type="button"
-            className="btn btn-ghost admin-topbar-action-btn"
-            onClick={() => setAiDrawerOpen((open) => !open)}
-            title="المساعد الذكي للمعلم"
-            aria-label="المساعد الذكي للمعلم"
-            style={{
-              background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.15))',
-              borderColor: 'rgba(99, 102, 241, 0.3)',
-              color: '#38bdf8',
-            }}
-          >
-            <Sparkles size={16} />
-            <span className="admin-btn-text">المساعد الذكي</span>
-          </button>
-        )}
 
         {/* Refresh button */}
         <button

@@ -22,6 +22,7 @@ import {
   Mail,
   PlaySquare,
   ShieldCheck,
+  Sparkles,
   UserCog,
   Users,
 } from 'lucide-react';
@@ -79,6 +80,12 @@ export const ADMIN_NAV_GROUPS: NavGroup[] = [
         href: '/admin/assignments',
         icon: ClipboardCheck,
         permission: 'manage_assignments',
+      },
+      {
+        label: 'المساعد الذكي',
+        href: '/admin/ai',
+        icon: Sparkles,
+        permission: 'manage_courses',
       },
     ],
   },
