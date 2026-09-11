@@ -89,3 +89,45 @@ export interface LocalAiProvider {
   ): Promise<PlanResult>;
   unloadModel?(): Promise<boolean>;
 }
+
+let globalProviderInstance: LocalAiProvider | null = null;
+
+export function setAiProvider(provider: LocalAiProvider | null): void {
+  globalProviderInstance = provider;
+}
+
+export async function getAiProvider(): Promise<LocalAiProvider> {
+  if (globalProviderInstance) return globalProviderInstance;
+
+  const { loadAiServerConfig } = await import('./ai-config.server');
+  const config = loadAiServerConfig();
+
+  if (config.provider === 'ollama') {
+    const { OllamaAiProvider } = await import('./providers/ollama-provider');
+    globalProviderInstance = new OllamaAiProvider({
+      endpoint: config.endpoint,
+      model: config.model,
+      idleTimeoutMinutes: config.idleTimeoutMinutes,
+      maxInferenceThreads: config.maxInferenceThreads,
+      maxContextTokens: config.maxContextTokens,
+      maxOutputTokens: config.maxOutputTokens,
+      requestTimeoutMs: config.requestTimeoutMs,
+    });
+  } else if (config.provider === 'llamacpp') {
+    const { LlamaCppAiProvider } = await import('./providers/llamacpp-provider');
+    globalProviderInstance = new LlamaCppAiProvider({
+      endpoint: config.endpoint,
+      model: config.model,
+      maxInferenceThreads: config.maxInferenceThreads,
+      maxContextTokens: config.maxContextTokens,
+      maxOutputTokens: config.maxOutputTokens,
+      requestTimeoutMs: config.requestTimeoutMs,
+    });
+  } else {
+    const { MockAiProvider } = await import('./providers/mock-provider');
+    globalProviderInstance = new MockAiProvider({ model: config.model });
+  }
+
+  return globalProviderInstance;
+}
+

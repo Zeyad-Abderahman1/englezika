@@ -132,10 +132,55 @@ export class MockAiProvider implements LocalAiProvider {
       };
     }
 
-    const payload = this.mockData as T;
+    let payload = this.mockData as any;
+    if (
+      (!payload || !payload.questions) &&
+      (options.userPrompt?.includes('questions') || options.systemPrompt?.includes('assessment'))
+    ) {
+      payload = {
+        questions: [
+          {
+            prompt: 'Which sentence demonstrates the correct use of passive voice?',
+            options: [
+              'The lesson was explained by the teacher.',
+              'The teacher explaining the lesson.',
+              'The lesson explained the teacher.',
+              'The teacher was explain the lesson.',
+            ],
+            correctAnswer: 'The lesson was explained by the teacher.',
+            explanation: 'Passive voice uses was/were + past participle.',
+          },
+          {
+            prompt: 'What is the past participle of the verb "write"?',
+            options: ['Written', 'Wrote', 'Writing', 'Writes'],
+            correctAnswer: 'Written',
+            explanation: 'The three forms are write, wrote, written.',
+          },
+          {
+            prompt: 'Choose the correct preposition: She has lived here ___ 2020.',
+            options: ['Since', 'For', 'During', 'From'],
+            correctAnswer: 'Since',
+            explanation: 'Since is used with specific points in time.',
+          },
+          {
+            prompt: 'Identify the synonym of the word "comprehend":',
+            options: ['Understand', 'Confuse', 'Ignore', 'Forget'],
+            correctAnswer: 'Understand',
+            explanation: 'Comprehend means to grasp mentally or understand.',
+          },
+          {
+            prompt: 'Complete the sentence: If it rains tomorrow, we ___ at home.',
+            options: ['Will stay', 'Stayed', 'Would stay', 'Had stayed'],
+            correctAnswer: 'Will stay',
+            explanation: 'First conditional uses present simple in the if-clause and will + infinitive in the main clause.',
+          },
+        ],
+      };
+    }
+
     return {
       success: true,
-      data: payload,
+      data: payload as T,
       rawText: JSON.stringify(payload),
       usage: {
         promptTokens: 50,
