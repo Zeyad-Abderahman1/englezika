@@ -43,12 +43,18 @@ export async function GET(
   const etag = `"${Buffer.from(`${course.thumbnailKey}:${file.size}`).toString('base64')}"`;
   const clientEtag = request.headers.get('if-none-match');
 
+  const url = new URL(request.url);
+  const isVersioned = Boolean(url.searchParams.get('v'));
+  const cacheControl = isVersioned
+    ? 'public, max-age=86400, stale-while-revalidate=3600'
+    : 'public, no-cache';
+
   if (clientEtag && clientEtag === etag) {
     return new Response(null, {
       status: 304,
       headers: {
         ETag: etag,
-        'Cache-Control': 'public, max-age=86400, stale-while-revalidate=3600',
+        'Cache-Control': cacheControl,
       },
     });
   }
@@ -64,9 +70,10 @@ export async function GET(
   return new Response(file.body as unknown as BodyInit, {
     headers: {
       'Content-Type': contentType,
-      'Cache-Control': 'public, max-age=86400, stale-while-revalidate=3600',
+      'Cache-Control': cacheControl,
       ETag: etag,
       'X-Content-Type-Options': 'nosniff',
     },
   });
 }
+

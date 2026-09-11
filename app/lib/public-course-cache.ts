@@ -10,6 +10,7 @@ export type PublicCourse = {
   lectures: number;
   exams?: number;
   thumbnailKey?: string | null;
+  updatedAt?: number;
 };
 
 const CACHE_TTL_MS = 60_000;
@@ -25,6 +26,7 @@ async function queryPublishedCourses(): Promise<PublicCourse[]> {
     .prepare(
       `SELECT c.id, c.title AS month, c.grade, c.description, c.price,
        c.thumbnail_key AS thumbnailKey,
+       c.updated_at AS updatedAt,
        CASE WHEN c.status = 'published' THEN 1 ELSE 0 END AS available,
        COUNT(v.id) AS lectures
        FROM courses c
@@ -42,6 +44,7 @@ async function queryPublishedCourse(id: string): Promise<PublicCourse | null> {
     .prepare(
       `SELECT c.id, c.title AS month, c.grade, c.description, c.price,
        c.thumbnail_key AS thumbnailKey,
+       c.updated_at AS updatedAt,
        CASE WHEN c.status = 'published' THEN 1 ELSE 0 END AS available,
        (SELECT COUNT(*) FROM videos v
         WHERE v.course_id = c.id AND v.status = 'published') AS lectures,
@@ -53,6 +56,7 @@ async function queryPublishedCourse(id: string): Promise<PublicCourse | null> {
     .bind(id)
     .first<PublicCourse>();
 }
+
 
 export async function getCachedPublishedCourses() {
   if (courseListPromise && Date.now() >= courseListExpiresAt) courseListPromise = null;

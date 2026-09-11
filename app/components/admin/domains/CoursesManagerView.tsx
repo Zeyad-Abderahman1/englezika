@@ -30,6 +30,7 @@ import {
   ListOrdered,
 } from 'lucide-react';
 import { useAdmin, adminApiRequest, type Course } from '../../../lib/admin-context';
+import { getCourseThumbnailUrl } from '../../../lib/course-thumbnail';
 import { AdminPageHeader } from '../shell/AdminPageHeader';
 import CourseSequenceManager from '../CourseSequenceManager';
 import { AdminFilterBar } from '../shell/AdminFilterBar';
@@ -69,6 +70,27 @@ export function CoursesManagerView() {
     return null;
   };
 
+  const closeAddModal = () => {
+    if (addThumbnailPreview) {
+      URL.revokeObjectURL(addThumbnailPreview);
+    }
+    setAddThumbnailFile(null);
+    setAddThumbnailPreview(null);
+    setAddThumbnailError(null);
+    setIsAddOpen(false);
+  };
+
+  const closeEditModal = () => {
+    if (editThumbnailPreview) {
+      URL.revokeObjectURL(editThumbnailPreview);
+    }
+    setEditThumbnailFile(null);
+    setEditThumbnailPreview(null);
+    setEditThumbnailRemoved(false);
+    setEditThumbnailError(null);
+    setEditingCourse(null);
+  };
+
   const handleAddThumbnailSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -76,6 +98,9 @@ export function CoursesManagerView() {
     if (err) {
       setAddThumbnailError(err);
       return;
+    }
+    if (addThumbnailPreview) {
+      URL.revokeObjectURL(addThumbnailPreview);
     }
     setAddThumbnailError(null);
     setAddThumbnailFile(file);
@@ -90,6 +115,9 @@ export function CoursesManagerView() {
       setEditThumbnailError(err);
       return;
     }
+    if (editThumbnailPreview) {
+      URL.revokeObjectURL(editThumbnailPreview);
+    }
     setEditThumbnailError(null);
     setEditThumbnailRemoved(false);
     setEditThumbnailFile(file);
@@ -97,6 +125,9 @@ export function CoursesManagerView() {
   };
 
   const openEditCourse = (course: Course) => {
+    if (editThumbnailPreview) {
+      URL.revokeObjectURL(editThumbnailPreview);
+    }
     setEditThumbnailFile(null);
     setEditThumbnailPreview(null);
     setEditThumbnailRemoved(false);
@@ -122,6 +153,14 @@ export function CoursesManagerView() {
 
   const handleAddCourse = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (addThumbnailError) return;
+    if (addThumbnailFile) {
+      const err = validateThumbnailFile(addThumbnailFile);
+      if (err) {
+        setAddThumbnailError(err);
+        return;
+      }
+    }
     const form = e.currentTarget;
     const values = Object.fromEntries(new FormData(form)) as Record<string, string>;
 
@@ -154,33 +193,27 @@ export function CoursesManagerView() {
 
     if (ok) {
       form.reset();
-      setAddThumbnailFile(null);
-      setAddThumbnailPreview(null);
-      setAddThumbnailError(null);
-      setIsAddOpen(false);
+      closeAddModal();
     }
   };
 
   const handleEditCourse = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editingCourse) return;
+    if (editThumbnailError) return;
+    if (editThumbnailFile) {
+      const err = validateThumbnailFile(editThumbnailFile);
+      if (err) {
+        setEditThumbnailError(err);
+        return;
+      }
+    }
     const form = e.currentTarget;
     const values = Object.fromEntries(new FormData(form)) as Record<string, string>;
 
     const ok = await mutate(
       async () => {
-        const res = await adminApiRequest(`/api/admin/courses/${editingCourse.id}`, {
-          method: 'PATCH',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            title: values.title,
-            grade: values.grade,
-            description: values.description || '',
-            price: Number(values.price) || 0,
-            status: values.status || 'published',
-          }),
-        });
-
+        // Perform thumbnail upload/removal first so if it fails, course PATCH is aborted
         if (editThumbnailRemoved && editingCourse.thumbnailKey) {
           await adminApiRequest(`/api/admin/courses/${editingCourse.id}/thumbnail`, {
             method: 'DELETE',
@@ -193,17 +226,26 @@ export function CoursesManagerView() {
             body: formData,
           });
         }
+
+        const res = await adminApiRequest(`/api/admin/courses/${editingCourse.id}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            title: values.title,
+            grade: values.grade,
+            description: values.description || '',
+            price: Number(values.price) || 0,
+            status: values.status || 'published',
+          }),
+        });
+
         return res;
       },
       'تم تحديث بيانات الكورس بنجاح'
     );
 
     if (ok) {
-      setEditingCourse(null);
-      setEditThumbnailFile(null);
-      setEditThumbnailPreview(null);
-      setEditThumbnailRemoved(false);
-      setEditThumbnailError(null);
+      closeEditModal();
     }
   };
 
@@ -320,7 +362,8 @@ export function CoursesManagerView() {
                 <div className="admin-course-card-thumb">
                   {course.thumbnailKey ? (
                     <img
-                      src={`/api/courses/${course.id}/thumbnail`}
+                      key={course.thumbnailKey}
+                      src={getCourseThumbnailUrl(course.id, course.thumbnailKey, course.updatedAt)}
                       alt={course.title}
                       className="admin-course-thumb-img"
                       loading="lazy"
@@ -425,7 +468,7 @@ export function CoursesManagerView() {
           aria-modal="true"
           aria-labelledby="add-course-title"
           onClick={(e) => {
-            if (e.target === e.currentTarget) setIsAddOpen(false);
+            if (e.target === e.currentTarget) closeAddModal();
           }}
         >
           <div className="admin-modal-card">
@@ -436,7 +479,7 @@ export function CoursesManagerView() {
               <button
                 type="button"
                 className="admin-modal-close"
-                onClick={() => setIsAddOpen(false)}
+                onClick={closeAddModal}
                 aria-label="إغلاق النافذة"
               >
                 <X size={18} />
@@ -500,6 +543,9 @@ export function CoursesManagerView() {
                           type="file"
                           accept=".jpg,.jpeg,.png,.webp"
                           className="sr-only"
+                          onClick={(e) => {
+                            (e.currentTarget as HTMLInputElement).value = '';
+                          }}
                           onChange={handleAddThumbnailSelect}
                         />
                       </label>
@@ -507,6 +553,9 @@ export function CoursesManagerView() {
                         type="button"
                         className="btn btn-outline btn-sm text-danger"
                         onClick={() => {
+                          if (addThumbnailPreview) {
+                            URL.revokeObjectURL(addThumbnailPreview);
+                          }
                           setAddThumbnailFile(null);
                           setAddThumbnailPreview(null);
                           setAddThumbnailError(null);
@@ -524,6 +573,9 @@ export function CoursesManagerView() {
                         type="file"
                         accept=".jpg,.jpeg,.png,.webp"
                         className="sr-only"
+                        onClick={(e) => {
+                          (e.currentTarget as HTMLInputElement).value = '';
+                        }}
                         onChange={handleAddThumbnailSelect}
                       />
                     </label>
@@ -561,7 +613,7 @@ export function CoursesManagerView() {
                 <button
                   type="button"
                   className="btn btn-outline"
-                  onClick={() => setIsAddOpen(false)}
+                  onClick={closeAddModal}
                   disabled={busy}
                 >
                   إلغاء
@@ -583,7 +635,7 @@ export function CoursesManagerView() {
           aria-modal="true"
           aria-labelledby="edit-course-title"
           onClick={(e) => {
-            if (e.target === e.currentTarget) setEditingCourse(null);
+            if (e.target === e.currentTarget) closeEditModal();
           }}
         >
           <div className="admin-modal-card">
@@ -594,7 +646,7 @@ export function CoursesManagerView() {
               <button
                 type="button"
                 className="admin-modal-close"
-                onClick={() => setEditingCourse(null)}
+                onClick={closeEditModal}
                 aria-label="إغلاق النافذة"
               >
                 <X size={18} />
@@ -653,7 +705,11 @@ export function CoursesManagerView() {
                     <img
                       src={
                         editThumbnailPreview ||
-                        `/api/courses/${editingCourse.id}/thumbnail`
+                        getCourseThumbnailUrl(
+                          editingCourse.id,
+                          editingCourse.thumbnailKey,
+                          editingCourse.updatedAt
+                        )
                       }
                       alt="صورة الكورس"
                       className="admin-thumbnail-preview-img"
@@ -665,6 +721,9 @@ export function CoursesManagerView() {
                           type="file"
                           accept=".jpg,.jpeg,.png,.webp"
                           className="sr-only"
+                          onClick={(e) => {
+                            (e.currentTarget as HTMLInputElement).value = '';
+                          }}
                           onChange={handleEditThumbnailSelect}
                         />
                       </label>
@@ -672,6 +731,9 @@ export function CoursesManagerView() {
                         type="button"
                         className="btn btn-outline btn-sm text-danger"
                         onClick={() => {
+                          if (editThumbnailPreview) {
+                            URL.revokeObjectURL(editThumbnailPreview);
+                          }
                           setEditThumbnailFile(null);
                           setEditThumbnailPreview(null);
                           setEditThumbnailRemoved(true);
@@ -690,6 +752,9 @@ export function CoursesManagerView() {
                         type="file"
                         accept=".jpg,.jpeg,.png,.webp"
                         className="sr-only"
+                        onClick={(e) => {
+                          (e.currentTarget as HTMLInputElement).value = '';
+                        }}
                         onChange={handleEditThumbnailSelect}
                       />
                     </label>
@@ -731,7 +796,7 @@ export function CoursesManagerView() {
                 <button
                   type="button"
                   className="btn btn-outline"
-                  onClick={() => setEditingCourse(null)}
+                  onClick={closeEditModal}
                   disabled={busy}
                 >
                   إلغاء

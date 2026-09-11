@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { openNotificationHome, visibleUnreadAnnouncementIds } from '../lib/announcement-display';
+import { getCourseThumbnailUrl } from '../lib/course-thumbnail';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -56,6 +57,7 @@ type DashboardData = {
     grade: string;
     status: string;
     thumbnailKey?: string | null;
+    updatedAt?: number;
   }>;
   exams: Array<{
     id: string;
@@ -953,7 +955,8 @@ export default function StudentDashboard() {
                         <div className="enrolled-course-card-thumb">
                           {course.thumbnailKey ? (
                             <img
-                              src={`/api/courses/${course.courseId}/thumbnail`}
+                              key={course.thumbnailKey}
+                              src={getCourseThumbnailUrl(course.courseId, course.thumbnailKey, course.updatedAt)}
                               alt={course.title}
                               className="enrolled-course-thumb-img"
                               loading="lazy"

@@ -30,7 +30,9 @@ export type Course = {
   price: number;
   status: string;
   thumbnailKey?: string | null;
+  updatedAt?: number;
 };
+
 
 export type Exam = {
   id: string;

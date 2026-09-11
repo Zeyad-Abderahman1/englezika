@@ -30,7 +30,9 @@ export default function CoursesExplorer() {
           price: Number(course.price) || 0,
           available: Boolean(course.available),
           thumbnailKey: course.thumbnailKey ? String(course.thumbnailKey) : null,
+          updatedAt: course.updatedAt ? Number(course.updatedAt) : undefined,
         }));
+
         setCourses(loaded);
         setLoading(false);
       })

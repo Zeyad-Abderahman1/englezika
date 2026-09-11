@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { BookOpen, LoaderCircle } from 'lucide-react';
 import PaymentFlow from './PaymentFlow';
+import { getCourseThumbnailUrl } from '../lib/course-thumbnail';
 
 type Course = {
   id: string;
@@ -11,6 +12,7 @@ type Course = {
   price: number;
   lectures: number;
   thumbnailKey?: string | null;
+  updatedAt?: number;
 };
 
 export default function SubscribeClient({ courseId }: { courseId: string }) {
@@ -38,7 +40,8 @@ export default function SubscribeClient({ courseId }: { courseId: string }) {
         <div className="subscribe-thumbnail-wrap">
           {course.thumbnailKey ? (
             <img
-              src={`/api/courses/${course.id}/thumbnail`}
+              key={course.thumbnailKey}
+              src={getCourseThumbnailUrl(course.id, course.thumbnailKey, course.updatedAt)}
               alt={course.month}
               className="subscribe-thumbnail-img"
               loading="eager"

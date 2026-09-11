@@ -6,6 +6,7 @@ import SecureVideoPlayer, { type Video } from '../../components/SecureVideoPlaye
 import CourseSequenceTree from '../../components/CourseSequenceTree';
 import { requireStudentUser } from '../../lib/student-session';
 import { hasCourseItems, getCourseSequenceUnlockState } from '../../lib/course-sequence';
+import { getCourseThumbnailUrl } from '../../lib/course-thumbnail';
 
 export const metadata: Metadata = { title: 'مشاهدة الكورس' };
 export const dynamic = 'force-dynamic';
@@ -77,9 +78,9 @@ export default async function LearnPage({
   }
 
   const course = await db
-    .prepare('SELECT title, grade, thumbnail_key AS thumbnailKey FROM courses WHERE id = ?')
+    .prepare('SELECT title, grade, thumbnail_key AS thumbnailKey, updated_at AS updatedAt FROM courses WHERE id = ?')
     .bind(courseId)
-    .first<{ title: string; grade: string; thumbnailKey: string | null }>();
+    .first<{ title: string; grade: string; thumbnailKey: string | null; updatedAt?: number }>();
 
   const courseHasSequence = await hasCourseItems(courseId);
   let sequenceUnlockState = null;
@@ -243,7 +244,7 @@ export default async function LearnPage({
           {course?.thumbnailKey && (
             <div className="learning-course-thumb">
               <img
-                src={`/api/courses/${courseId}/thumbnail`}
+                src={getCourseThumbnailUrl(courseId, course.thumbnailKey, course.updatedAt)}
                 alt={course.title}
                 className="learning-thumb-img"
               />

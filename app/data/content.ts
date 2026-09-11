@@ -9,7 +9,9 @@ export type Course = {
   badge?: string;
   popular?: boolean;
   thumbnailKey?: string | null;
+  updatedAt?: number;
 };
+
 
 export const courses: Course[] = [];
 

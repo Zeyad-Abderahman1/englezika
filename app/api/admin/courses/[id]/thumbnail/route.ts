@@ -2,6 +2,7 @@ import { apiStaff, isStaffResponse } from '../../../../../lib/staff-auth';
 import { getDatabase, getPrivateStorage } from '../../../../../lib/platform';
 import { jsonError, requireSameOrigin } from '../../../../../lib/security';
 import { invalidatePublicCourseCache } from '../../../../../lib/public-course-cache';
+import { getCourseThumbnailUrl } from '../../../../../lib/course-thumbnail';
 import {
   hasAllowedContentLength,
   isImageUpload,
@@ -111,7 +112,7 @@ export async function POST(
   return Response.json({
     ok: true,
     key: storageKey,
-    url: `/api/courses/${id}/thumbnail`,
+    url: getCourseThumbnailUrl(id, storageKey) || `/api/courses/${id}/thumbnail`,
   });
 }
 

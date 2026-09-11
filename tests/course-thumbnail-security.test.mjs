@@ -9,6 +9,10 @@ import {
 } from '../app/lib/upload-validation.ts';
 import { POST, DELETE } from '../app/api/admin/courses/[id]/thumbnail/route.ts';
 import { GET } from '../app/api/courses/[id]/thumbnail/route.ts';
+import {
+  getCourseThumbnailVersion,
+  getCourseThumbnailUrl,
+} from '../app/lib/course-thumbnail.ts';
 
 // Helper to construct a minimal valid PNG buffer (320x180)
 function createValidPngBuffer(width = 320, height = 180) {
@@ -365,3 +369,155 @@ test('10. Admin removes thumbnail: clears DB and deletes file from storage', asy
   const getRes = await GET(getReq, { params: Promise.resolve({ id: 'c2' }) });
   assert.equal(getRes.status, 404);
 });
+
+test('11. Thumbnail versioning helper: extracts stable version tokens and builds versioned URLs', () => {
+  assert.equal(getCourseThumbnailUrl('c1', null), '');
+  assert.equal(getCourseThumbnailUrl('c1', undefined), '');
+
+  const key1 = 'courses/c1/thumbnail/b49c71a3-28c0-4ff6-9db8-0245a7b69c4f.png';
+  const v1 = getCourseThumbnailVersion(key1);
+  assert.equal(v1, 'b49c71a3-28c0-4ff6-9db8-0245a7b69c4f');
+
+  const url1 = getCourseThumbnailUrl('c1', key1);
+  assert.equal(url1, `/api/courses/c1/thumbnail?v=${v1}`);
+
+  // Re-evaluating with unchanged key produces the exact same URL
+  assert.equal(getCourseThumbnailUrl('c1', key1), url1);
+
+  // Fallback to updatedAt if token is generic or absent
+  assert.equal(getCourseThumbnailVersion('thumbnail', 1726070000000), '1726070000000');
+});
+
+test('12. Replacement with identical filename generates distinct storage key and new versioned URL', async () => {
+  const { mockDb, mockStorage } = setupMockPlatform();
+  const c1 = mockDb.courses.find((c) => c.id === 'c1');
+
+  // Step 1: Upload first image named 'course-thumbnail.png'
+  const firstPng = createValidPngBuffer(320, 180);
+  const fd1 = new FormData();
+  fd1.append('file', new Blob([firstPng], { type: 'image/png' }), 'course-thumbnail.png');
+
+  const req1 = new Request('http://localhost:3000/api/admin/courses/c1/thumbnail', {
+    method: 'POST',
+    headers: {
+      origin: 'http://localhost:3000',
+      cookie: 'englizeka_staff=valid_session_token',
+      'content-length': String(firstPng.byteLength + 200),
+    },
+    body: fd1,
+  });
+
+  const res1 = await POST(req1, { params: Promise.resolve({ id: 'c1' }) });
+  assert.equal(res1.status, 200);
+  const json1 = await res1.json();
+  const firstKey = json1.key;
+  const firstUrl = getCourseThumbnailUrl('c1', firstKey);
+  assert.ok(firstUrl.includes('?v='));
+
+  // Step 2: Replace with another image ALSO named 'course-thumbnail.png'
+  const secondPng = createValidPngBuffer(640, 360);
+  const fd2 = new FormData();
+  fd2.append('file', new Blob([secondPng], { type: 'image/png' }), 'course-thumbnail.png');
+
+  const req2 = new Request('http://localhost:3000/api/admin/courses/c1/thumbnail', {
+    method: 'POST',
+    headers: {
+      origin: 'http://localhost:3000',
+      cookie: 'englizeka_staff=valid_session_token',
+      'content-length': String(secondPng.byteLength + 200),
+    },
+    body: fd2,
+  });
+
+  const res2 = await POST(req2, { params: Promise.resolve({ id: 'c1' }) });
+  assert.equal(res2.status, 200);
+  const json2 = await res2.json();
+  const secondKey = json2.key;
+  const secondUrl = getCourseThumbnailUrl('c1', secondKey);
+
+  // Distinct storage keys and URLs
+  assert.notEqual(firstKey, secondKey);
+  assert.notEqual(firstUrl, secondUrl);
+
+  // Old file deleted, new file in storage, DB points to second
+  assert.equal(mockStorage.files.has(firstKey), false);
+  assert.equal(mockStorage.files.has(secondKey), true);
+  assert.equal(c1.thumbnail_key, secondKey);
+});
+
+test('13. Public route caching headers: versioned requests allow strong caching, unversioned requests require revalidation', async () => {
+  setupMockPlatform();
+
+  // Versioned GET
+  const versionedReq = new Request('http://localhost:3000/api/courses/c2/thumbnail?v=initial', {
+    method: 'GET',
+  });
+  const versionedRes = await GET(versionedReq, { params: Promise.resolve({ id: 'c2' }) });
+  assert.equal(versionedRes.status, 200);
+  assert.ok(versionedRes.headers.get('cache-control')?.includes('max-age=86400'));
+  assert.ok(versionedRes.headers.get('cache-control')?.includes('public'));
+
+  // Unversioned GET
+  const unversionedReq = new Request('http://localhost:3000/api/courses/c2/thumbnail', {
+    method: 'GET',
+  });
+  const unversionedRes = await GET(unversionedReq, { params: Promise.resolve({ id: 'c2' }) });
+  assert.equal(unversionedRes.status, 200);
+  assert.ok(unversionedRes.headers.get('cache-control')?.includes('no-cache'));
+  assert.ok(unversionedRes.headers.get('cache-control')?.includes('public'));
+});
+
+test('14. Failed thumbnail replacement: invalid file leaves existing thumbnail intact in storage and DB', async () => {
+  const { mockDb, mockStorage } = setupMockPlatform();
+  const initialKey = 'courses/c2/thumbnail/initial.webp';
+  assert.ok(mockStorage.files.has(initialKey));
+
+  // Try uploading malicious or invalid non-image payload
+  const badContent = Buffer.from('<script>alert("hacked")</script>');
+  const fd = new FormData();
+  fd.append('file', new Blob([badContent], { type: 'text/html' }), 'exploit.html');
+
+  const req = new Request('http://localhost:3000/api/admin/courses/c2/thumbnail', {
+    method: 'POST',
+    headers: {
+      origin: 'http://localhost:3000',
+      cookie: 'englizeka_staff=valid_session_token',
+      'content-length': String(badContent.byteLength + 200),
+    },
+    body: fd,
+  });
+
+  const res = await POST(req, { params: Promise.resolve({ id: 'c2' }) });
+  assert.equal(res.status, 400);
+
+  // DB course retains initial thumbnail
+  const courseC2 = mockDb.courses.find((c) => c.id === 'c2');
+  assert.equal(courseC2.thumbnail_key, initialKey);
+
+  // Initial file still present in storage
+  assert.ok(mockStorage.files.has(initialKey));
+});
+
+test('15. Admin thumbnail POST returns versioned URL in response', async () => {
+  setupMockPlatform();
+  const png = createValidPngBuffer(320, 180);
+  const fd = new FormData();
+  fd.append('file', new Blob([png], { type: 'image/png' }), 'test-v.png');
+
+  const req = new Request('http://localhost:3000/api/admin/courses/c1/thumbnail', {
+    method: 'POST',
+    headers: {
+      origin: 'http://localhost:3000',
+      cookie: 'englizeka_staff=valid_session_token',
+      'content-length': String(png.byteLength + 200),
+    },
+    body: fd,
+  });
+
+  const res = await POST(req, { params: Promise.resolve({ id: 'c1' }) });
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.equal(json.ok, true);
+  assert.ok(json.url.startsWith('/api/courses/c1/thumbnail?v='));
+});
+

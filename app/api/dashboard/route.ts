@@ -39,9 +39,10 @@ export async function GET(request: Request) {
         .bind(email),
       db
         .prepare(
-          `SELECT e.id, e.status, e.created_at AS createdAt, c.id AS courseId, c.title, c.grade, c.thumbnail_key AS thumbnailKey
+          `SELECT e.id, e.status, e.created_at AS createdAt, c.id AS courseId, c.title, c.grade, c.thumbnail_key AS thumbnailKey, c.updated_at AS updatedAt
        FROM enrollments e JOIN courses c ON c.id = e.course_id
        WHERE e.user_email = ? ORDER BY e.created_at DESC LIMIT ? OFFSET ?`
+
         )
         .bind(email, pageSize, offset),
       db

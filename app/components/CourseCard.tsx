@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { BookOpen, Clock3, GraduationCap } from 'lucide-react';
 import type { Course } from '../data/content';
+import { getCourseThumbnailUrl } from '../lib/course-thumbnail';
 
 export default function CourseCard({ course }: { course: Course }) {
   return (
@@ -8,11 +9,13 @@ export default function CourseCard({ course }: { course: Course }) {
       <div className="course-card-artwork">
         {course.thumbnailKey ? (
           <img
-            src={`/api/courses/${course.id}/thumbnail`}
+            key={course.thumbnailKey}
+            src={getCourseThumbnailUrl(course.id, course.thumbnailKey, course.updatedAt)}
             alt={course.month}
             className="course-card-thumb-img"
             loading="lazy"
           />
+
         ) : (
           <div className="course-card-fallback">
             <span className="course-card-fallback-glow" />

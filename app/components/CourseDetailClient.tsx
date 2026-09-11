@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { BookOpen, Check, FileText, LoaderCircle, Play, ShieldCheck } from 'lucide-react';
+import { getCourseThumbnailUrl } from '../lib/course-thumbnail';
 
 type Course = {
   id: string;
@@ -13,6 +14,7 @@ type Course = {
   lectures: number;
   exams: number;
   thumbnailKey?: string | null;
+  updatedAt?: number;
 };
 
 export default function CourseDetailClient({ courseId }: { courseId: string }) {
@@ -70,7 +72,8 @@ export default function CourseDetailClient({ courseId }: { courseId: string }) {
             <div className="course-detail-thumbnail-wrap">
               {course.thumbnailKey ? (
                 <img
-                  src={`/api/courses/${course.id}/thumbnail`}
+                  key={course.thumbnailKey}
+                  src={getCourseThumbnailUrl(course.id, course.thumbnailKey, course.updatedAt)}
                   alt={course.month}
                   className="course-detail-thumbnail-img"
                   loading="eager"
