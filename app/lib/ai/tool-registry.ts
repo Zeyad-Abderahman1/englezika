@@ -353,6 +353,8 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
   },
 };
 
+export type AiToolName = keyof typeof TOOL_DEFINITIONS;
+
 export function getToolRegistry(): Map<string, ToolDefinition> {
   return new Map(Object.entries(TOOL_DEFINITIONS));
 }
@@ -360,3 +362,4 @@ export function getToolRegistry(): Map<string, ToolDefinition> {
 export function getToolDefinition(toolName: string): ToolDefinition | undefined {
   return TOOL_DEFINITIONS[toolName];
 }
+
