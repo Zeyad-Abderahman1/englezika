@@ -22,6 +22,7 @@ export interface ConfirmationPreview {
   requiresConfirmation: boolean;
   items: ActionPreviewItem[];
   metadata?: Record<string, unknown>;
+  isUnknown?: boolean;
 }
 
 /**
@@ -34,8 +35,33 @@ export function generateActionPreview(actionType: string, payload: Record<string
   }
 
   const tool = getToolDefinition(actionType as AiToolName);
-  const riskLevel: RiskLevel = tool ? tool.riskLevel : 'high';
-  const requiresConfirmation = tool ? tool.confirmationPolicy !== 'none' : true;
+  if (!tool) {
+    return {
+      actionType,
+      title: 'Unregistered Action',
+      titleAr: 'إجراء غير مسجل',
+      description: `Action "${actionType}" is not registered in the system tool catalog and cannot be executed.`,
+      descriptionAr: `الإجراء "${actionType}" غير مسجل في دليل أدوات النظام ولا يمكن تنفيذه.`,
+      riskLevel: 'low',
+      requiresConfirmation: false,
+      isUnknown: true,
+      items: [
+        {
+          type: actionType,
+          title: 'Unregistered Tool',
+          titleAr: 'أداة غير مسجلة',
+          summary: `Tool '${actionType}' is not recognized`,
+          summaryAr: `الأداة '${actionType}' غير معتمدة`,
+          riskLevel: 'low',
+          details: payload,
+        },
+      ],
+    };
+  }
+
+  const riskLevel: RiskLevel = tool.riskLevel;
+  const requiresConfirmation = tool.confirmationPolicy !== 'none';
+
 
   switch (actionType) {
     case 'update_course_price': {
@@ -269,7 +295,37 @@ function generateCompoundPlanPreview(payload: Record<string, any>): Confirmation
     ? payload.steps
     : [];
 
+  if (steps.length === 0) {
+    return {
+      actionType: 'compound_plan',
+      title: 'Empty Plan',
+      titleAr: 'خطة عمل فارغة',
+      description: 'The plan does not contain any actions.',
+      descriptionAr: 'لا تحتوي خطة العمل على أي خطوات تنفيذية.',
+      riskLevel: 'low',
+      requiresConfirmation: false,
+      isUnknown: true,
+      items: [],
+    };
+  }
+
+  const hasUnknownStep = steps.some((step) => !getToolDefinition(step.tool as AiToolName));
+  if (hasUnknownStep) {
+    return {
+      actionType: 'compound_plan',
+      title: 'Invalid Compound Plan',
+      titleAr: 'خطة عمل غير صالحة',
+      description: 'The plan contains unregistered actions and cannot be executed.',
+      descriptionAr: 'تحتوي الخطة على إجراءات غير مسجلة في النظام ولا يمكن تنفيذها.',
+      riskLevel: 'low',
+      requiresConfirmation: false,
+      isUnknown: true,
+      items: [],
+    };
+  }
+
   let highestRisk: RiskLevel = 'low';
+
   const riskWeights: Record<RiskLevel, number> = {
     low: 1,
     medium: 2,

@@ -20,6 +20,8 @@ export interface MockProviderConfig {
   model?: string;
   mockData?: unknown;
   mockPlan?: PlanResult;
+  mockPlans?: PlanResult[];
+  planHandler?: (prompt: string, context?: unknown) => PlanResult | Promise<PlanResult>;
   latencyMs?: number;
   healthy?: boolean;
 }
@@ -30,6 +32,8 @@ export class MockAiProvider implements LocalAiProvider {
   mode: MockProviderMode;
   mockData: unknown;
   mockPlan: PlanResult;
+  mockPlans: PlanResult[];
+  planHandler?: (prompt: string, context?: unknown) => PlanResult | Promise<PlanResult>;
   latencyMs: number;
   healthy: boolean;
 
@@ -42,6 +46,8 @@ export class MockAiProvider implements LocalAiProvider {
       actions: [],
       explanation: 'This is a deterministic test plan.',
     };
+    this.mockPlans = config.mockPlans ? [...config.mockPlans] : [];
+    this.planHandler = config.planHandler;
     this.latencyMs = config.latencyMs ?? 0;
     this.healthy = config.healthy ?? true;
   }
@@ -57,6 +63,15 @@ export class MockAiProvider implements LocalAiProvider {
   setMockPlan(plan: PlanResult) {
     this.mockPlan = plan;
   }
+
+  setMockPlans(plans: PlanResult[]) {
+    this.mockPlans = [...plans];
+  }
+
+  setPlanHandler(handler?: (prompt: string, context?: unknown) => PlanResult | Promise<PlanResult>) {
+    this.planHandler = handler;
+  }
+
 
   private async simulateDelay(options?: ProviderRequestOptions): Promise<void> {
     const delay = this.mode === 'slow' ? 2000 : this.latencyMs;
@@ -208,6 +223,14 @@ export class MockAiProvider implements LocalAiProvider {
     }
 
     await this.simulateDelay(options);
+
+    if (this.planHandler) {
+      return this.planHandler(_prompt, _context);
+    }
+
+    if (this.mockPlans && this.mockPlans.length > 0) {
+      return this.mockPlans.shift()!;
+    }
 
     return this.mockPlan;
   }

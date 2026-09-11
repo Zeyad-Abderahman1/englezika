@@ -500,15 +500,17 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
         break;
       }
 
-      case 'delete_exam': {
-        const examId = String(args.examId);
+      case 'delete_exam':
+      case 'delete_assessment': {
+        const examId = String(args.examId || args.assessmentId);
         await assessmentService.deleteExam(examId, actor, serviceContext);
         resultPayload = { success: true, deletedExamId: examId };
         break;
       }
 
-      case 'publish_exam': {
-        const examId = String(args.examId);
+      case 'publish_exam':
+      case 'publish_assessment': {
+        const examId = String(args.examId || args.assessmentId);
         const exam = await assessmentService.updateExam(
           examId,
           { status: 'published' },
@@ -518,6 +520,7 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
         resultPayload = { exam };
         break;
       }
+
 
       // --- ASSIGNMENT TOOLS ---
       case 'create_assignment': {

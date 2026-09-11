@@ -8,6 +8,7 @@ import type {
   ProviderRequestOptions,
 } from '../local-ai-provider';
 import { isLoopbackEndpoint } from '../ai-config.server';
+import { getPlannerSystemPrompt } from '../planner-prompt';
 
 export interface OllamaProviderConfig {
   endpoint?: string;
@@ -216,7 +217,7 @@ export class OllamaAiProvider implements LocalAiProvider {
     context?: unknown,
     options?: ProviderRequestOptions
   ): Promise<PlanResult> {
-    const systemPrompt = `You are an educational assistant. Output JSON with fields: { "planText": string, "actions": [{ "tool": string, "parameters": object, "description": string }], "explanation": string }`;
+    const systemPrompt = getPlannerSystemPrompt();
     const userPrompt = context
       ? `Context: ${JSON.stringify(context)}\n\nInstruction: ${prompt}`
       : prompt;

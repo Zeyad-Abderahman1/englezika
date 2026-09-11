@@ -2,7 +2,7 @@ import { apiStaff, isStaffResponse } from '../../../../lib/staff-auth';
 import { jsonError, requireSameOrigin } from '../../../../lib/security';
 import { loadAiServerConfig } from '../../../../lib/ai/ai-config.server';
 import { createConfirmationRequest } from '../../../../lib/ai/confirmation.server';
-import { getToolDefinition, type AiToolName } from '../../../../lib/ai/tool-registry';
+import { getToolDefinition, isRegisteredTool, type AiToolName } from '../../../../lib/ai/tool-registry';
 import { generateActionPreview } from '../../../../lib/ai/preview-generator';
 
 export const runtime = 'nodejs';
@@ -46,7 +46,21 @@ export async function POST(request: Request) {
     if (!tool) {
       return jsonError(`الأداة المطلوبة غير معروفة: ${actionType}`, 400);
     }
+    if (tool.mutationType === 'read') {
+      return jsonError(`الأدوات المخصصة للقراءة فقط لا تتطلب تأكيداً: ${actionType}`, 400);
+    }
+  } else {
+    const steps = Array.isArray(actionPayload.steps) ? actionPayload.steps : [];
+    if (steps.length === 0) {
+      return jsonError('خطة العمل المركبة يجب أن تحتوي على خطوات', 400);
+    }
+    for (const step of steps) {
+      if (!step.tool || !isRegisteredTool(step.tool)) {
+        return jsonError(`الأداة المطلوبة في الخطة غير معروفة: ${step.tool}`, 400);
+      }
+    }
   }
+
 
   try {
     const preview = generateActionPreview(actionType, actionPayload);

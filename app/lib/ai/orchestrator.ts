@@ -3,11 +3,12 @@ import { getDatabase } from '../database';
 import { getAiProvider } from './local-ai-provider';
 import type { LocalAiProvider, PlanResult } from './local-ai-provider';
 import { getGlobalAiQueue } from './ai-queue';
-import { getToolDefinition, type AiToolName } from './tool-registry';
+import { getToolDefinition, isRegisteredTool, type AiToolName } from './tool-registry';
 import { executeTool } from './tool-executor';
 import { createConfirmationRequest } from './confirmation.server';
 import { generateActionPreview, type ConfirmationPreview } from './preview-generator';
 import type { StaffActor } from './tool-executor';
+import { getRepairPlanPrompt, SAFE_FALLBACK_REPLY } from './planner-prompt';
 
 export const MAX_MESSAGE_LENGTH = 2000;
 export const MAX_STORED_MESSAGES = 20;
@@ -172,11 +173,13 @@ export async function saveMessage(
 
 /**
  * Evaluates whether planned actions require teacher confirmation:
- * 1. Destructive actions (delete) ALWAYS require confirmation
- * 2. Publish/unpublish ALWAYS requires confirmation
- * 3. Price/financial updates ALWAYS require confirmation
- * 4. More than 2 mutations ALWAYS require confirmation
- * 5. 1–2 low-risk reversible draft mutations can execute directly
+ * 1. Read-only tools NEVER require confirmation (auto-executed)
+ * 2. Destructive actions (delete) ALWAYS require confirmation
+ * 3. Publish/unpublish ALWAYS requires confirmation
+ * 4. Price/financial updates ALWAYS require confirmation
+ * 5. More than 2 mutations ALWAYS require confirmation
+ * 6. 1–2 low-risk reversible draft mutations can execute directly
+ * 7. Unknown tools NEVER require confirmation (rejected at validation boundary)
  */
 export function evaluatePlanRisk(
   actions: Array<{ tool: string; parameters: Record<string, any> }>
@@ -196,7 +199,12 @@ export function evaluatePlanRisk(
   for (const action of actions) {
     const tool = getToolDefinition(action.tool as AiToolName);
     if (!tool) {
-      return { requiresConfirmation: true, reason: `Unknown tool ${action.tool}` };
+      return { requiresConfirmation: false, reason: `Unknown tool ${action.tool}` };
+    }
+
+    // Read-only tools are always low risk and never require confirmation
+    if (tool.mutationType === 'read' || tool.confirmationPolicy === 'none') {
+      continue;
     }
 
     if (tool.riskLevel === 'critical' || tool.riskLevel === 'high') {
@@ -216,6 +224,34 @@ export function evaluatePlanRisk(
 
   return { requiresConfirmation: false };
 }
+
+/**
+ * Formats data-minimized outputs from read-only tools into Arabic assistant responses.
+ */
+export function formatReadToolOutput(actionsExecuted: Array<{ tool: string; result: any }>): string | null {
+  for (const item of actionsExecuted) {
+    if ((item.tool === 'list_courses' || item.tool === 'search_courses') && Array.isArray(item.result?.result?.courses)) {
+      const courses = item.result.result.courses;
+      if (courses.length === 0) {
+        return 'لا توجد كورسات مسجلة حالياً في النظام.';
+      }
+      const lines = courses.map((c: any, idx: number) => {
+        const statusAr = c.status === 'published' ? 'منشور' : 'مسودة';
+        const gradeStr = c.grade ? ` | الصف: ${c.grade}` : '';
+        return `${idx + 1}. **${c.title}** (الحالة: ${statusAr}${gradeStr})`;
+      });
+      return `إليك قائمة الكورسات الموجودة حاليًا:\n${lines.join('\n')}`;
+    }
+    if ((item.tool === 'get_course' || item.tool === 'get_course_structure') && item.result?.result?.course) {
+      const c = item.result.result.course;
+      const statusAr = c.status === 'published' ? 'منشور' : 'مسودة';
+      const gradeStr = c.grade ? `\n- **الصف**: ${c.grade}` : '';
+      return `بيانات الدورة:\n- **العنوان**: ${c.title}\n- **الحالة**: ${statusAr}${gradeStr}\n- **السعر**: ${c.price || 0} ج.م`;
+    }
+  }
+  return null;
+}
+
 
 /**
  * Main AI Orchestrator Entrypoint
@@ -270,7 +306,7 @@ export async function orchestrateAdminChat(
   // 3. Load bounded history (user & assistant messages only)
   const history = await loadConversationHistory(conversationId, staffEmail, db);
 
-  // 4. Generate plan through local provider
+  // 4. Generate plan through local provider with deterministic validation & bounded repair
   const provider = options.provider || (await getAiProvider());
   const queue = getGlobalAiQueue();
 
@@ -282,14 +318,76 @@ export async function orchestrateAdminChat(
     recentHistory: history.slice(-6).map((m) => `${m.role}: ${m.content}`),
   };
 
-  const planResult: PlanResult = await queue.enqueue(
+  const planResult: PlanResult & { isInvalidToolPlan?: boolean } = await queue.enqueue(
     async (signal) => {
-      return provider.generatePlan(rawMessage, planContext, { signal: options.signal || signal });
+      const initialPlan = await provider.generatePlan(rawMessage, planContext, {
+        signal: options.signal || signal,
+      });
+
+      // Server-side validation boundary: verify all model-produced actions use registered tools
+      const rawActions = Array.isArray(initialPlan?.actions) ? initialPlan.actions : [];
+      const unknownTools = rawActions
+        .filter((a) => !isRegisteredTool(a.tool))
+        .map((a) => a.tool);
+
+      if (unknownTools.length > 0) {
+        // Perform ONE bounded repair attempt using canonical tools
+        const repairPrompt = getRepairPlanPrompt(unknownTools, rawMessage);
+        try {
+          const repairedPlan = await provider.generatePlan(repairPrompt, planContext, {
+            signal: options.signal || signal,
+          });
+          const repairedActions = Array.isArray(repairedPlan?.actions) ? repairedPlan.actions : [];
+          const stillUnknown = repairedActions.filter((a) => !isRegisteredTool(a.tool));
+
+          if (stillUnknown.length === 0) {
+            // Repair succeeded!
+            return repairedPlan;
+          }
+        } catch {
+          // If repair fails, fall through to safe invalid plan
+        }
+
+        // Repaired plan is still invalid: return safe non-actionable response marker
+        return {
+          planText: SAFE_FALLBACK_REPLY,
+          actions: [],
+          explanation: 'Plan contains unregistered tools that could not be repaired.',
+          isInvalidToolPlan: true,
+        };
+      }
+
+      return initialPlan;
     },
     { signal: options.signal }
   );
 
-  const actions = (planResult.actions || []).map((a) => {
+  // If the plan was invalid and could not be repaired:
+  if ((planResult as any).isInvalidToolPlan) {
+    const reply = SAFE_FALLBACK_REPLY;
+    await saveMessage(conversationId, 'assistant', reply, null, db);
+    return {
+      conversationId,
+      reply,
+      actionsExecuted: [],
+      requiresConfirmation: false,
+    };
+  }
+
+  // Filter actions to ensure ONLY canonical registered tools proceed
+  const registeredActions = (planResult.actions || []).filter((a) => isRegisteredTool(a.tool));
+  if ((planResult.actions || []).length > 0 && registeredActions.length === 0) {
+    const reply = SAFE_FALLBACK_REPLY;
+    await saveMessage(conversationId, 'assistant', reply, null, db);
+    return {
+      conversationId,
+      reply,
+      actionsExecuted: [],
+      requiresConfirmation: false,
+    };
+  }
+
+  const actions = registeredActions.map((a) => {
     // Inject validated contextual IDs if not provided by model
     const params = { ...a.parameters };
     if (!params.courseId && resolved.validatedContext.courseId) {
@@ -343,7 +441,7 @@ export async function orchestrateAdminChat(
     };
   }
 
-  // 6. Direct execution for 0–2 low-risk reversible actions
+  // 6. Direct execution for 0–2 low-risk reversible actions (including read-only tools)
   const actionsExecuted: Array<{ tool: string; result: any }> = [];
 
   if (actions.length > 0) {
@@ -361,7 +459,10 @@ export async function orchestrateAdminChat(
     }
   }
 
+  const readToolFormatted = formatReadToolOutput(actionsExecuted);
+
   const reply =
+    readToolFormatted ||
     planResult.planText ||
     (actionsExecuted.length > 0
       ? `تم تنفيذ الإجراء بنجاح: ${actionsExecuted.map((a) => a.tool).join(', ')}`
@@ -381,4 +482,5 @@ export async function orchestrateAdminChat(
     actionsExecuted,
     requiresConfirmation: false,
   };
+
 }

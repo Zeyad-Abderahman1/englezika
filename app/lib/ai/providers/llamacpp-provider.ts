@@ -8,6 +8,7 @@ import type {
   ProviderRequestOptions,
 } from '../local-ai-provider';
 import { isLoopbackEndpoint } from '../ai-config.server';
+import { getPlannerSystemPrompt } from '../planner-prompt';
 
 export interface LlamaCppProviderConfig {
   endpoint?: string;
@@ -206,7 +207,7 @@ export class LlamaCppAiProvider implements LocalAiProvider {
     context?: unknown,
     options?: ProviderRequestOptions
   ): Promise<PlanResult> {
-    const systemPrompt = `Output valid JSON with fields: { "planText": string, "actions": [{ "tool": string, "parameters": object, "description": string }], "explanation": string }`;
+    const systemPrompt = getPlannerSystemPrompt();
     const userPrompt = context
       ? `Context: ${JSON.stringify(context)}\n\nInstruction: ${prompt}`
       : prompt;

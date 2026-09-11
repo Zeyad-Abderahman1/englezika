@@ -40,6 +40,34 @@ export function CompoundPlanCard({
     }
   };
 
+  if (preview.isUnknown || !preview.requiresConfirmation || !token) {
+    return (
+      <div className="ai-plan-card" role="region" aria-label="إجراء غير صالح">
+        <div className="ai-plan-header">
+          <div className="ai-plan-title">
+            <AlertTriangle size={18} className="text-amber-400" />
+            <span>{preview.titleAr || preview.title || 'إجراء غير متاح'}</span>
+          </div>
+          <span className="ai-risk-tag low">غير قابل للتنفيذ</span>
+        </div>
+        <p className="text-xs text-slate-300 mb-2" style={{ margin: '0.25rem 0 0.5rem 0' }}>
+          {preview.descriptionAr || preview.description || 'لا يمكن تنفيذ هذا الإجراء لأنه غير معتمد في دليل الأدوات.'}
+        </p>
+        {onCancel && (
+          <button
+            type="button"
+            className="btn btn-secondary text-xs"
+            onClick={onCancel}
+            style={{ padding: '0.5rem 1rem' }}
+          >
+            إغلاق
+          </button>
+        )}
+      </div>
+    );
+  }
+
+
   return (
     <div className="ai-plan-card" role="region" aria-label="خطة العمل المقترحة">
       <div className="ai-plan-header">

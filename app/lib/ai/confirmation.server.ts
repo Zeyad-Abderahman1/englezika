@@ -3,6 +3,7 @@ import { createHmac, createHash, randomUUID, timingSafeEqual } from 'node:crypto
 import { getDatabase } from '../database';
 import { loadAiServerConfig } from './ai-config.server';
 import { generateActionPreview, type ConfirmationPreview } from './preview-generator';
+import { getToolDefinition, isRegisteredTool, type AiToolName } from './tool-registry';
 
 export const CONFIRMATION_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 export const STALE_EXECUTION_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
@@ -167,9 +168,32 @@ export async function createConfirmationRequest(
   const tokenId = randomUUID();
   const staffEmail = options.actor.email.trim().toLowerCase();
   const actionType = options.actionType.trim();
+
+  // Validate canonical tool registration and confirmation eligibility
+  if (actionType !== 'compound_plan') {
+    const tool = getToolDefinition(actionType as AiToolName);
+    if (!tool) {
+      throw new Error(`Cannot create confirmation for unregistered tool: ${actionType}`);
+    }
+    if (tool.mutationType === 'read') {
+      throw new Error(`Read-only tool '${actionType}' does not require confirmation`);
+    }
+  } else {
+    const steps = Array.isArray(options.actionPayload?.steps) ? options.actionPayload.steps : [];
+    if (steps.length === 0) {
+      throw new Error('Cannot create confirmation for empty compound plan');
+    }
+    for (const step of steps) {
+      if (!step.tool || !isRegisteredTool(step.tool)) {
+        throw new Error(`Cannot create confirmation for compound plan with unregistered tool: ${step.tool}`);
+      }
+    }
+  }
+
   const createdAt = Date.now();
   const expiresInMs = options.expiresInMs || CONFIRMATION_EXPIRY_MS;
   const expiresAt = createdAt + expiresInMs;
+
 
   const signature = signConfirmation(tokenId, staffEmail, actionType, expiresAt, secret);
   const tokenHash = createHash('sha256').update(signature).digest('hex');

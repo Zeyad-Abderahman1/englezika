@@ -336,6 +336,31 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     },
   },
 
+  publish_assessment: {
+    name: 'publish_assessment',
+    description: 'Publish an exam or quiz making it available to students.',
+    requiredPermission: 'manage_exams',
+    mutationType: 'publish',
+    riskLevel: 'medium',
+    confirmationPolicy: 'mandatory',
+    allowedKeys: {
+      assessmentId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
+    },
+  },
+
+  delete_assessment: {
+    name: 'delete_assessment',
+    description: 'Delete an exam or quiz and its questions/attempts.',
+    requiredPermission: 'manage_exams',
+    mutationType: 'delete',
+    riskLevel: 'high',
+    confirmationPolicy: 'mandatory',
+    allowedKeys: {
+      assessmentId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
+    },
+  },
+
+
   // --- ASSIGNMENT TOOLS ---
   create_assignment: {
     name: 'create_assignment',
@@ -380,6 +405,17 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
 
 export type AiToolName = keyof typeof TOOL_DEFINITIONS;
 
+export const CANONICAL_TOOL_NAMES: readonly AiToolName[] = Object.keys(TOOL_DEFINITIONS) as AiToolName[];
+
+export function isRegisteredTool(toolName: string): toolName is AiToolName {
+  return typeof toolName === 'string' && Object.prototype.hasOwnProperty.call(TOOL_DEFINITIONS, toolName);
+}
+
+export function isReadOnlyTool(toolName: string): boolean {
+  const def = TOOL_DEFINITIONS[toolName];
+  return Boolean(def && def.mutationType === 'read');
+}
+
 export function getToolRegistry(): Map<string, ToolDefinition> {
   return new Map(Object.entries(TOOL_DEFINITIONS));
 }
@@ -387,4 +423,5 @@ export function getToolRegistry(): Map<string, ToolDefinition> {
 export function getToolDefinition(toolName: string): ToolDefinition | undefined {
   return TOOL_DEFINITIONS[toolName];
 }
+
 
