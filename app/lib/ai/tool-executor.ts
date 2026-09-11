@@ -220,7 +220,7 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
           'SELECT id, title, grade, price, status FROM courses WHERE id = $1',
           [courseId]
         );
-        const course = courseRes.rows[0];
+        const course = courseRes?.rows ? courseRes.rows[0] : (Array.isArray(courseRes) ? courseRes[0] : courseRes);
         if (!course) {
           throw new ToolExecutionError(`Course '${courseId}' not found`, 'EXECUTION_FAILED', 404);
         }
@@ -228,6 +228,7 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
           'SELECT id, item_type, item_id, sequence_order FROM course_items WHERE course_id = $1 ORDER BY sequence_order ASC',
           [courseId]
         );
+        const itemRows = itemsRes?.rows ? itemsRes.rows : (Array.isArray(itemsRes) ? itemsRes : []);
         const isActive = course.status ? course.status === 'published' : course.is_active === 1;
         const status = course.status || (isActive ? 'published' : 'draft');
         resultPayload = {
@@ -239,7 +240,7 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
             status,
             isActive,
           },
-          items: itemsRes.rows || [],
+          items: itemRows,
         };
         break;
       }
@@ -250,7 +251,12 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
         const grade = args.grade ? String(args.grade).trim() : '';
 
         const coursesRes = await db.query('SELECT id, title, grade, price, status FROM courses');
-        let filtered = coursesRes.rows.map((c: Record<string, unknown>) => {
+        const courseRows: Array<Record<string, unknown>> = coursesRes?.rows
+          ? coursesRes.rows
+          : Array.isArray(coursesRes)
+            ? coursesRes
+            : [];
+        let filtered = courseRows.map((c: Record<string, unknown>) => {
           const isActive = c.status ? c.status === 'published' : c.is_active === 1;
           const status = c.status || (isActive ? 'published' : 'draft');
           return {
@@ -282,7 +288,7 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
           'SELECT id, course_id, title, youtube_id, duration, order_num, is_active, max_views FROM videos WHERE id = $1',
           [videoId]
         );
-        const vid = vidRes.rows[0];
+        const vid = vidRes?.rows ? vidRes.rows[0] : (Array.isArray(vidRes) ? vidRes[0] : vidRes);
         if (!vid) {
           throw new ToolExecutionError(`Lecture '${videoId}' not found`, 'EXECUTION_FAILED', 404);
         }

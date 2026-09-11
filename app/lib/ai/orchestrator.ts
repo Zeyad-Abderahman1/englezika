@@ -112,7 +112,7 @@ export async function loadConversationHistory(
   staffEmail: string,
   db: any
 ): Promise<ConversationMessage[]> {
-  const rows = await db
+  const result = await db
     .prepare(
       `SELECT m.id, m.role, m.content, m.tool_call_json, m.created_at
        FROM ai_messages m
@@ -124,7 +124,13 @@ export async function loadConversationHistory(
     .bind(conversationId, staffEmail.toLowerCase(), MAX_STORED_MESSAGES)
     .all();
 
-  const messages: ConversationMessage[] = (rows || []).map((row: any) => ({
+  const rows: any[] = Array.isArray(result?.results)
+    ? result.results
+    : Array.isArray(result)
+      ? result
+      : [];
+
+  const messages: ConversationMessage[] = rows.map((row: any) => ({
     id: row.id,
     role: row.role,
     content: row.content,

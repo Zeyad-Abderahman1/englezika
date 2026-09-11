@@ -82,9 +82,9 @@ class MockOrchestratorDatabase {
                 .filter((m) => m.conversation_id === conversationId)
                 .slice(-limit)
                 .reverse();
-              return matching;
+              return { results: matching, success: true, meta: { changes: matching.length } };
             }
-            return [];
+            return { results: [], success: true, meta: { changes: 0 } };
           },
           async run() {
             if (sql.includes('INSERT INTO ai_conversations')) {

@@ -303,7 +303,12 @@ export async function verifyAndExecuteConfirmation(
     .bind(executionId, now, tokenId)
     .run();
 
-  if (transitionResult.meta.changes === 0) {
+  const changes =
+    transitionResult?.meta?.changes ??
+    (transitionResult as any)?.changes ??
+    (transitionResult as any)?.rowCount ??
+    0;
+  if (changes === 0) {
     throw new Error('Concurrent modification detected: confirmation state changed unexpectedly');
   }
 
