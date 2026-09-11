@@ -9,6 +9,9 @@ export async function resolve(specifier, context, nextResolve) {
     ) {
       return nextResolve(`${specifier}.js`, context);
     }
+    if (error?.code === 'ERR_MODULE_NOT_FOUND' && specifier === 'server-only') {
+      return nextResolve('next/dist/compiled/server-only/empty.js', context);
+    }
     const isRelativeTypescriptImport =
       (specifier.startsWith('./') || specifier.startsWith('../')) &&
       !specifier.match(/\.[cm]?[jt]sx?$/);
