@@ -1,5 +1,4 @@
 import { apiStaff, isStaffResponse } from '../../../../../lib/staff-auth';
-import { getDatabase } from '../../../../../lib/platform';
 import { getPrivateStorage } from '../../../../../lib/private-storage';
 import { jsonError, requireSameOrigin } from '../../../../../lib/security';
 import {
@@ -8,6 +7,8 @@ import {
   MAX_PDF_SIZE,
   MAX_UPLOAD_BODY_SIZE,
 } from '../../../../../lib/upload-validation';
+import { assessmentService } from '../../../../../lib/services/assessment-service';
+import { DomainError } from '../../../../../lib/services/types';
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const originError = requireSameOrigin(request);
@@ -16,12 +17,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (isStaffResponse(staff)) return staff;
 
   const { id } = await params;
-  const db = getDatabase();
-  const exam = await db
-    .prepare('SELECT id FROM exams WHERE id = ?')
-    .bind(id)
-    .first();
-  if (!exam) return jsonError('الامتحان غير موجود', 404);
 
   const contentType = request.headers.get('content-type') || '';
   const normalizedContentType = contentType.split(';', 1)[0].trim().toLowerCase();
@@ -54,27 +49,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return jsonError('يجب رفع ملف PDF صالح فقط', 400);
   }
 
-  const storage = getPrivateStorage();
-  const storageKey = `exams/${id}/teacher.pdf`;
-
-  await storage.delete(storageKey).catch(() => undefined);
-
-  await storage.put(storageKey, new Uint8Array(fileBytes), {
-    httpMetadata: { contentType: 'application/pdf', contentDisposition: 'inline' },
-    customMetadata: { uploadedBy: staff.email },
-  });
-
   try {
-    await db
-      .prepare('UPDATE exams SET teacher_file_key = ? WHERE id = ?')
-      .bind(storageKey, id)
-      .run();
-  } catch {
-    await storage.delete(storageKey).catch(() => undefined);
+    const result = await assessmentService.uploadExamFile(id, fileBytes, mimeType, staff, { request });
+    return Response.json(result);
+  } catch (error) {
+    if (error instanceof DomainError) {
+      return jsonError(error.message, error.status);
+    }
     return jsonError('تعذر حفظ ملف الامتحان', 500);
   }
-
-  return Response.json({ ok: true, key: storageKey });
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -104,20 +87,16 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (isStaffResponse(staff)) return staff;
 
   const { id } = await params;
-  const db = getDatabase();
-  const exam = await db
-    .prepare('SELECT id FROM exams WHERE id = ?')
-    .bind(id)
-    .first();
-  if (!exam) return jsonError('الامتحان غير موجود', 404);
 
-  const storage = getPrivateStorage();
-  await storage.delete(`exams/${id}/teacher.pdf`).catch(() => undefined);
-
-  await db
-    .prepare('UPDATE exams SET teacher_file_key = NULL WHERE id = ?')
-    .bind(id)
-    .run();
-
-  return new Response(null, { status: 204 });
+  // assessmentService.deleteExamFile clears storage and updates DB:
+  // UPDATE exams SET teacher_file_key = NULL WHERE id = ?
+  try {
+    await assessmentService.deleteExamFile(id, staff, { request });
+    return new Response(null, { status: 204 });
+  } catch (error) {
+    if (error instanceof DomainError) {
+      return jsonError(error.message, error.status);
+    }
+    return jsonError('تعذر حذف ملف الامتحان', 500);
+  }
 }

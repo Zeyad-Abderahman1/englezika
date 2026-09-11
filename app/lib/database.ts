@@ -1,4 +1,4 @@
-import { Pool, types, type QueryResultRow } from 'pg';
+import { Pool, types, type PoolClient, type QueryResultRow } from 'pg';
 
 types.setTypeParser(20, (value) => Number(value));
 
@@ -114,9 +114,15 @@ export class PreparedStatement {
 
 export class Database {
   readonly pool: Pool;
+  readonly client?: PoolClient;
 
-  constructor(pool: Pool) {
-    this.pool = pool;
+  constructor(poolOrClient: Pool | PoolClient) {
+    if ('connect' in poolOrClient && typeof (poolOrClient as Pool).connect === 'function') {
+      this.pool = poolOrClient as Pool;
+    } else {
+      this.client = poolOrClient as PoolClient;
+      this.pool = undefined as unknown as Pool;
+    }
   }
 
   prepare(sql: string) {
@@ -124,11 +130,29 @@ export class Database {
   }
 
   async query<T extends QueryResultRow>(sql: string, values: DatabaseValue[] = []) {
-    return this.pool.query<T>(postgresSql(sql), values.map(normalizeValue));
+    const target = this.client ?? this.pool;
+    if (!target) throw new Error('Database has no pool or client');
+    return target.query<T>(postgresSql(sql), values.map(normalizeValue));
   }
 
   async batch(statements: PreparedStatement[]) {
-    const client = await this.pool.connect();
+    if (this.client) {
+      const results: DatabaseResult[] = [];
+      for (const statement of statements) {
+        const result = await this.client.query(
+          postgresSql(statement.sql),
+          statement.values.map(normalizeValue)
+        );
+        results.push({
+          results: result.rows,
+          success: true,
+          meta: { changes: result.rowCount ?? 0 },
+        });
+      }
+      return results;
+    }
+
+    const client = await this.pool!.connect();
     try {
       await client.query('BEGIN');
       const results: DatabaseResult[] = [];
@@ -153,6 +177,25 @@ export class Database {
     }
   }
 
+  async withTransaction<T>(callback: (txDb: Database) => Promise<T>): Promise<T> {
+    if (this.client) {
+      return callback(this);
+    }
+    const client = await this.pool!.connect();
+    try {
+      await client.query('BEGIN');
+      const txDb = new Database(client);
+      const result = await callback(txDb);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async readBatch(statements: PreparedStatement[]) {
     const requestedConcurrency = Number(process.env.DATABASE_READ_BATCH_CONCURRENCY || 4);
     const concurrency = Number.isFinite(requestedConcurrency)
@@ -162,11 +205,13 @@ export class Database {
     let nextIndex = 0;
 
     async function worker(database: Database) {
+      const target = database.client ?? database.pool;
+      if (!target) throw new Error('Database has no pool or client');
       while (nextIndex < statements.length) {
         const index = nextIndex;
         nextIndex += 1;
         const statement = statements[index];
-        const result = await database.pool.query(
+        const result = await target.query(
           postgresSql(statement.sql),
           statement.values.map(normalizeValue)
         );

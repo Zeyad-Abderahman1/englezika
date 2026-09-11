@@ -1,13 +1,13 @@
 import { apiStaff, isStaffResponse } from '../../../../../lib/staff-auth';
-import { getDatabase } from '../../../../../lib/platform';
 import { getPrivateStorage } from '../../../../../lib/private-storage';
 import { jsonError, requireSameOrigin } from '../../../../../lib/security';
 import {
   hasAllowedContentLength,
-  isPdfUpload,
   MAX_PDF_SIZE,
   MAX_UPLOAD_BODY_SIZE,
 } from '../../../../../lib/upload-validation';
+import { assessmentService } from '../../../../../lib/services/assessment-service';
+import { DomainError } from '../../../../../lib/services/types';
 
 /**
  * POST /api/admin/assignments/[id]/file
@@ -21,12 +21,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (isStaffResponse(staff)) return staff;
 
   const { id } = await params;
-  const db = getDatabase();
-  const assignment = await db
-    .prepare('SELECT id FROM assignments WHERE id = ?')
-    .bind(id)
-    .first();
-  if (!assignment) return jsonError('الواجب غير موجود', 404);
 
   const contentType = request.headers.get('content-type') || '';
   const normalizedContentType = contentType.split(';', 1)[0].trim().toLowerCase();
@@ -55,32 +49,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (fileBytes.byteLength > MAX_PDF_SIZE) {
     return jsonError('حجم الملف يتجاوز الحد الأقصى (15 ميجابايت)', 400);
   }
-  if (!isPdfUpload(mimeType, fileBytes)) {
-    return jsonError('يجب رفع ملف PDF صالح فقط', 400);
-  }
-
-  const storage = getPrivateStorage();
-  const storageKey = `assignments/${id}/teacher.pdf`;
-
-  // Delete old file if exists
-  await storage.delete(storageKey).catch(() => undefined);
-
-  await storage.put(storageKey, new Uint8Array(fileBytes), {
-    httpMetadata: { contentType: 'application/pdf', contentDisposition: 'inline' },
-    customMetadata: { uploadedBy: staff.email },
-  });
 
   try {
-    await db
-      .prepare('UPDATE assignments SET teacher_file_key = ? WHERE id = ?')
-      .bind(storageKey, id)
-      .run();
-  } catch {
-    await storage.delete(storageKey).catch(() => undefined);
+    const result = await assessmentService.uploadAssignmentFile(id, fileBytes, mimeType, staff, { request });
+    return Response.json(result);
+  } catch (error) {
+    if (error instanceof DomainError) {
+      return jsonError(error.message, error.status);
+    }
     return jsonError('تعذر حفظ ملف الواجب', 500);
   }
-
-  return Response.json({ ok: true, key: storageKey });
 }
 
 /**
@@ -119,20 +97,14 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (isStaffResponse(staff)) return staff;
 
   const { id } = await params;
-  const db = getDatabase();
-  const assignment = await db
-    .prepare('SELECT id FROM assignments WHERE id = ?')
-    .bind(id)
-    .first();
-  if (!assignment) return jsonError('الواجب غير موجود', 404);
 
-  const storage = getPrivateStorage();
-  await storage.delete(`assignments/${id}/teacher.pdf`).catch(() => undefined);
-
-  await db
-    .prepare('UPDATE assignments SET teacher_file_key = NULL WHERE id = ?')
-    .bind(id)
-    .run();
-
-  return new Response(null, { status: 204 });
+  try {
+    await assessmentService.deleteAssignmentFile(id, staff, { request });
+    return new Response(null, { status: 204 });
+  } catch (error) {
+    if (error instanceof DomainError) {
+      return jsonError(error.message, error.status);
+    }
+    return jsonError('تعذر حذف ملف الواجب', 500);
+  }
 }

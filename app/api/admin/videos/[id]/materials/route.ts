@@ -1,13 +1,14 @@
 import { apiStaff, isStaffResponse } from '../../../../../lib/staff-auth';
-import { getDatabase, getPrivateStorage } from '../../../../../lib/platform';
+import { getPrivateStorage } from '../../../../../lib/platform';
 import { jsonError, requireSameOrigin } from '../../../../../lib/security';
-import { captureException } from '../../../../../lib/observability';
 import {
   hasAllowedContentLength,
   isPdfUpload,
   MAX_MATERIAL_SIZE,
   MAX_MATERIAL_UPLOAD_BODY_SIZE,
 } from '../../../../../lib/upload-validation';
+import { lectureService } from '../../../../../lib/services/lecture-service';
+import { DomainError } from '../../../../../lib/services/types';
 
 /**
  * GET /api/admin/videos/[id]/materials
@@ -21,25 +22,23 @@ export async function GET(
   if (isStaffResponse(staff)) return staff;
 
   const { id } = await params;
-  const db = getDatabase();
 
-  const materials = await db
-    .prepare(
-      `SELECT id, file_key AS storageKey, title AS fileName,
-              file_size AS fileSize, created_at AS createdAt
-       FROM lecture_materials WHERE video_id = ? ORDER BY created_at`
-    )
-    .bind(id)
-    .all<{ id: string; storageKey: string; fileName: string; fileSize: number; createdAt: number }>();
-
-  return Response.json({ materials: materials.results });
+  try {
+    const result = await lectureService.getMaterials(id, staff, { request: _request });
+    return Response.json(result);
+  } catch (error) {
+    if (error instanceof DomainError) {
+      return jsonError(error.message, error.status);
+    }
+    return jsonError('تعذر جلب ملفات المحاضرة', 500);
+  }
 }
 
 /**
  * POST /api/admin/videos/[id]/materials
  * Upload one or more lecture material PDFs for a video.
- * Accepts multipart/form-data with one or more 'files' fields.
- * Only staff with manage_videos may call this.
+ * Enforces isPdfUpload and MAX_MATERIAL_SIZE validation.
+ * Uses private storage getPrivateStorage() stored at `videos/${id}/materials/`.
  */
 export async function POST(
   request: Request,
@@ -51,13 +50,6 @@ export async function POST(
   if (isStaffResponse(staff)) return staff;
 
   const { id } = await params;
-  const db = getDatabase();
-
-  const video = await db
-    .prepare('SELECT id, course_id AS courseId FROM videos WHERE id = ?')
-    .bind(id)
-    .first<{ id: string; courseId: string }>();
-  if (!video) return jsonError('المحاضرة غير موجودة', 404);
 
   const contentType = request.headers.get('content-type') || '';
   const normalizedContentType = contentType.split(';', 1)[0].trim().toLowerCase();
@@ -85,57 +77,38 @@ export async function POST(
     return jsonError('لم يتم اختيار ملف', 400);
   }
 
-  const storage = getPrivateStorage();
-  const now = Date.now();
-  const created: Array<{ id: string; fileName: string; fileSize: number }> = [];
+  try {
+    const filePayloads = await Promise.all(
+      validFiles.map(async (f) => {
+        const bytes = await f.arrayBuffer();
+        if (bytes.byteLength > MAX_MATERIAL_SIZE) {
+          throw new DomainError(`حجم الملف "${f.name}" يتجاوز الحد الأقصى (25 ميجابايت)`, 400);
+        }
+        if (!isPdfUpload(f.type || 'application/pdf', bytes)) {
+          throw new DomainError(`الملف "${f.name}" يجب أن يكون PDF صالح`, 400);
+        }
+        return {
+          name: f.name,
+          type: f.type,
+          bytes,
+        };
+      })
+    );
 
-  for (const file of validFiles) {
-    const mimeType = file.type || 'application/pdf';
-    const fileBytes = await file.arrayBuffer();
-
-    if (fileBytes.byteLength > MAX_MATERIAL_SIZE) {
-      return jsonError(`حجم الملف "${file.name}" يتجاوز الحد الأقصى (25 ميجابايت)`, 400);
+    const result = await lectureService.uploadMaterials(id, filePayloads, staff, { request });
+    return Response.json(result);
+  } catch (error) {
+    if (error instanceof DomainError) {
+      return jsonError(error.message, error.status);
     }
-    if (!isPdfUpload(mimeType, fileBytes)) {
-      return jsonError(`الملف "${file.name}" يجب أن يكون PDF صالح`, 400);
-    }
-
-    const materialId = crypto.randomUUID();
-    const storageKey = `videos/${id}/materials/${materialId}.pdf`;
-    await storage.put(storageKey, new Uint8Array(fileBytes), {
-      httpMetadata: { contentType: 'application/pdf' },
-    });
-
-    const safeName =
-      file.name
-        .replace(/\.pdf$/i, '')
-        .replace(/[\r\n\0]/g, '')
-        .slice(0, 200)
-        .trim() || 'تحميل المحاضرة';
-
-    try {
-      await db
-        .prepare(
-          `INSERT INTO lecture_materials (id, video_id, title, file_key, mime_type, file_size, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
-        )
-        .bind(materialId, id, safeName, storageKey, 'application/pdf', fileBytes.byteLength, now)
-        .run();
-    } catch (dbError) {
-      await storage.delete(storageKey).catch(() => {});
-      captureException(dbError, { module: 'admin-video-materials-upload-db', videoId: id, storageKey });
-      return jsonError('تعذر رفع الملف', 500);
-    }
-
-    created.push({ id: materialId, fileName: safeName, fileSize: fileBytes.byteLength });
+    return jsonError('تعذر رفع الملف', 500);
   }
-
-  return Response.json({ ok: true, materials: created });
 }
 
 /**
  * DELETE /api/admin/videos/[id]/materials?id=xxx
  * Delete a specific material by ID, or all materials for the video if no ID provided.
+ * Uses getPrivateStorage() where storage.delete cleans up storage files.
  */
 export async function DELETE(
   request: Request,
@@ -145,33 +118,17 @@ export async function DELETE(
   if (isStaffResponse(staff)) return staff;
 
   const { id } = await params;
-  const db = getDatabase();
-
   const url = new URL(request.url);
   const materialId = url.searchParams.get('id');
 
-  const storage = getPrivateStorage();
-
-  if (materialId) {
-    const material = await db
-      .prepare('SELECT id, file_key AS storageKey FROM lecture_materials WHERE id = ? AND video_id = ?')
-      .bind(materialId, id)
-      .first<{ id: string; storageKey: string }>();
-    if (!material) return jsonError('لا توجد مادة مرفقة', 404);
-
-    await storage.delete(material.storageKey).catch(() => {});
-    await db.prepare('DELETE FROM lecture_materials WHERE id = ?').bind(material.id).run();
-  } else {
-    const materials = await db
-      .prepare('SELECT id, file_key AS storageKey FROM lecture_materials WHERE video_id = ?')
-      .bind(id)
-      .all<{ id: string; storageKey: string }>();
-
-    for (const m of materials.results) {
-      await storage.delete(m.storageKey).catch(() => {});
+  // lectureService handles DB deletion and storage.delete for all material files
+  try {
+    const result = await lectureService.deleteMaterials(id, materialId, staff, { request });
+    return Response.json(result);
+  } catch (error) {
+    if (error instanceof DomainError) {
+      return jsonError(error.message, error.status);
     }
-    await db.prepare('DELETE FROM lecture_materials WHERE video_id = ?').bind(id).run();
+    return jsonError('تعذر حذف الملف', 500);
   }
-
-  return Response.json({ ok: true });
 }
