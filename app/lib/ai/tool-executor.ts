@@ -213,10 +213,11 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
 
     switch (toolName) {
       // --- READ TOOLS (Data-Minimized) ---
+      case 'get_course':
       case 'get_course_structure': {
         const courseId = String(args.courseId);
         const courseRes = await db.query(
-          'SELECT id, title, grade, price, is_active FROM courses WHERE id = $1',
+          'SELECT id, title, grade, price, status FROM courses WHERE id = $1',
           [courseId]
         );
         const course = courseRes.rows[0];
@@ -227,31 +228,40 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
           'SELECT id, item_type, item_id, sequence_order FROM course_items WHERE course_id = $1 ORDER BY sequence_order ASC',
           [courseId]
         );
+        const isActive = course.status ? course.status === 'published' : course.is_active === 1;
+        const status = course.status || (isActive ? 'published' : 'draft');
         resultPayload = {
           course: {
             id: course.id,
             title: course.title,
             grade: course.grade,
             price: course.price,
-            isActive: course.is_active === 1,
+            status,
+            isActive,
           },
-          items: itemsRes.rows,
+          items: itemsRes.rows || [],
         };
         break;
       }
 
+      case 'list_courses':
       case 'search_courses': {
         const query = args.query ? String(args.query).trim().toLowerCase() : '';
         const grade = args.grade ? String(args.grade).trim() : '';
 
-        const coursesRes = await db.query('SELECT id, title, grade, price, is_active FROM courses');
-        let filtered = coursesRes.rows.map((c: Record<string, unknown>) => ({
-          id: c.id,
-          title: c.title,
-          grade: c.grade,
-          price: c.price,
-          isActive: c.is_active === 1,
-        }));
+        const coursesRes = await db.query('SELECT id, title, grade, price, status FROM courses');
+        let filtered = coursesRes.rows.map((c: Record<string, unknown>) => {
+          const isActive = c.status ? c.status === 'published' : c.is_active === 1;
+          const status = c.status || (isActive ? 'published' : 'draft');
+          return {
+            id: c.id,
+            title: c.title,
+            grade: c.grade,
+            price: c.price,
+            status,
+            isActive,
+          };
+        });
 
         if (query) {
           filtered = filtered.filter((c: { title: unknown }) =>

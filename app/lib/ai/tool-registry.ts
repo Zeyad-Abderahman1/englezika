@@ -66,9 +66,34 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     },
   },
 
+  get_course: {
+    name: 'get_course',
+    description: 'Retrieve course metadata and ordered sequence items (videos, exams, assignments).',
+    requiredPermission: 'manage_courses',
+    mutationType: 'read',
+    riskLevel: 'low',
+    confirmationPolicy: 'none',
+    allowedKeys: {
+      courseId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
+    },
+  },
+
   search_courses: {
     name: 'search_courses',
     description: 'Search courses by title or filter by grade to resolve contextual references.',
+    requiredPermission: 'manage_courses',
+    mutationType: 'read',
+    riskLevel: 'low',
+    confirmationPolicy: 'none',
+    allowedKeys: {
+      query: { type: 'string', required: false, maxLength: 100 },
+      grade: { type: 'string', required: false, maxLength: 30 },
+    },
+  },
+
+  list_courses: {
+    name: 'list_courses',
+    description: 'List or search courses by title or filter by grade to resolve contextual references.',
     requiredPermission: 'manage_courses',
     mutationType: 'read',
     riskLevel: 'low',

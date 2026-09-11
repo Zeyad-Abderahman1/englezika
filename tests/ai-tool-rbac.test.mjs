@@ -56,7 +56,7 @@ class MockDatabase {
           grade: '1sec',
           description: 'Basic grammar and vocab',
           price: 150,
-          is_active: 0,
+          status: 'draft',
           created_at: Date.now(),
           updated_at: Date.now(),
         },
@@ -131,7 +131,7 @@ class MockDatabase {
           async first() {
             if (sql.includes('FROM courses WHERE id = ?')) {
               const row = db.tables.courses.get(args[0]);
-              return row ? { id: row.id, title: row.title, grade: row.grade, description: row.description, price: row.price, status: row.status, is_active: row.is_active, thumbnailKey: null } : null;
+              return row ? { id: row.id, title: row.title, grade: row.grade, description: row.description, price: row.price, status: row.status, thumbnailKey: null } : null;
             }
             if (sql.includes('FROM videos WHERE id = ?')) {
               const row = db.tables.videos.get(args[0]);
@@ -576,6 +576,211 @@ describe('Phase 3: Read Tool Data Minimization & Input Validation', () => {
           context: { db: mockDb },
         }),
       (err) => err instanceof ToolExecutionError && err.code === 'INVALID_ARGS'
+    );
+  });
+});
+
+describe('Course Status & Read Tools Architecture (Zero courses.is_active Regression)', () => {
+  test('A & C: get_course works when courses table has status column and NO is_active column (draft course)', async () => {
+    const mockDb = new MockDatabase();
+    // Verify mock database course strictly has status and NO is_active
+    const rawCourse = mockDb.tables.courses.get('c_unit1');
+    assert.equal(rawCourse.status, 'draft');
+    assert.equal('is_active' in rawCourse, false);
+
+    const res = await executeTool({
+      actor: teacherActor,
+      toolName: 'get_course',
+      args: { courseId: 'c_unit1' },
+      context: { db: mockDb },
+    });
+
+    assert.equal(res.ok, true);
+    assert.equal(res.result.course.id, 'c_unit1');
+    assert.equal(res.result.course.title, 'Unit 1: Foundations');
+    assert.equal(res.result.course.status, 'draft');
+    assert.equal(res.result.course.isActive, false, 'Draft course must map isActive to false');
+
+    // Also verify get_course_structure behaves identically
+    const structRes = await executeTool({
+      actor: teacherActor,
+      toolName: 'get_course_structure',
+      args: { courseId: 'c_unit1' },
+      context: { db: mockDb },
+    });
+    assert.equal(structRes.ok, true);
+    assert.equal(structRes.result.course.status, 'draft');
+    assert.equal(structRes.result.course.isActive, false);
+  });
+
+  test('B & D: list_courses works with status and NO is_active column (published course)', async () => {
+    const mockDb = new MockDatabase();
+    // Add a published course
+    mockDb.tables.courses.set('c_unit2_pub', {
+      id: 'c_unit2_pub',
+      title: 'Unit 2: Published Course',
+      grade: '2sec',
+      description: 'Published course description',
+      price: 250,
+      status: 'published',
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    });
+
+    const res = await executeTool({
+      actor: teacherActor,
+      toolName: 'list_courses',
+      args: {},
+      context: { db: mockDb },
+    });
+
+    assert.equal(res.ok, true);
+    assert.ok(Array.isArray(res.result.courses));
+    const draftCourse = res.result.courses.find((c) => c.id === 'c_unit1');
+    const pubCourse = res.result.courses.find((c) => c.id === 'c_unit2_pub');
+
+    assert.ok(draftCourse);
+    assert.equal(draftCourse.status, 'draft');
+    assert.equal(draftCourse.isActive, false);
+
+    assert.ok(pubCourse);
+    assert.equal(pubCourse.status, 'published');
+    assert.equal(pubCourse.isActive, true, 'Published course must map isActive to true');
+
+    // Also verify search_courses behaves identically
+    const searchRes = await executeTool({
+      actor: teacherActor,
+      toolName: 'search_courses',
+      args: { query: 'Published' },
+      context: { db: mockDb },
+    });
+    assert.equal(searchRes.ok, true);
+    assert.equal(searchRes.result.courses.length, 1);
+    assert.equal(searchRes.result.courses[0].status, 'published');
+    assert.equal(searchRes.result.courses[0].isActive, true);
+  });
+
+  test('E: orchestrator course context reports real course status from course.status', async () => {
+    const { resolveContext } = await import('../app/lib/ai/orchestrator.ts');
+
+    const db = {
+      prepare(sql) {
+        return {
+          bind(id) {
+            return {
+              async first() {
+                if (id === 'c_draft') {
+                  return { id: 'c_draft', title: 'Draft Course', grade: '1sec', price: 100, status: 'draft' };
+                }
+                if (id === 'c_published') {
+                  return { id: 'c_published', title: 'Published Course', grade: '2sec', price: 200, status: 'published' };
+                }
+                return null;
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const draftResolved = await resolveContext({ courseId: 'c_draft' }, db);
+    assert.ok(draftResolved.courseInfo?.includes('Status: draft'), 'Draft course context must include Status: draft');
+
+    const pubResolved = await resolveContext({ courseId: 'c_published' }, db);
+    assert.ok(pubResolved.courseInfo?.includes('Status: published'), 'Published course context must include Status: published');
+  });
+
+  test('F: static check proves no course-level AI SQL references courses.is_active', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+
+    const toolExecutorSrc = fs.readFileSync(path.resolve('app/lib/ai/tool-executor.ts'), 'utf8');
+    const orchestratorSrc = fs.readFileSync(path.resolve('app/lib/ai/orchestrator.ts'), 'utf8');
+
+    // Ensure no SQL query on courses references is_active
+    const courseSqlRegex = /SELECT\s+[^;]*?\bFROM\s+courses\b[^;]*/gis;
+
+    const toolExecutorMatches = toolExecutorSrc.match(courseSqlRegex) || [];
+    assert.ok(toolExecutorMatches.length > 0, 'Must find courses SQL in tool-executor');
+    for (const sql of toolExecutorMatches) {
+      assert.equal(
+        sql.includes('is_active'),
+        false,
+        `tool-executor courses SQL must not reference is_active: ${sql}`
+      );
+      assert.ok(
+        sql.includes('status'),
+        `tool-executor courses SQL must query status: ${sql}`
+      );
+    }
+
+    const orchestratorMatches = orchestratorSrc.match(courseSqlRegex) || [];
+    assert.ok(orchestratorMatches.length > 0, 'Must find courses SQL in orchestrator');
+    for (const sql of orchestratorMatches) {
+      assert.equal(
+        sql.includes('is_active'),
+        false,
+        `orchestrator courses SQL must not reference is_active: ${sql}`
+      );
+      assert.ok(
+        sql.includes('status'),
+        `orchestrator courses SQL must query status: ${sql}`
+      );
+    }
+  });
+
+  test('G: video and exam is_active behavior remains unchanged', async () => {
+    const mockDb = new MockDatabase();
+    mockDb.tables.videos.set('v_lec_active', {
+      id: 'v_lec_active',
+      course_id: 'c_unit1',
+      title: 'Active Lecture',
+      youtube_id: 'dQw4w9WgXcQ',
+      duration: 1800,
+      order_num: 2,
+      is_active: 1,
+      max_views: 5,
+    });
+
+    // Lecture with is_active = 0 -> isActive: false
+    const lectureRes0 = await executeTool({
+      actor: teacherActor,
+      toolName: 'get_lecture_details',
+      args: { videoId: 'v_lec1' },
+      context: { db: mockDb },
+    });
+    assert.equal(lectureRes0.ok, true);
+    assert.equal(lectureRes0.result.lecture.id, 'v_lec1');
+    assert.equal(lectureRes0.result.lecture.isActive, false);
+
+    // Lecture with is_active = 1 -> isActive: true
+    const lectureRes1 = await executeTool({
+      actor: teacherActor,
+      toolName: 'get_lecture_details',
+      args: { videoId: 'v_lec_active' },
+      context: { db: mockDb },
+    });
+    assert.equal(lectureRes1.ok, true);
+    assert.equal(lectureRes1.result.lecture.id, 'v_lec_active');
+    assert.equal(lectureRes1.result.lecture.isActive, true);
+
+    // Static code verification: videos and exams legitimately preserve is_active
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const toolExecutorSrc = fs.readFileSync(path.resolve('app/lib/ai/tool-executor.ts'), 'utf8');
+    const orchestratorSrc = fs.readFileSync(path.resolve('app/lib/ai/orchestrator.ts'), 'utf8');
+
+    assert.ok(
+      toolExecutorSrc.includes('SELECT id, course_id, title, youtube_id, duration, order_num, is_active, max_views FROM videos'),
+      'tool-executor must preserve is_active in videos query'
+    );
+    assert.ok(
+      orchestratorSrc.includes('SELECT id, course_id, title, is_active FROM videos WHERE id = ?'),
+      'orchestrator must preserve is_active in videos query'
+    );
+    assert.ok(
+      orchestratorSrc.includes('SELECT id, course_id, title, exam_type, is_active FROM exams WHERE id = ?'),
+      'orchestrator must preserve is_active in exams query'
     );
   });
 });

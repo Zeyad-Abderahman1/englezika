@@ -33,7 +33,7 @@ class MockOrchestratorDatabase {
     this.confirmations = new Map();
     this.actionLogs = [];
     this.courses = new Map([
-      ['c_unit4', { id: 'c_unit4', title: 'Unit 4: Advanced Grammar', grade: '3sec', price: 200, is_active: 0 }],
+      ['c_unit4', { id: 'c_unit4', title: 'Unit 4: Advanced Grammar', grade: '3sec', price: 200, status: 'draft' }],
     ]);
     this.videos = new Map([
       ['v_lec1', { id: 'v_lec1', course_id: 'c_unit4', title: 'Passive Voice Lecture', is_active: 0 }],
@@ -171,10 +171,25 @@ describe('Phase 6: AI Orchestrator & Bounded Memory', () => {
     );
 
     assert.ok(resolved.courseInfo?.includes('Unit 4: Advanced Grammar'));
+    assert.ok(resolved.courseInfo?.includes('Status: draft'), 'courseInfo must report status from course.status');
     assert.ok(resolved.lectureInfo?.includes('Passive Voice Lecture'));
     // fake ID must NOT be resolved into assessmentInfo
     assert.equal(resolved.assessmentInfo, undefined);
     assert.equal(resolved.validatedContext.assessmentId, undefined);
+  });
+
+  test('orchestrator course context reports published status from course.status', async () => {
+    const db = new MockOrchestratorDatabase();
+    db.courses.set('c_unit4_pub', {
+      id: 'c_unit4_pub',
+      title: 'Unit 4: Published Course',
+      grade: '3sec',
+      price: 300,
+      status: 'published',
+    });
+
+    const resolved = await resolveContext({ courseId: 'c_unit4_pub' }, db);
+    assert.ok(resolved.courseInfo?.includes('Status: published'));
   });
 });
 

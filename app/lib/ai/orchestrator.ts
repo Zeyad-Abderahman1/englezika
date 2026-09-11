@@ -65,13 +65,14 @@ export async function resolveContext(
 
   if (context.courseId && typeof context.courseId === 'string') {
     const course = await db
-      .prepare('SELECT id, title, grade, price, is_active FROM courses WHERE id = ?')
+      .prepare('SELECT id, title, grade, price, status FROM courses WHERE id = ?')
       .bind(context.courseId.trim())
       .first();
 
     if (course) {
       result.validatedContext.courseId = course.id;
-      result.courseInfo = `Current Course: "${course.title}" (ID: ${course.id}, Grade: ${course.grade}, Price: ${course.price} EGP, Status: ${course.is_active === 1 ? 'published' : 'draft'})`;
+      const status = course.status || (course.is_active === 1 ? 'published' : 'draft');
+      result.courseInfo = `Current Course: "${course.title}" (ID: ${course.id}, Grade: ${course.grade}, Price: ${course.price} EGP, Status: ${status})`;
     }
   }
 
