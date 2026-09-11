@@ -85,17 +85,29 @@ export class CourseService {
     _operator?: OperatorIdentity,
     context?: ServiceContext
   ): Promise<{ ok: true }> {
-    const title = safeText(input.title, 120);
-    const grade = safeText(input.grade, 80);
-    const description = safeText(input.description, 1000);
-    const price = safeInteger(input.price, 0, 0, 100_000);
-    const status = input.status === 'published' ? 'published' : 'draft';
+    const db = context?.db ?? getDatabase();
+
+    const existing = await db
+      .prepare('SELECT id, title, grade, description, price, status FROM courses WHERE id = ?')
+      .bind(id)
+      .first<{ id: string; title: string; grade: string; description: string; price: number; status: string }>();
+
+    if (!existing) {
+      throw new DomainError('الكورس غير موجود', 404);
+    }
+
+    const title = input.title !== undefined ? safeText(input.title, 120) : existing.title;
+    const grade = input.grade !== undefined ? safeText(input.grade, 80) : existing.grade;
+    const description = input.description !== undefined ? safeText(input.description, 1000) : existing.description;
+    const price = input.price !== undefined ? safeInteger(input.price, existing.price, 0, 100_000) : existing.price;
+    const status = input.status !== undefined
+      ? (input.status === 'published' ? 'published' : 'draft')
+      : existing.status;
 
     if (title.length < 3 || grade.length < 2) {
       throw new DomainError('بيانات الكورس غير مكتملة', 400);
     }
 
-    const db = context?.db ?? getDatabase();
     const result = await db
       .prepare(
         `UPDATE courses SET title = ?, grade = ?, description = ?, price = ?, status = ?, updated_at = ?
