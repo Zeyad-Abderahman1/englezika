@@ -39,8 +39,10 @@ export interface ToolExecutionContext extends ServiceContext {
   confirmationSatisfied?: boolean;
 }
 
+export type StaffActor = OperatorIdentity & { permissions?: StaffPermission[]; role?: string };
+
 export interface ExecuteToolParams {
-  actor: OperatorIdentity & { permissions?: StaffPermission[]; role?: string };
+  actor: StaffActor;
   toolName: string;
   args: Record<string, unknown>;
   context?: ToolExecutionContext;
