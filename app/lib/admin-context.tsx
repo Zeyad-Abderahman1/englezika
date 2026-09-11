@@ -299,6 +299,7 @@ interface AdminContextValue {
   toggleTheme: () => void;
   refreshData: (page?: number) => Promise<void>;
   mutate: (action: () => Promise<unknown>, successNotice: string) => Promise<boolean>;
+  updateCourseLocally: (id: string, updates: Partial<Course>) => void;
   can: (permission: StaffPermission) => boolean;
   isTeacher: boolean;
   openPrompt: (prompt: Omit<PromptModalState, 'isOpen'>) => void;
@@ -456,6 +457,16 @@ export function AdminProvider({
 
   const isTeacher = useMemo(() => data?.admin?.role === 'teacher', [data]);
 
+  const updateCourseLocally = useCallback((id: string, updates: Partial<Course>) => {
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        courses: prev.courses.map((c) => (c.id === id ? { ...c, ...updates } : c)),
+      };
+    });
+  }, []);
+
   const value: AdminContextValue = {
     data,
     admin: data?.admin || null,
@@ -477,6 +488,7 @@ export function AdminProvider({
     toggleTheme,
     refreshData,
     mutate,
+    updateCourseLocally,
     can,
     isTeacher,
     openPrompt,

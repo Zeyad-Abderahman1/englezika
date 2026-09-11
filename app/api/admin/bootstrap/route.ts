@@ -2,6 +2,8 @@ import { apiStaff, isStaffResponse } from '../../../lib/staff-auth';
 import { getDatabase } from '../../../lib/platform';
 import { safeInteger } from '../../../lib/security';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request) {
   const admin = await apiStaff(request);
   if (isStaffResponse(admin)) return admin;
@@ -228,6 +230,11 @@ export async function GET(request: Request) {
       attempts: makePagination(can('grade_exams') ? totalAttempts?.total || 0 : 0),
       videos: makePagination(can('manage_videos') ? totalVideos?.total || 0 : 0),
       contacts: makePagination(can('manage_messages') ? totalContacts?.total || 0 : 0),
+    },
+  }, {
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+      Pragma: 'no-cache',
     },
   });
 }

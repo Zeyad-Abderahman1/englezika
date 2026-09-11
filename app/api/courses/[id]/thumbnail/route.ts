@@ -47,7 +47,7 @@ export async function GET(
   const isVersioned = Boolean(url.searchParams.get('v'));
   const cacheControl = isVersioned
     ? 'public, max-age=86400, stale-while-revalidate=3600'
-    : 'public, no-cache';
+    : 'public, no-cache, must-revalidate';
 
   if (clientEtag && clientEtag === etag) {
     return new Response(null, {

@@ -474,10 +474,11 @@ export class CourseService {
       throw new DomainError('فشل حفظ الصورة في وحدة التخزين', 500);
     }
 
+    const now = Date.now();
     try {
       const result = await db
         .prepare('UPDATE courses SET thumbnail_key = ?, updated_at = ? WHERE id = ?')
-        .bind(storageKey, Date.now(), courseId)
+        .bind(storageKey, now, courseId)
         .run();
 
       if (result.meta.changes !== 1) {
@@ -499,7 +500,7 @@ export class CourseService {
     return {
       ok: true,
       key: storageKey,
-      url: getCourseThumbnailUrl(courseId, storageKey) || `/api/courses/${courseId}/thumbnail`,
+      url: getCourseThumbnailUrl(courseId, storageKey, now) || `/api/courses/${courseId}/thumbnail`,
     };
   }
 

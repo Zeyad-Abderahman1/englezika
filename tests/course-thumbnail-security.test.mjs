@@ -5,9 +5,12 @@ import {
   getImageExtension,
   getImageDimensions,
   hasReasonableCourseThumbnailDimensions,
+  sniffImageMimeType,
   MAX_IMAGE_SIZE,
 } from '../app/lib/upload-validation.ts';
 import { POST, DELETE } from '../app/api/admin/courses/[id]/thumbnail/route.ts';
+import { PATCH } from '../app/api/admin/courses/[id]/route.ts';
+import { GET as bootstrapGET } from '../app/api/admin/bootstrap/route.ts';
 import { GET } from '../app/api/courses/[id]/thumbnail/route.ts';
 import {
   getCourseThumbnailVersion,
@@ -64,8 +67,28 @@ function createValidWebpBuffer(width = 320, height = 180) {
 
 function setupMockPlatform() {
   const courses = [
-    { id: 'c1', title: 'Course Without Thumb', thumbnail_key: null },
-    { id: 'c2', title: 'Course With Thumb', thumbnail_key: 'courses/c2/thumbnail/initial.webp' },
+    {
+      id: 'c1',
+      title: 'Course Without Thumb',
+      grade: 'الصف الأول الثانوي',
+      description: 'وصف كورس 1',
+      price: 150,
+      status: 'published',
+      thumbnail_key: null,
+      created_at: 1726000000000,
+      updated_at: 1726000000000,
+    },
+    {
+      id: 'c2',
+      title: 'Course With Thumb',
+      grade: 'الصف الثاني الثانوي',
+      description: 'وصف كورس 2',
+      price: 200,
+      status: 'published',
+      thumbnail_key: 'courses/c2/thumbnail/initial.webp',
+      created_at: 1726000000000,
+      updated_at: 1726000000000,
+    },
   ];
 
   const storageFiles = new Map();
@@ -76,51 +99,113 @@ function setupMockPlatform() {
   const mockDb = {
     courses,
     prepare(sql) {
-      return {
-        bind(...args) {
-          return {
-            async first() {
-              if (sql.includes('FROM staff_sessions s JOIN staff_users u')) {
-                return {
-                  expiresAt: Date.now() + 3600000,
-                  email: 'admin@englizeka.com',
-                  name: 'Admin Teacher',
-                  role: 'teacher',
-                  permissions: '["manage_courses"]',
-                };
-              }
-              if (sql.includes('FROM courses WHERE id = ?')) {
-                const [id] = args;
-                const c = courses.find((x) => x.id === id);
-                if (!c) return null;
-                return { id: c.id, thumbnailKey: c.thumbnail_key };
-              }
-              return null;
-            },
-            async run() {
-              if (sql.includes('UPDATE courses SET thumbnail_key = ?')) {
-                const [key, , id] = args;
-                const c = courses.find((x) => x.id === id);
-                if (c) {
-                  c.thumbnail_key = key;
-                  return { meta: { changes: 1 } };
-                }
-                return { meta: { changes: 0 } };
-              }
-              if (sql.includes('UPDATE courses SET thumbnail_key = NULL')) {
-                const [, id] = args;
-                const c = courses.find((x) => x.id === id);
-                if (c) {
-                  c.thumbnail_key = null;
-                  return { meta: { changes: 1 } };
-                }
-                return { meta: { changes: 0 } };
+      function createStmt(args = []) {
+        return {
+          bind(...newArgs) {
+            return createStmt(newArgs);
+          },
+          async first() {
+            if (sql.includes('FROM staff_sessions s JOIN staff_users u')) {
+              return {
+                expiresAt: Date.now() + 3600000,
+                email: 'admin@englizeka.com',
+                name: 'Admin Teacher',
+                role: 'teacher',
+                permissions: '["manage_courses"]',
+              };
+            }
+            if (sql.includes('FROM courses WHERE id = ?')) {
+              const [id] = args;
+              const c = courses.find((x) => x.id === id);
+              if (!c) return null;
+              return {
+                id: c.id,
+                title: c.title,
+                grade: c.grade,
+                description: c.description,
+                price: c.price,
+                status: c.status,
+                thumbnailKey: c.thumbnail_key,
+                updatedAt: c.updated_at,
+              };
+            }
+            if (sql.includes('SELECT COUNT(*) AS total FROM')) {
+              return { total: courses.length };
+            }
+            if (sql.includes('SELECT') && sql.includes('AS students')) {
+              return {
+                students: 10,
+                activeEnrollments: 5,
+                pendingEnrollments: 2,
+                publishedExams: 3,
+                attempts: 4,
+                averageScore: 85,
+                newMessages: 1,
+              };
+            }
+            return null;
+          },
+          async all() {
+            if (sql.includes('FROM courses ORDER BY created_at DESC')) {
+              return {
+                results: courses.map((c) => ({
+                  id: c.id,
+                  title: c.title,
+                  grade: c.grade,
+                  description: c.description,
+                  price: c.price,
+                  status: c.status,
+                  thumbnailKey: c.thumbnail_key,
+                  createdAt: c.created_at,
+                  updatedAt: c.updated_at,
+                })),
+              };
+            }
+            return { results: [] };
+          },
+          async run() {
+            if (sql.includes('UPDATE courses SET thumbnail_key = ?')) {
+              const [key, updatedAt, id] = args;
+              const c = courses.find((x) => x.id === id);
+              if (c) {
+                c.thumbnail_key = key;
+                c.updated_at = updatedAt;
+                return { meta: { changes: 1 } };
               }
               return { meta: { changes: 0 } };
-            },
-          };
-        },
-      };
+            }
+            if (sql.includes('UPDATE courses SET thumbnail_key = NULL')) {
+              const [updatedAt, id] = args;
+              const c = courses.find((x) => x.id === id);
+              if (c) {
+                c.thumbnail_key = null;
+                c.updated_at = updatedAt;
+                return { meta: { changes: 1 } };
+              }
+              return { meta: { changes: 0 } };
+            }
+            if (sql.includes('UPDATE courses SET title = ?')) {
+              const [title, grade, description, price, status, updatedAt, id] = args;
+              const c = courses.find((x) => x.id === id);
+              if (c) {
+                c.title = title;
+                c.grade = grade;
+                c.description = description;
+                c.price = price;
+                c.status = status;
+                c.updated_at = updatedAt;
+                return { meta: { changes: 1 } };
+              }
+              return { meta: { changes: 0 } };
+            }
+            if (sql.includes('INSERT INTO audit_logs')) {
+              return { meta: { changes: 1 } };
+            }
+            return { meta: { changes: 0 } };
+          },
+        };
+      }
+      return createStmt();
     },
   };
 
@@ -520,4 +605,253 @@ test('15. Admin thumbnail POST returns versioned URL in response', async () => {
   assert.equal(json.ok, true);
   assert.ok(json.url.startsWith('/api/courses/c1/thumbnail?v='));
 });
+
+test('16. Sequential replacement: course without thumb -> 1st image -> 2nd image -> 3rd image cleans previous files and updates version URL each time', async () => {
+  const { mockDb, mockStorage } = setupMockPlatform();
+  const c1 = mockDb.courses.find((c) => c.id === 'c1');
+  assert.equal(c1.thumbnail_key, null);
+
+  // 1. Upload first image (320x180 PNG)
+  const img1 = createValidPngBuffer(320, 180);
+  const fd1 = new FormData();
+  fd1.append('file', new Blob([img1], { type: 'image/png' }), 'first.png');
+  const req1 = new Request('http://localhost:3000/api/admin/courses/c1/thumbnail', {
+    method: 'POST',
+    headers: {
+      origin: 'http://localhost:3000',
+      cookie: 'englizeka_staff=valid_session_token',
+      'content-length': String(img1.byteLength + 200),
+    },
+    body: fd1,
+  });
+  const res1 = await POST(req1, { params: Promise.resolve({ id: 'c1' }) });
+  assert.equal(res1.status, 200);
+  const json1 = await res1.json();
+  const key1 = json1.key;
+  assert.ok(mockStorage.files.has(key1));
+  assert.equal(c1.thumbnail_key, key1);
+
+  // 2. Replace with 2nd image (480x270 PNG)
+  const img2 = createValidPngBuffer(480, 270);
+  const fd2 = new FormData();
+  fd2.append('file', new Blob([img2], { type: 'image/png' }), 'second.png');
+  const req2 = new Request('http://localhost:3000/api/admin/courses/c1/thumbnail', {
+    method: 'POST',
+    headers: {
+      origin: 'http://localhost:3000',
+      cookie: 'englizeka_staff=valid_session_token',
+      'content-length': String(img2.byteLength + 200),
+    },
+    body: fd2,
+  });
+  const res2 = await POST(req2, { params: Promise.resolve({ id: 'c1' }) });
+  assert.equal(res2.status, 200);
+  const json2 = await res2.json();
+  const key2 = json2.key;
+  assert.notEqual(key1, key2);
+  assert.equal(mockStorage.files.has(key1), false, 'Previous key1 must be deleted from storage');
+  assert.equal(mockStorage.files.has(key2), true);
+  assert.equal(c1.thumbnail_key, key2);
+
+  // 3. Replace with 3rd image (640x360 WebP)
+  const img3 = createValidWebpBuffer(640, 360);
+  const fd3 = new FormData();
+  fd3.append('file', new Blob([img3], { type: 'image/webp' }), 'third.webp');
+  const req3 = new Request('http://localhost:3000/api/admin/courses/c1/thumbnail', {
+    method: 'POST',
+    headers: {
+      origin: 'http://localhost:3000',
+      cookie: 'englizeka_staff=valid_session_token',
+      'content-length': String(img3.byteLength + 200),
+    },
+    body: fd3,
+  });
+  const res3 = await POST(req3, { params: Promise.resolve({ id: 'c1' }) });
+  assert.equal(res3.status, 200);
+  const json3 = await res3.json();
+  const key3 = json3.key;
+  assert.notEqual(key2, key3);
+  assert.equal(mockStorage.files.has(key2), false, 'Previous key2 must be deleted from storage');
+  assert.equal(mockStorage.files.has(key3), true);
+  assert.equal(c1.thumbnail_key, key3);
+
+  // Verify only 3rd image is in storage
+  assert.equal(mockStorage.files.has(key1), false);
+  assert.equal(mockStorage.files.has(key2), false);
+  assert.equal(mockStorage.files.has(key3), true);
+
+  // Verify public route returns 3rd image
+  const getReq = new Request('http://localhost:3000' + json3.url, { method: 'GET' });
+  const getRes = await GET(getReq, { params: Promise.resolve({ id: 'c1' }) });
+  assert.equal(getRes.status, 200);
+  assert.equal(getRes.headers.get('content-type'), 'image/webp');
+});
+
+test('17. Edit course metadata without choosing a new thumbnail preserves existing thumbnailKey and storage file', async () => {
+  const { mockDb, mockStorage } = setupMockPlatform();
+  const initialKey = 'courses/c2/thumbnail/initial.webp';
+  assert.ok(mockStorage.files.has(initialKey));
+
+  const patchReq = new Request('http://localhost:3000/api/admin/courses/c2', {
+    method: 'PATCH',
+    headers: {
+      origin: 'http://localhost:3000',
+      cookie: 'englizeka_staff=valid_session_token',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      title: 'Updated Course Title Only',
+      grade: 'الصف الثاني الثانوي',
+      description: 'وصف جديد',
+      price: 250,
+      status: 'published',
+    }),
+  });
+
+  const patchRes = await PATCH(patchReq, { params: Promise.resolve({ id: 'c2' }) });
+  assert.equal(patchRes.status, 200);
+
+  const courseC2 = mockDb.courses.find((c) => c.id === 'c2');
+  assert.equal(courseC2.title, 'Updated Course Title Only');
+  assert.equal(courseC2.thumbnail_key, initialKey, 'Thumbnail key must NOT change when editing metadata');
+  assert.ok(mockStorage.files.has(initialKey), 'Storage file must remain intact');
+
+  // Public GET still serves the existing image
+  const getReq = new Request('http://localhost:3000/api/courses/c2/thumbnail', { method: 'GET' });
+  const getRes = await GET(getReq, { params: Promise.resolve({ id: 'c2' }) });
+  assert.equal(getRes.status, 200);
+});
+
+test('18. Oversized thumbnail (> 5MB) rejected and leaves existing thumbnail intact in storage and DB', async () => {
+  const { mockDb, mockStorage } = setupMockPlatform();
+  const initialKey = 'courses/c2/thumbnail/initial.webp';
+  assert.ok(mockStorage.files.has(initialKey));
+
+  // 6MB buffer
+  const bigBuffer = Buffer.alloc(6 * 1024 * 1024);
+  const fd = new FormData();
+  fd.append('file', new Blob([bigBuffer], { type: 'image/png' }), 'huge.png');
+
+  const req = new Request('http://localhost:3000/api/admin/courses/c2/thumbnail', {
+    method: 'POST',
+    headers: {
+      origin: 'http://localhost:3000',
+      cookie: 'englizeka_staff=valid_session_token',
+      'content-length': String(bigBuffer.byteLength + 200),
+    },
+    body: fd,
+  });
+
+  const res = await POST(req, { params: Promise.resolve({ id: 'c2' }) });
+  assert.ok(res.status === 400 || res.status === 413);
+
+  const courseC2 = mockDb.courses.find((c) => c.id === 'c2');
+  assert.equal(courseC2.thumbnail_key, initialKey);
+  assert.ok(mockStorage.files.has(initialKey));
+});
+
+test('19. Sniffing image MIME type: PNG with empty Blob type is detected and accepted', async () => {
+  const { mockDb, mockStorage } = setupMockPlatform();
+  const png = createValidPngBuffer(320, 180);
+  const fd = new FormData();
+  // Simulate Windows browser where blob type is empty string
+  fd.append('file', new Blob([png], { type: '' }), 'photo.png');
+
+  const req = new Request('http://localhost:3000/api/admin/courses/c1/thumbnail', {
+    method: 'POST',
+    headers: {
+      origin: 'http://localhost:3000',
+      cookie: 'englizeka_staff=valid_session_token',
+      'content-length': String(png.byteLength + 200),
+    },
+    body: fd,
+  });
+
+  const res = await POST(req, { params: Promise.resolve({ id: 'c1' }) });
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.equal(json.ok, true);
+  assert.ok(json.key.endsWith('.png'));
+  assert.ok(mockStorage.files.has(json.key));
+});
+
+test('20. Admin bootstrap GET includes Cache-Control: no-store and returns updated thumbnailKey', async () => {
+  const { mockDb } = setupMockPlatform();
+  const c1 = mockDb.courses.find((c) => c.id === 'c1');
+
+  // Upload thumbnail
+  const png = createValidPngBuffer(320, 180);
+  const fd = new FormData();
+  fd.append('file', new Blob([png], { type: 'image/png' }), 'test-bootstrap.png');
+  const uploadReq = new Request('http://localhost:3000/api/admin/courses/c1/thumbnail', {
+    method: 'POST',
+    headers: {
+      origin: 'http://localhost:3000',
+      cookie: 'englizeka_staff=valid_session_token',
+      'content-length': String(png.byteLength + 200),
+    },
+    body: fd,
+  });
+  const uploadRes = await POST(uploadReq, { params: Promise.resolve({ id: 'c1' }) });
+  const uploadJson = await uploadRes.json();
+
+  // Call admin bootstrap
+  const bootReq = new Request('http://localhost:3000/api/admin/bootstrap?page=1&pageSize=50', {
+    headers: { cookie: 'englizeka_staff=valid_session_token' },
+  });
+  const bootRes = await bootstrapGET(bootReq);
+  assert.equal(bootRes.status, 200);
+  assert.ok(bootRes.headers.get('cache-control')?.includes('no-store'));
+
+  const bootData = await bootRes.json();
+  const bootedC1 = bootData.courses.find((c) => c.id === 'c1');
+  assert.ok(bootedC1);
+  assert.equal(bootedC1.thumbnailKey, uploadJson.key);
+});
+
+test('21. Cache revalidation: If-None-Match with old ETag returns 200 with new ETag after replacement', async () => {
+  setupMockPlatform();
+
+  // 1. Initial GET
+  const getReq1 = new Request('http://localhost:3000/api/courses/c2/thumbnail', { method: 'GET' });
+  const getRes1 = await GET(getReq1, { params: Promise.resolve({ id: 'c2' }) });
+  assert.equal(getRes1.status, 200);
+  const oldEtag = getRes1.headers.get('etag');
+  assert.ok(oldEtag);
+
+  // 2. If-None-Match with matching ETag returns 304
+  const matchReq = new Request('http://localhost:3000/api/courses/c2/thumbnail', {
+    method: 'GET',
+    headers: { 'if-none-match': oldEtag },
+  });
+  const matchRes = await GET(matchReq, { params: Promise.resolve({ id: 'c2' }) });
+  assert.equal(matchRes.status, 304);
+
+  // 3. Replace thumbnail
+  const newPng = createValidPngBuffer(640, 360);
+  const fd = new FormData();
+  fd.append('file', new Blob([newPng], { type: 'image/png' }), 'replaced.png');
+  const postReq = new Request('http://localhost:3000/api/admin/courses/c2/thumbnail', {
+    method: 'POST',
+    headers: {
+      origin: 'http://localhost:3000',
+      cookie: 'englizeka_staff=valid_session_token',
+      'content-length': String(newPng.byteLength + 200),
+    },
+    body: fd,
+  });
+  const postRes = await POST(postReq, { params: Promise.resolve({ id: 'c2' }) });
+  assert.equal(postRes.status, 200);
+
+  // 4. Request with old ETag MUST return 200 (not 304) with new ETag
+  const revalReq = new Request('http://localhost:3000/api/courses/c2/thumbnail', {
+    method: 'GET',
+    headers: { 'if-none-match': oldEtag },
+  });
+  const revalRes = await GET(revalReq, { params: Promise.resolve({ id: 'c2' }) });
+  assert.equal(revalRes.status, 200);
+  const newEtag = revalRes.headers.get('etag');
+  assert.notEqual(oldEtag, newEtag);
+});
+
 

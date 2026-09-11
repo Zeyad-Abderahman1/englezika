@@ -3,6 +3,7 @@ import { jsonError, requireSameOrigin } from '../../../../../lib/security';
 import {
   hasAllowedContentLength,
   MAX_UPLOAD_BODY_SIZE,
+  sniffImageMimeType,
 } from '../../../../../lib/upload-validation';
 import { courseService } from '../../../../../lib/services/course-service';
 import { DomainError } from '../../../../../lib/services/types';
@@ -41,8 +42,9 @@ export async function POST(
   const file = formData.get('file');
   if (!(file instanceof Blob)) return jsonError('لم يتم اختيار ملف', 400);
 
-  const mimeType = file.type || 'image/jpeg';
   const fileBytes = await file.arrayBuffer();
+  const detectedMime = sniffImageMimeType(fileBytes);
+  const mimeType = detectedMime || file.type || 'image/jpeg';
 
   try {
     const result = await courseService.uploadThumbnail(id, fileBytes, mimeType, staff, { request });

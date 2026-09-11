@@ -24,24 +24,56 @@ export function isPdfUpload(mimeType: string, bytes: ArrayBuffer | Uint8Array): 
   );
 }
 
-export function isImageUpload(mimeType: string, bytes: ArrayBuffer | Uint8Array): boolean {
-  const normalizedMimeType = mimeType.split(';', 1)[0].trim().toLowerCase();
+export function sniffImageMimeType(
+  bytes: ArrayBuffer | Uint8Array
+): 'image/jpeg' | 'image/png' | 'image/webp' | null {
   const content = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-
-  if (!(ALLOWED_IMAGE_TYPES as readonly string[]).includes(normalizedMimeType)) return false;
-
-  if (normalizedMimeType === 'image/jpeg') {
-    return content[0] === 0xff && content[1] === 0xd8 && content[2] === 0xff;
+  if (content.length >= 3 && content[0] === 0xff && content[1] === 0xd8 && content[2] === 0xff) {
+    return 'image/jpeg';
   }
-  if (normalizedMimeType === 'image/png') {
-    const pngSig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-    return pngSig.every((byte, index) => content[index] === byte);
+  if (
+    content.length >= 8 &&
+    content[0] === 0x89 &&
+    content[1] === 0x50 &&
+    content[2] === 0x4e &&
+    content[3] === 0x47 &&
+    content[4] === 0x0d &&
+    content[5] === 0x0a &&
+    content[6] === 0x1a &&
+    content[7] === 0x0a
+  ) {
+    return 'image/png';
   }
-  if (normalizedMimeType === 'image/webp') {
-    const webpRiff = [0x52, 0x49, 0x46, 0x46];
-    const riffOk = webpRiff.every((byte, index) => content[index] === byte);
-    const webpTag = content[8] === 0x57 && content[9] === 0x45 && content[10] === 0x42 && content[11] === 0x50;
-    return riffOk && webpTag;
+  if (
+    content.length >= 12 &&
+    content[0] === 0x52 &&
+    content[1] === 0x49 &&
+    content[2] === 0x46 &&
+    content[3] === 0x46 &&
+    content[8] === 0x57 &&
+    content[9] === 0x45 &&
+    content[10] === 0x42 &&
+    content[11] === 0x50
+  ) {
+    return 'image/webp';
+  }
+  return null;
+}
+
+export function isImageUpload(mimeType: string, bytes: ArrayBuffer | Uint8Array): boolean {
+  const detected = sniffImageMimeType(bytes);
+  if (!detected) return false;
+
+  const normalizedMimeType = mimeType.split(';', 1)[0].trim().toLowerCase();
+
+  // If mimeType is empty or generic application/octet-stream, accept based on verified magic bytes
+  if (!normalizedMimeType || normalizedMimeType === 'application/octet-stream') {
+    return true;
+  }
+
+  // If caller specified an allowed image type, accept if magic bytes confirm it is an allowed image
+  if ((ALLOWED_IMAGE_TYPES as readonly string[]).includes(normalizedMimeType)) {
+    return true;
   }
 
   return false;
@@ -51,7 +83,8 @@ export function getImageDimensions(
   mimeType: string,
   bytes: ArrayBuffer | Uint8Array
 ): { width: number; height: number } | null {
-  const normalizedMimeType = mimeType.split(';', 1)[0].trim().toLowerCase();
+  const detected = sniffImageMimeType(bytes);
+  const normalizedMimeType = detected || mimeType.split(';', 1)[0].trim().toLowerCase();
   const content = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
 
   if (normalizedMimeType === 'image/png') {

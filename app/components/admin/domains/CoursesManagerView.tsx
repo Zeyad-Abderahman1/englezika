@@ -42,7 +42,7 @@ export function CoursesManagerView() {
   const searchParams = useSearchParams();
   const focusedIdFromUrl = searchParams.get('focus') || '';
 
-  const { data, busy, mutate, openConfirm, can } = useAdmin();
+  const { data, busy, mutate, updateCourseLocally, openConfirm, can } = useAdmin();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [gradeFilter, setGradeFilter] = useState('all');
@@ -60,8 +60,12 @@ export function CoursesManagerView() {
   const [editThumbnailError, setEditThumbnailError] = useState<string | null>(null);
 
   const validateThumbnailFile = (file: File): string | null => {
-    const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!validTypes.includes(file.type)) {
+    const validMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/pjpeg', 'image/x-png'];
+    const validExtensions = /\.(jpe?g|png|webp)$/i;
+    const isMimeValid = file.type ? validMimeTypes.includes(file.type.toLowerCase()) : false;
+    const isExtValid = validExtensions.test(file.name);
+
+    if (!isMimeValid && !isExtValid) {
       return 'يجب أن تكون الصورة بصيغة JPG أو PNG أو WebP';
     }
     if (file.size > 5 * 1024 * 1024) {
@@ -213,18 +217,27 @@ export function CoursesManagerView() {
 
     const ok = await mutate(
       async () => {
+        let updatedThumbnailKey: string | null = editingCourse.thumbnailKey ?? null;
+
         // Perform thumbnail upload/removal first so if it fails, course PATCH is aborted
         if (editThumbnailRemoved && editingCourse.thumbnailKey) {
           await adminApiRequest(`/api/admin/courses/${editingCourse.id}/thumbnail`, {
             method: 'DELETE',
           });
+          updatedThumbnailKey = null;
         } else if (editThumbnailFile) {
           const formData = new FormData();
           formData.append('file', editThumbnailFile);
-          await adminApiRequest(`/api/admin/courses/${editingCourse.id}/thumbnail`, {
-            method: 'POST',
-            body: formData,
-          });
+          const thumbRes = (await adminApiRequest(
+            `/api/admin/courses/${editingCourse.id}/thumbnail`,
+            {
+              method: 'POST',
+              body: formData,
+            }
+          )) as { ok: boolean; key?: string; url?: string };
+          if (thumbRes?.key) {
+            updatedThumbnailKey = thumbRes.key;
+          }
         }
 
         const res = await adminApiRequest(`/api/admin/courses/${editingCourse.id}`, {
@@ -237,6 +250,17 @@ export function CoursesManagerView() {
             price: Number(values.price) || 0,
             status: values.status || 'published',
           }),
+        });
+
+        // Authoritatively update in-memory course state immediately so UI refreshes without stale cache delay
+        updateCourseLocally(editingCourse.id, {
+          title: values.title,
+          grade: values.grade,
+          description: values.description || '',
+          price: Number(values.price) || 0,
+          status: values.status || 'published',
+          thumbnailKey: updatedThumbnailKey,
+          updatedAt: Date.now(),
         });
 
         return res;
@@ -362,7 +386,7 @@ export function CoursesManagerView() {
                 <div className="admin-course-card-thumb">
                   {course.thumbnailKey ? (
                     <img
-                      key={course.thumbnailKey}
+                      key={`${course.id}-${course.thumbnailKey}-${course.updatedAt || 0}`}
                       src={getCourseThumbnailUrl(course.id, course.thumbnailKey, course.updatedAt)}
                       alt={course.title}
                       className="admin-course-thumb-img"
@@ -703,6 +727,7 @@ export function CoursesManagerView() {
                 {!editThumbnailRemoved && (editThumbnailPreview || editingCourse.thumbnailKey) ? (
                   <div className="admin-thumbnail-preview-wrap">
                     <img
+                      key={editThumbnailPreview || `${editingCourse.id}-${editingCourse.thumbnailKey || 'none'}-${editingCourse.updatedAt || 0}`}
                       src={
                         editThumbnailPreview ||
                         getCourseThumbnailUrl(
