@@ -3,12 +3,20 @@
 import React, { useState } from 'react';
 import { AlertTriangle, CheckCircle2, ShieldAlert, LoaderCircle, ArrowRight } from 'lucide-react';
 import type { ConfirmationPreview } from '../../../lib/ai/preview-generator';
+import {
+  shouldRenderExecuteButton,
+  formatUserFacingConfirmationError,
+  type ConfirmationCardState,
+} from '../../../lib/ai/confirmation-state';
+
+export type CompoundPlanCardState = ConfirmationCardState;
 
 interface CompoundPlanCardProps {
   token: string;
   preview: ConfirmationPreview;
   onConfirm: (token: string) => Promise<void>;
   onCancel?: () => void;
+  initialState?: ConfirmationCardState;
 }
 
 export function CompoundPlanCard({
@@ -16,8 +24,9 @@ export function CompoundPlanCard({
   preview,
   onConfirm,
   onCancel,
+  initialState = 'pending',
 }: CompoundPlanCardProps) {
-  const [loading, setLoading] = useState(false);
+  const [planState, setPlanState] = useState<ConfirmationCardState>(initialState);
   const [error, setError] = useState<string | null>(null);
 
   const riskClass = preview.riskLevel || 'medium';
@@ -29,14 +38,15 @@ export function CompoundPlanCard({
   };
 
   const handleConfirm = async () => {
-    setLoading(true);
+    if (planState !== 'pending') return;
+    setPlanState('executing');
     setError(null);
     try {
       await onConfirm(token);
+      setPlanState('succeeded');
     } catch (err: any) {
-      setError(err?.message || 'تعذر تنفيذ الإجراء المؤكد');
-    } finally {
-      setLoading(false);
+      setPlanState('failed');
+      setError(formatUserFacingConfirmationError(err?.message));
     }
   };
 
@@ -66,7 +76,6 @@ export function CompoundPlanCard({
       </div>
     );
   }
-
 
   return (
     <div className="ai-plan-card" role="region" aria-label="خطة العمل المقترحة">
@@ -102,42 +111,55 @@ export function CompoundPlanCard({
         </ul>
       )}
 
-      {error && (
-        <div className="p-2 mb-3 bg-red-900/40 border border-red-500/40 rounded text-red-200 text-xs">
-          {error}
+      {/* Succeeded state banner */}
+      {planState === 'succeeded' && (
+        <div className="p-2 mb-3 bg-emerald-950/40 border border-emerald-500/40 rounded text-emerald-200 text-xs flex items-center gap-2">
+          <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+          <span>تم تنفيذ الإجراء وتطبيقه بنجاح.</span>
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: '0.5rem' }}>
-        <button
-          type="button"
-          className="ai-plan-confirm-btn"
-          onClick={handleConfirm}
-          disabled={loading}
-          aria-label="تأكيد وتنفيذ الإجراء"
-        >
-          {loading ? (
-            <>
-              <LoaderCircle size={16} className="spin" />
-              <span>جاري التنفيذ والتطبيق...</span>
-            </>
-          ) : (
-            <>
-              <CheckCircle2 size={16} />
-              <span>تأكيد وتنفيذ الإجراء الآن</span>
-            </>
-          )}
-        </button>
+      {/* Failed state banner */}
+      {planState === 'failed' && (
+        <div className="p-2 mb-3 bg-red-950/50 border border-red-500/50 rounded text-red-200 text-xs flex items-start gap-2">
+          <AlertTriangle size={16} className="text-red-400 shrink-0 mt-0.5" />
+          <span>{error || 'تعذر تنفيذ هذا الإجراء. يرجى إنشاء طلب جديد للمحاولة مرة أخرى.'}</span>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        {/* Execute button is strictly omitted for terminal states: failed, succeeded */}
+        {shouldRenderExecuteButton(planState) && (
+          <button
+            type="button"
+            className="ai-plan-confirm-btn"
+            onClick={handleConfirm}
+            disabled={planState === 'executing'}
+            aria-label="تأكيد وتنفيذ الإجراء"
+          >
+            {planState === 'executing' ? (
+              <>
+                <LoaderCircle size={16} className="spin" />
+                <span>جاري التنفيذ والتطبيق...</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 size={16} />
+                <span>تأكيد وتنفيذ الإجراء الآن</span>
+              </>
+            )}
+          </button>
+        )}
 
         {onCancel && (
           <button
             type="button"
             className="btn btn-secondary text-xs"
             onClick={onCancel}
-            disabled={loading}
+            disabled={planState === 'executing'}
             style={{ padding: '0.65rem 1rem' }}
           >
-            إلغاء
+            {planState === 'failed' || planState === 'succeeded' ? 'إغلاق' : 'إلغاء'}
           </button>
         )}
       </div>

@@ -81,23 +81,8 @@ export async function resolveContext(
 ): Promise<ResolvedContextResult> {
   const result: ResolvedContextResult = { validatedContext: {} };
 
-  if (context?.courseId && typeof context.courseId === 'string') {
-    const course = await db
-      .prepare('SELECT id, title, grade, price, status FROM courses WHERE id = ?')
-      .bind(context.courseId.trim())
-      .first();
-
-    if (course) {
-      result.validatedContext.courseId = course.id;
-      result.courseTitle = course.title;
-      const status = course.status || (course.is_active === 1 ? 'published' : 'draft');
-      result.courseInfo = `Current Course: "${course.title}" (ID: ${course.id}, Grade: ${course.grade}, Price: ${course.price} EGP, Status: ${status})`;
-    }
-  }
-
-  // Safe server-side entity resolution from user message when context courseId is not explicitly bound
-  if (!result.validatedContext.courseId && db && message && typeof message === 'string') {
-    let allCourses: any[] = [];
+  let allCourses: any[] = [];
+  if (db) {
     try {
       if (typeof db.query === 'function') {
         const qRes = await db.query('SELECT id, title, grade, price, status FROM courses');
@@ -109,73 +94,120 @@ export async function resolveContext(
     } catch {
       allCourses = [];
     }
+  }
 
-    if (allCourses.length > 0) {
-      const normMessage = normalizeEntityText(message);
-      const candidateMatches: any[] = [];
+  // If user is requesting to create a new course or list courses, do not require an existing course entity
+  const isCreateRequest = /(?:أنشئ|انشئ|إنشاء|انشاء|create|new)\s+(?:دورة|كورس|course)/i.test(message || '');
+  const isListRequest = /(?:اعرض|عرض|قائمة|list|show)\s+(?:لي\s+)?(?:الكورسات|الدورات|courses)/i.test(message || '');
+  if (isCreateRequest || isListRequest) {
+    return result;
+  }
 
-      // Extract candidate entity phrase if user explicitly named a course after "كورس" or "دورة"
-      const mentionMatch = message.match(/(?:كورس|دورة|course)\s+(.+?)(?:\s+(?:إلى|الى|بـ|ب|يبقى|يكون|لـ|ل|to|for)\s+\d+|\s*$)/i);
-      const extractedMention = mentionMatch ? normalizeEntityText(mentionMatch[1]) : '';
-
-      for (const c of allCourses) {
-        if (!c.title) continue;
-        const normTitle = normalizeEntityText(c.title);
-        if (normTitle.length >= 2 && normMessage.includes(normTitle)) {
-          candidateMatches.push(c);
-          continue;
-        }
-        const strippedTitle = normTitle.replace(/^(?:كورس|دورة)\s+/, '');
-        if (strippedTitle.length >= 3 && normMessage.includes(strippedTitle)) {
-          candidateMatches.push(c);
-          continue;
-        }
-        if (extractedMention.length >= 3 && (normTitle.includes(extractedMention) || strippedTitle.includes(extractedMention))) {
-          candidateMatches.push(c);
+  // 1. Check if user command contains an explicit mention of a course title or phrase
+  let hasExplicitMention = false;
+  if (message && typeof message === 'string' && allCourses.length > 0) {
+    const normMessage = normalizeEntityText(message);
+    const mentionMatch = message.match(/(?:كورس|دورة|course)\s+(.+?)(?:\s+(?:إلى|الى|بـ|ب|يبقى|يكون|لـ|ل|to|for)\s+\d+|\s*$)/i);
+    let extractedMention = '';
+    if (mentionMatch) {
+      const candidate = mentionMatch[1].trim();
+      const firstWord = candidate.split(/\s+/)[0];
+      const nonNameWords = new Set([
+        'يبقى', 'يكون', 'الى', 'إلى', 'بـ', 'ب', 'لـ', 'ل', 'to', 'for',
+        'الحالية', 'الحالي', 'الاول', 'الأول', 'الثاني', 'الثالث', 'الرابع', 'الخامس',
+        'الأخيرة', 'الاخيرة', 'السابقة', 'القادمة', 'هذا', 'هذه', 'المعني', 'المحدد'
+      ]);
+      if (!nonNameWords.has(firstWord) && !/^\d+$/.test(candidate)) {
+        extractedMention = normalizeEntityText(candidate);
+        if (extractedMention.length >= 2) {
+          hasExplicitMention = true;
         }
       }
+    }
 
-      if (candidateMatches.length === 1) {
-        const course = candidateMatches[0];
+    const candidateMatches: any[] = [];
+    for (const c of allCourses) {
+      if (!c.title) continue;
+      const normTitle = normalizeEntityText(c.title);
+      if (normTitle.length >= 2 && normMessage.includes(normTitle)) {
+        candidateMatches.push(c);
+        continue;
+      }
+      const strippedTitle = normTitle.replace(/^(?:كورس|دورة)\s+/, '');
+      if (strippedTitle.length >= 3 && normMessage.includes(strippedTitle)) {
+        candidateMatches.push(c);
+        continue;
+      }
+      if (extractedMention.length >= 2 && (normTitle.includes(extractedMention) || strippedTitle.includes(extractedMention))) {
+        candidateMatches.push(c);
+      }
+    }
+
+    if (candidateMatches.length === 1) {
+      const course = candidateMatches[0];
+      result.validatedContext.courseId = course.id;
+      result.courseTitle = course.title;
+      const status = course.status || (course.is_active === 1 ? 'published' : 'draft');
+      result.courseInfo = `Current Course: "${course.title}" (ID: ${course.id}, Grade: ${course.grade}, Price: ${course.price} EGP, Status: ${status})`;
+    } else if (candidateMatches.length > 1) {
+      // Check if one match is strictly more specific (longer title)
+      const sorted = [...candidateMatches].sort((a, b) => b.title.length - a.title.length);
+      const longest = sorted[0];
+      const secondLongest = sorted[1];
+      if (
+        normalizeEntityText(longest.title).length > normalizeEntityText(secondLongest.title).length &&
+        normMessage.includes(normalizeEntityText(longest.title))
+      ) {
+        result.validatedContext.courseId = longest.id;
+        result.courseTitle = longest.title;
+        const status = longest.status || (longest.is_active === 1 ? 'published' : 'draft');
+        result.courseInfo = `Current Course: "${longest.title}" (ID: ${longest.id}, Grade: ${longest.grade}, Price: ${longest.price} EGP, Status: ${status})`;
+      } else {
+        result.ambiguousEntity = true;
+        result.ambiguityReason = 'يوجد أكثر من كورس مطابق للاسم المحدد. يرجى تحديد الكورس بدقة.';
+        return result;
+      }
+    } else if (hasExplicitMention) {
+      // User explicitly specified a course title/mention, but no course in DB matches
+      result.ambiguousEntity = true;
+      result.ambiguityReason = 'لم أتمكن من العثور على الكورس المطلوب. يرجى التأكد من اسم الكورس بدقة.';
+      return result;
+    }
+  }
+
+  // 2. If no explicit course was named in message, fall back to ambient context.courseId
+  if (!result.validatedContext.courseId && context?.courseId && typeof context.courseId === 'string') {
+    const ambientCourseId = context.courseId.trim();
+    const course = allCourses.find((c) => c.id === ambientCourseId) ||
+      (await db
+        ?.prepare('SELECT id, title, grade, price, status FROM courses WHERE id = ?')
+        ?.bind(ambientCourseId)
+        ?.first());
+
+    if (course) {
+      result.validatedContext.courseId = course.id;
+      result.courseTitle = course.title;
+      const status = course.status || (course.is_active === 1 ? 'published' : 'draft');
+      result.courseInfo = `Current Course: "${course.title}" (ID: ${course.id}, Grade: ${course.grade}, Price: ${course.price} EGP, Status: ${status})`;
+    }
+  }
+
+  // 3. If still unresolved and user requested a price update on "الكورس" without specifying title:
+  if (!result.validatedContext.courseId && message && typeof message === 'string') {
+    const hasPrice = hasPriceIntent(message);
+    if (hasPrice) {
+      if (allCourses.length === 1) {
+        const course = allCourses[0];
         result.validatedContext.courseId = course.id;
         result.courseTitle = course.title;
         const status = course.status || (course.is_active === 1 ? 'published' : 'draft');
         result.courseInfo = `Current Course: "${course.title}" (ID: ${course.id}, Grade: ${course.grade}, Price: ${course.price} EGP, Status: ${status})`;
-      } else if (candidateMatches.length > 1) {
-        // Multiple matches: check if one is strictly more specific (longer full title)
-        const sorted = [...candidateMatches].sort((a, b) => b.title.length - a.title.length);
-        const longest = sorted[0];
-        const secondLongest = sorted[1];
-        if (
-          normalizeEntityText(longest.title).length > normalizeEntityText(secondLongest.title).length &&
-          normMessage.includes(normalizeEntityText(longest.title))
-        ) {
-          result.validatedContext.courseId = longest.id;
-          result.courseTitle = longest.title;
-          const status = longest.status || (longest.is_active === 1 ? 'published' : 'draft');
-          result.courseInfo = `Current Course: "${longest.title}" (ID: ${longest.id}, Grade: ${longest.grade}, Price: ${longest.price} EGP, Status: ${status})`;
-        } else {
-          result.ambiguousEntity = true;
-          result.ambiguityReason = 'يوجد أكثر من كورس مطابق للاسم المحدد. يرجى تحديد الكورس بدقة.';
-        }
+      } else if (allCourses.length > 1) {
+        result.ambiguousEntity = true;
+        result.ambiguityReason = 'أحتاج إلى تحديد الكورس المقصود قبل تعديل السعر، حيث يوجد أكثر من كورس مسجل.';
       } else {
-        // If the user explicitly requested a price update on "الكورس" without specifying title:
-        const hasPrice = hasPriceIntent(message);
-        if (hasPrice) {
-          if (allCourses.length === 1) {
-            const course = allCourses[0];
-            result.validatedContext.courseId = course.id;
-            result.courseTitle = course.title;
-            const status = course.status || (course.is_active === 1 ? 'published' : 'draft');
-            result.courseInfo = `Current Course: "${course.title}" (ID: ${course.id}, Grade: ${course.grade}, Price: ${course.price} EGP, Status: ${status})`;
-          } else if (allCourses.length > 1) {
-            result.ambiguousEntity = true;
-            result.ambiguityReason = 'أحتاج إلى تحديد الكورس المقصود قبل تعديل السعر، حيث يوجد أكثر من كورس مسجل.';
-          } else {
-            result.ambiguousEntity = true;
-            result.ambiguityReason = 'لم أتمكن من العثور على الكورس المطلوب. يرجى التأكد من اسم الكورس بدقة.';
-          }
-        }
+        result.ambiguousEntity = true;
+        result.ambiguityReason = 'لم أتمكن من العثور على الكورس المطلوب. يرجى التأكد من اسم الكورس بدقة.';
       }
     }
   }
@@ -368,7 +400,7 @@ export function formatReadToolOutput(actionsExecuted: Array<{ tool: string; resu
 export function injectCompatibleContext(
   toolName: string,
   modelParameters: Record<string, unknown> | undefined,
-  validatedContext: OrchestratorContext | undefined
+  validatedContext: (OrchestratorContext & { courseTitle?: string }) | undefined
 ): Record<string, unknown> {
   const params: Record<string, unknown> = { ...(modelParameters || {}) };
   if (!validatedContext) {
@@ -388,7 +420,17 @@ export function injectCompatibleContext(
     const value = validatedContext[contextKey];
     if (value !== undefined && value !== null && value !== '') {
       const modelProvidedParameter = Object.prototype.hasOwnProperty.call(params, targetParameter);
-      if (!modelProvidedParameter) {
+      const rawValue = params[targetParameter];
+
+      const isPlaceholderOrTitle =
+        typeof rawValue === 'string' &&
+        rawValue !== '' &&
+        (rawValue === targetParameter ||
+          (validatedContext.courseTitle &&
+            (rawValue === validatedContext.courseTitle ||
+              normalizeEntityText(rawValue) === normalizeEntityText(validatedContext.courseTitle))));
+
+      if (!modelProvidedParameter || isPlaceholderOrTitle) {
         params[targetParameter] = value;
       }
     }
@@ -548,8 +590,9 @@ export async function orchestrateAdminChat(
 
       // Pre-execution conformance boundary: validate tool names and arguments without mutation.
       const rawActions = Array.isArray(initialPlan?.actions) ? initialPlan.actions : [];
+      const contextWithTitle = { ...resolved.validatedContext, courseTitle: resolved.courseTitle };
       if (rawActions.length > 0) {
-        const initialValidation = validatePlannedActions(rawActions, resolved.validatedContext);
+        const initialValidation = validatePlannedActions(rawActions, contextWithTitle);
         for (const action of rawActions) {
           if (isRegisteredTool(action.tool)) {
             const compat = isToolCompatibleWithRequest(rawMessage, action.tool);
@@ -603,7 +646,7 @@ export async function orchestrateAdminChat(
               }
             }
 
-            repairedValidation = validatePlannedActions(repairedActions, resolved.validatedContext);
+            repairedValidation = validatePlannedActions(repairedActions, contextWithTitle);
 
             if (repairedActions.length > 0 && repairedValidation.valid) {
               return repairedPlan;
@@ -637,7 +680,7 @@ export async function orchestrateAdminChat(
           });
 
           if (validRepaired.length > 0) {
-            const repairedValidation = validatePlannedActions(validRepaired, resolved.validatedContext);
+            const repairedValidation = validatePlannedActions(validRepaired, contextWithTitle);
             if (repairedValidation.valid) {
               return { ...repairedPlan, actions: validRepaired };
             }
@@ -701,7 +744,26 @@ export async function orchestrateAdminChat(
 
   const actions = registeredActions.map((a) => {
     // Inject validated contextual IDs ONLY if accepted by authoritative tool schema
-    const params = injectCompatibleContext(a.tool, a.parameters, resolved.validatedContext);
+    const params = injectCompatibleContext(a.tool, a.parameters, {
+      ...resolved.validatedContext,
+      courseTitle: resolved.courseTitle,
+    });
+
+    // Enforce canonical entity ID for course-bound operations
+    if (resolved.validatedContext.courseId && toolAcceptsParameter(a.tool, 'courseId')) {
+      const rawCourseId = params.courseId;
+      const isTitleOrPlaceholder =
+        !rawCourseId ||
+        rawCourseId === 'courseId' ||
+        rawCourseId === resolved.courseTitle ||
+        (resolved.courseTitle &&
+          normalizeEntityText(String(rawCourseId)) === normalizeEntityText(resolved.courseTitle));
+
+      if (isTitleOrPlaceholder) {
+        params.courseId = resolved.validatedContext.courseId;
+      }
+    }
+
     return {
       tool: a.tool,
       parameters: params,

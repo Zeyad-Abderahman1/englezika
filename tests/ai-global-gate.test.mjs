@@ -516,7 +516,7 @@ describe('PostgreSQL Global AI Gate (Multi-Worker Single-Flight Coordination)', 
     };
 
     // Worker 1 starts generation
-    const job1 = worker1Queue.enqueue(makeTask('worker1', 60));
+    const job1 = worker1Queue.enqueue(makeTask('worker1', 200));
     await new Promise((r) => setTimeout(r, 15));
 
     // Worker 2 enqueues (becomes waiting #1 in global queue)

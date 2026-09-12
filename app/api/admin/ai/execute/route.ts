@@ -5,6 +5,7 @@ import { loadAiServerConfig } from '../../../../lib/ai/ai-config.server';
 import { verifyAndExecuteConfirmation } from '../../../../lib/ai/confirmation.server';
 import { executeTool } from '../../../../lib/ai/tool-executor';
 import type { AiToolName } from '../../../../lib/ai/tool-registry';
+import { formatUserFacingConfirmationError } from '../../../../lib/ai/confirmation-state';
 
 export const runtime = 'nodejs';
 
@@ -98,11 +99,16 @@ export async function POST(request: Request) {
       result: executionResult.result,
     });
   } catch (error: any) {
-    const errorMsg = error?.message || 'فشل تنفيذ الإجراء المؤكد';
-    const isConflict = errorMsg.includes('currently executing') || errorMsg.includes('stale or crashed');
-    const isForbidden = errorMsg.includes('Actor mismatch') || errorMsg.includes('signature');
+    const rawErrorMsg = error?.message || 'فشل تنفيذ الإجراء المؤكد';
+    const userMsg = formatUserFacingConfirmationError(rawErrorMsg);
+
+    const isConflict =
+      rawErrorMsg.includes('currently executing') ||
+      rawErrorMsg.includes('stale or crashed') ||
+      rawErrorMsg.includes('already failed');
+    const isForbidden = rawErrorMsg.includes('Actor mismatch') || rawErrorMsg.includes('signature');
     const status = isConflict ? 409 : isForbidden ? 403 : 500;
 
-    return jsonError(errorMsg, status);
+    return jsonError(userMsg, status);
   }
 }
