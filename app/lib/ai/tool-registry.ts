@@ -42,6 +42,8 @@ export interface ToolFieldSchema {
   description?: string;
 }
 
+export type ToolContextKey = 'courseId' | 'lectureId' | 'assessmentId';
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -50,6 +52,7 @@ export interface ToolDefinition {
   riskLevel: ToolRiskLevel;
   confirmationPolicy: ToolConfirmationPolicy;
   allowedKeys: Record<string, ToolFieldSchema>;
+  contextBindings?: Record<string, ToolContextKey>;
 }
 
 const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
@@ -64,6 +67,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     allowedKeys: {
       courseId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
     },
+    contextBindings: { courseId: 'courseId' },
   },
 
   get_course: {
@@ -76,6 +80,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     allowedKeys: {
       courseId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
     },
+    contextBindings: { courseId: 'courseId' },
   },
 
   search_courses: {
@@ -114,6 +119,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     allowedKeys: {
       videoId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
     },
+    contextBindings: { videoId: 'lectureId' },
   },
 
   get_assessment_details: {
@@ -126,6 +132,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     allowedKeys: {
       assessmentId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
     },
+    contextBindings: { assessmentId: 'assessmentId' },
   },
 
   // --- COURSE TOOLS ---
@@ -157,6 +164,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
       grade: { type: 'string', required: false, minLength: 1, maxLength: 50 },
       description: { type: 'string', required: false, maxLength: 2000 },
     },
+    contextBindings: { courseId: 'courseId' },
   },
 
   update_course_price: {
@@ -170,6 +178,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
       courseId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
       price: { type: 'number', required: true, min: 0, max: 100000 },
     },
+    contextBindings: { courseId: 'courseId' },
   },
 
   delete_course: {
@@ -182,6 +191,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     allowedKeys: {
       courseId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
     },
+    contextBindings: { courseId: 'courseId' },
   },
 
   publish_course: {
@@ -194,6 +204,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     allowedKeys: {
       courseId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
     },
+    contextBindings: { courseId: 'courseId' },
   },
 
   // --- LECTURE TOOLS ---
@@ -211,6 +222,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
       duration: { type: 'number', required: false, min: 0, max: 86400 },
       maxViews: { type: 'number', required: false, min: 0, max: 1000 },
     },
+    contextBindings: { courseId: 'courseId' },
   },
 
   update_lecture: {
@@ -226,6 +238,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
       youtubeUrl: { type: 'string', required: false, minLength: 5, maxLength: 500 },
       maxViews: { type: 'number', required: false, min: 0, max: 1000 },
     },
+    contextBindings: { videoId: 'lectureId' },
   },
 
   delete_lecture: {
@@ -238,6 +251,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     allowedKeys: {
       videoId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
     },
+    contextBindings: { videoId: 'lectureId' },
   },
 
   publish_lecture: {
@@ -250,6 +264,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     allowedKeys: {
       videoId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
     },
+    contextBindings: { videoId: 'lectureId' },
   },
 
   set_lecture_view_limit: {
@@ -263,6 +278,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
       videoId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
       maxViews: { type: 'number', required: true, min: 0, max: 1000 },
     },
+    contextBindings: { videoId: 'lectureId' },
   },
 
   // --- SEQUENCE TOOL ---
@@ -277,6 +293,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
       courseId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
       items: { type: 'array', required: true },
     },
+    contextBindings: { courseId: 'courseId' },
   },
 
   // --- ASSESSMENT TOOLS ---
@@ -294,6 +311,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
       durationMinutes: { type: 'number', required: false, min: 5, max: 300 },
       passingScore: { type: 'number', required: false, min: 0, max: 100 },
     },
+    contextBindings: { courseId: 'courseId' },
   },
 
   create_quiz: {
@@ -310,6 +328,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
       durationMinutes: { type: 'number', required: false, min: 5, max: 120 },
       passingScore: { type: 'number', required: false, min: 0, max: 100 },
     },
+    contextBindings: { courseId: 'courseId' },
   },
 
   delete_exam: {
@@ -322,6 +341,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     allowedKeys: {
       examId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
     },
+    contextBindings: { examId: 'assessmentId' },
   },
 
   publish_exam: {
@@ -334,6 +354,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     allowedKeys: {
       examId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
     },
+    contextBindings: { examId: 'assessmentId' },
   },
 
   publish_assessment: {
@@ -346,6 +367,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     allowedKeys: {
       assessmentId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
     },
+    contextBindings: { assessmentId: 'assessmentId' },
   },
 
   delete_assessment: {
@@ -358,6 +380,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     allowedKeys: {
       assessmentId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
     },
+    contextBindings: { assessmentId: 'assessmentId' },
   },
 
 
@@ -374,6 +397,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
       title: { type: 'string', required: true, minLength: 2, maxLength: 200 },
       description: { type: 'string', required: false, maxLength: 2000 },
     },
+    contextBindings: { courseId: 'courseId' },
   },
 
   publish_assignment: {
@@ -438,5 +462,4 @@ export function toolAcceptsParameter(toolName: string, parameterName: string): b
   }
   return Object.prototype.hasOwnProperty.call(def.allowedKeys, parameterName);
 }
-
 

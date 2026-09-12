@@ -109,7 +109,7 @@ function validateToolArguments(
 
   // 2. Reject unrecognized parameters not defined in tool schema
   for (const key of Object.keys(args)) {
-    if (!tool.allowedKeys[key]) {
+    if (!Object.prototype.hasOwnProperty.call(tool.allowedKeys, key)) {
       throw new ToolExecutionError(
         `Unrecognized parameter '${key}' for tool '${tool.name}'`,
         'INVALID_ARGS',

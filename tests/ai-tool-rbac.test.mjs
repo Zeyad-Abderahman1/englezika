@@ -517,6 +517,27 @@ describe('Phase 3: Confirmation Boundary & Financial Protection', () => {
 });
 
 describe('Phase 3: Read Tool Data Minimization & Input Validation', () => {
+  for (const inheritedName of ['__proto__', 'constructor', 'toString']) {
+    test(`strict validation rejects own unknown parameter ${inheritedName}`, async () => {
+      const mockDb = new MockDatabase();
+      const args = JSON.parse(`{${JSON.stringify(inheritedName)}:"x"}`);
+      assert.equal(Object.prototype.hasOwnProperty.call(args, inheritedName), true);
+
+      await assert.rejects(
+        () => executeTool({
+          actor: teacherActor,
+          toolName: 'list_courses',
+          args,
+          context: { db: mockDb },
+        }),
+        (err) =>
+          err instanceof ToolExecutionError &&
+          err.code === 'INVALID_ARGS' &&
+          err.message.includes(`Unrecognized parameter '${inheritedName}'`)
+      );
+    });
+  }
+
   test('read tools return minimized metadata without sensitive student or system data', async () => {
     const mockDb = new MockDatabase();
 

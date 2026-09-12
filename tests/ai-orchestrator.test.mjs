@@ -365,11 +365,24 @@ describe('Phase 6: Schema-Bounded Context Parameter Injection', () => {
     assert.equal(injected.courseId, 'c_model_explicit');
   });
 
-  test('E. get_lecture_details receives contextual lectureId only when declared (declares videoId -> not injected)', () => {
+  test('D1. Explicit null model courseId is preserved for strict validation', () => {
+    const injected = injectCompatibleContext('get_course', { courseId: null }, sampleContext);
+    assert.deepEqual(injected, { courseId: null });
+  });
+
+  test('D2. Explicit empty model courseId is preserved for strict validation', () => {
+    const injected = injectCompatibleContext('get_course', { courseId: '' }, sampleContext);
+    assert.deepEqual(injected, { courseId: '' });
+  });
+
+  test('D3. Absent model courseId receives explicitly bound trusted context', () => {
+    const injected = injectCompatibleContext('get_course', {}, sampleContext);
+    assert.deepEqual(injected, { courseId: 'c_unit4' });
+  });
+
+  test('E. get_lecture_details maps trusted lectureId context to its videoId argument', () => {
     const injected = injectCompatibleContext('get_lecture_details', {}, sampleContext);
-    assert.equal(injected.lectureId, undefined);
-    assert.equal(toolAcceptsParameter('get_lecture_details', 'lectureId'), false);
-    assert.equal(toolAcceptsParameter('get_lecture_details', 'videoId'), true);
+    assert.deepEqual(injected, { videoId: 'v_lec1' });
   });
 
   test('F. assessment tools receive assessmentId only when declared', () => {

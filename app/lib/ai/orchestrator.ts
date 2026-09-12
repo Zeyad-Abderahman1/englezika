@@ -275,12 +275,21 @@ export function injectCompatibleContext(
     return params;
   }
 
-  for (const [key, value] of Object.entries(validatedContext)) {
+  const tool = getToolDefinition(toolName);
+  if (!tool?.contextBindings) {
+    return params;
+  }
+
+  for (const [targetParameter, contextKey] of Object.entries(tool.contextBindings)) {
+    if (!toolAcceptsParameter(toolName, targetParameter)) {
+      continue;
+    }
+
+    const value = validatedContext[contextKey];
     if (value !== undefined && value !== null && value !== '') {
-      const existing = params[key];
-      const isMissing = existing === undefined || existing === null || existing === '';
-      if (isMissing && toolAcceptsParameter(toolName, key)) {
-        params[key] = value;
+      const modelProvidedParameter = Object.prototype.hasOwnProperty.call(params, targetParameter);
+      if (!modelProvidedParameter) {
+        params[targetParameter] = value;
       }
     }
   }

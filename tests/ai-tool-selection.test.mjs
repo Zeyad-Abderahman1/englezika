@@ -594,7 +594,6 @@ describe('AI Planner Tool-Selection & Canonical Registry Enforcement Suite', () 
 
   test('W. Production Regression: Arabic list request with admin context containing courseId executes list_courses without courseId injection', async () => {
     const db = new MockToolSelectionDb();
-    let executedArgs = null;
     const mockProvider = new MockAiProvider({
       mockPlan: {
         planText: '',
@@ -603,6 +602,9 @@ describe('AI Planner Tool-Selection & Canonical Registry Enforcement Suite', () 
     });
 
     const arabicPrompt = 'اعرض لي الكورسات الموجودة حاليًا مع اسم كل كورس وحالته فقط. لا تنشئ أو تعدل أو تحذف أي شيء.';
+
+    const executedParameters = injectCompatibleContext('list_courses', {}, { courseId: 'c_1' });
+    assert.deepEqual(executedParameters, {}, 'Canonical executor input must remain exactly empty');
 
     // Admin context contains an active courseId
     const result = await orchestrateAdminChat({
@@ -701,9 +703,9 @@ describe('AI Planner Tool-Selection & Canonical Registry Enforcement Suite', () 
     const explicitParams = injectCompatibleContext('get_course', { courseId: 'c_explicit' }, validatedContext);
     assert.equal(explicitParams.courseId, 'c_explicit', 'Explicit model parameter must take precedence');
 
-    // E. get_lecture_details receives contextual lectureId only when declared (not declared -> not injected)
+    // E. get_lecture_details maps the trusted lecture context to its declared videoId argument
     const getLectureParams = injectCompatibleContext('get_lecture_details', {}, validatedContext);
-    assert.equal(getLectureParams.lectureId, undefined, 'lectureId must not be injected unless declared in schema');
+    assert.deepEqual(getLectureParams, { videoId: 'v_lec1' });
 
     // F. assessment tools receive assessmentId only when declared
     const assessmentDetailsParams = injectCompatibleContext('get_assessment_details', {}, validatedContext);
@@ -750,6 +752,44 @@ describe('AI Planner Tool-Selection & Canonical Registry Enforcement Suite', () 
     );
   });
 
+  test('Z1. Explicit null courseId remains model-owned and strict validation rejects it', async () => {
+    const db = new MockToolSelectionDb();
+    const mockProvider = new MockAiProvider({
+      mockPlan: { planText: '', actions: [{ tool: 'get_course', parameters: { courseId: null } }] },
+    });
+
+    await assert.rejects(
+      () => orchestrateAdminChat({
+        actor: teacherActor,
+        message: 'اعرض تفاصيل الدورة',
+        context: { courseId: 'c_1' },
+        provider: mockProvider,
+        secret: TEST_SECRET,
+        db,
+      }),
+      (err) => err instanceof ToolExecutionError && err.message.includes("Missing required parameter 'courseId'")
+    );
+  });
+
+  test('Z2. Explicit empty courseId remains model-owned and strict validation rejects it', async () => {
+    const db = new MockToolSelectionDb();
+    const mockProvider = new MockAiProvider({
+      mockPlan: { planText: '', actions: [{ tool: 'get_course', parameters: { courseId: '' } }] },
+    });
+
+    await assert.rejects(
+      () => orchestrateAdminChat({
+        actor: teacherActor,
+        message: 'اعرض تفاصيل الدورة',
+        context: { courseId: 'c_1' },
+        provider: mockProvider,
+        secret: TEST_SECRET,
+        db,
+      }),
+      (err) => err instanceof ToolExecutionError && err.message.includes("Missing required parameter 'courseId'")
+    );
+  });
+
   test('AA. get_course receives contextual courseId when its schema accepts it and executes successfully', async () => {
     const db = new MockToolSelectionDb();
     const mockProvider = new MockAiProvider({
@@ -776,4 +816,3 @@ describe('AI Planner Tool-Selection & Canonical Registry Enforcement Suite', () 
   });
 
 });
-
