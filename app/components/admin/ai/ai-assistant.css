@@ -577,14 +577,29 @@
   gap: 0.5rem;
 }
 
-.ai-option-input {
-  flex: 1;
+.ai-option-row > input[type='radio'] {
+  flex: 0 0 1rem;
+  width: 1rem;
+  min-width: 1rem;
+  height: 1rem;
+  margin: 0;
+}
+
+.ai-option-row > .ai-option-input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
   padding: 0.4rem 0.6rem;
   color: #cbd5e1;
   font-size: 0.88rem;
+  text-align: start;
+}
+
+.ai-option-correct-label {
+  white-space: nowrap;
 }
 
 .ai-modal-footer {
@@ -1695,6 +1710,15 @@
 .ai-modal-footer { position: sticky; bottom: 0; z-index: 2; background: var(--surface); }
 
 @media (max-width: 768px) {
+  .ai-option-row {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+  }
+
+  .ai-option-correct-label {
+    grid-column: 3;
+  }
+
   .ai-tools-grid, .ai-pdf-tool-card { grid-template-columns: 1fr; }
   .ai-page-heading { align-items: flex-start; }
   .ai-pdf-dropzone { min-height: 220px; }

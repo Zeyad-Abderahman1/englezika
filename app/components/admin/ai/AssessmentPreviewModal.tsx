@@ -287,6 +287,7 @@ export function AssessmentPreviewModal({
                   <input
                     type="text"
                     className="ai-question-prompt-input"
+                    dir="auto"
                     value={q.prompt}
                     onChange={(e) => handlePromptChange(qIdx, e.target.value)}
                     placeholder="نص السؤال..."
@@ -337,8 +338,10 @@ export function AssessmentPreviewModal({
                           <input
                             type="text"
                             className="ai-option-input"
+                            dir="auto"
                             value={opt}
                             placeholder={`نص الخيار ${letter}...`}
+                            aria-label={`نص الخيار ${letter} للسؤال ${qIdx + 1}`}
                             onChange={(e) => handleOptionChange(qIdx, optIdx, e.target.value)}
                             style={{
                               borderColor: isOptEmpty ? '#ef4444' : isCorrect ? '#22c55e' : undefined,
@@ -350,7 +353,7 @@ export function AssessmentPreviewModal({
                             }}
                           />
                           {isCorrect && opt.trim().length > 0 && (
-                            <span className="text-xs text-green-400 font-bold" style={{ whiteSpace: 'nowrap' }}>
+                            <span className="ai-option-correct-label text-xs text-green-400 font-bold">
                               الإجابة الصحيحة
                             </span>
                           )}
