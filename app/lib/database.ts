@@ -112,13 +112,22 @@ export class PreparedStatement {
   }
 }
 
+function isPool(target: unknown): target is Pool {
+  if (!target || typeof target !== 'object') return false;
+  if (target instanceof Pool) return true;
+  return (
+    typeof (target as any).connect === 'function' &&
+    typeof (target as any).release !== 'function'
+  );
+}
+
 export class Database {
   readonly pool: Pool;
   readonly client?: PoolClient;
 
   constructor(poolOrClient: Pool | PoolClient) {
-    if ('connect' in poolOrClient && typeof (poolOrClient as Pool).connect === 'function') {
-      this.pool = poolOrClient as Pool;
+    if (isPool(poolOrClient)) {
+      this.pool = poolOrClient;
     } else {
       this.client = poolOrClient as PoolClient;
       this.pool = undefined as unknown as Pool;
@@ -152,7 +161,10 @@ export class Database {
       return results;
     }
 
-    const client = await this.pool!.connect();
+    if (!this.pool) {
+      throw new Error('Database has no pool or client');
+    }
+    const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
       const results: DatabaseResult[] = [];
@@ -181,7 +193,10 @@ export class Database {
     if (this.client) {
       return callback(this);
     }
-    const client = await this.pool!.connect();
+    if (!this.pool) {
+      throw new Error('Database has no pool or client');
+    }
+    const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
       const txDb = new Database(client);
@@ -198,7 +213,9 @@ export class Database {
 
   async readBatch(statements: PreparedStatement[]) {
     const requestedConcurrency = Number(process.env.DATABASE_READ_BATCH_CONCURRENCY || 4);
-    const concurrency = Number.isFinite(requestedConcurrency)
+    const concurrency = this.client
+      ? 1
+      : Number.isFinite(requestedConcurrency)
       ? Math.min(Math.max(Math.round(requestedConcurrency), 1), statements.length)
       : Math.min(4, statements.length);
     const results = new Array<DatabaseResult>(statements.length);

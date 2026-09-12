@@ -474,6 +474,8 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
             passingScore: args.passingScore,
             status: 'draft',
             assessmentType: 'exam',
+            coverageStartLectureId: args.coverageStartLectureId ? String(args.coverageStartLectureId) : undefined,
+            coverageEndLectureId: args.coverageEndLectureId ? String(args.coverageEndLectureId) : undefined,
           },
           actor,
           serviceContext
@@ -494,6 +496,8 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
             passingScore: args.passingScore,
             status: 'draft',
             assessmentType: 'quiz',
+            coverageStartLectureId: args.coverageStartLectureId ? String(args.coverageStartLectureId) : undefined,
+            coverageEndLectureId: args.coverageEndLectureId ? String(args.coverageEndLectureId) : undefined,
           },
           actor,
           serviceContext
