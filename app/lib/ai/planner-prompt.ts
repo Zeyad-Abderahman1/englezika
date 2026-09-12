@@ -1,4 +1,4 @@
-import { getToolRegistry, type ToolDefinition } from './tool-registry';
+import { getToolRegistry, getToolDefinition, isRegisteredTool, type ToolDefinition } from './tool-registry';
 
 /**
  * AI Planner System Prompt & Bounded Repair Templates
@@ -44,8 +44,26 @@ RULES:
 
 export function getSchemaRepairPrompt(
   originalInstruction: string,
-  validationErrors: string[]
+  validationErrors: string[],
+  lockedToolName?: string
 ): string {
+  if (lockedToolName && isRegisteredTool(lockedToolName)) {
+    const tool = getToolDefinition(lockedToolName);
+    const catalogLine = tool ? toolCatalogLine(tool) : '';
+    return `Correction required: the previous plan for "${lockedToolName}" failed authoritative schema validation.
+Errors:
+${validationErrors.map((error) => `- ${error}`).join('\n')}
+
+LOCKED TOOL: "${lockedToolName}"
+You MUST use tool "${lockedToolName}". Tool substitution or changing to any other tool is STRICTLY FORBIDDEN.
+Registry specification for "${lockedToolName}":
+${catalogLine}
+
+Do not silently remove or execute invalid arguments. Return a newly planned action for "${lockedToolName}" using only declared AI arguments. Never supply actor identity, permissions, confirmation state, status, is_active, publish state, owner identity, or audit fields. Do not invent missing business values.
+Original request: "${originalInstruction}"
+Output valid JSON: { "planText": string, "actions": [{ "tool": "${lockedToolName}", "parameters": object }], "explanation": string }`;
+  }
+
   return `Correction required: the previous plan failed authoritative schema validation.
 Errors:
 ${validationErrors.map((error) => `- ${error}`).join('\n')}

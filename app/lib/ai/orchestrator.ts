@@ -12,6 +12,7 @@ import { generateActionPreview, type ConfirmationPreview } from './preview-gener
 import type { StaffActor } from './tool-executor';
 import { getSchemaRepairPrompt, getEmptyActionRepairPrompt, SAFE_FALLBACK_REPLY } from './planner-prompt';
 import { resolveSafeReadIntent, isConversationalMessage } from './read-intent-resolver';
+import { isToolCompatibleWithRequest, hasPriceIntent } from './semantic-intent-guard';
 
 export const MAX_MESSAGE_LENGTH = 2000;
 export const MAX_STORED_MESSAGES = 20;
@@ -50,24 +51,37 @@ export interface OrchestratorResult {
   preview?: ConfirmationPreview;
 }
 
+function normalizeEntityText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[\u064B-\u065F]/g, '') // remove Arabic diacritics
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export interface ResolvedContextResult {
+  courseInfo?: string;
+  lectureInfo?: string;
+  assessmentInfo?: string;
+  validatedContext: OrchestratorContext;
+  courseTitle?: string;
+  ambiguousEntity?: boolean;
+  ambiguityReason?: string;
+}
+
 /**
  * Validates and resolves course/lecture/assessment references from server database.
  * The model NEVER invents trusted entity IDs.
  */
 export async function resolveContext(
   context: OrchestratorContext | undefined,
-  db: any
-): Promise<{ courseInfo?: string; lectureInfo?: string; assessmentInfo?: string; validatedContext: OrchestratorContext }> {
-  const result: {
-    courseInfo?: string;
-    lectureInfo?: string;
-    assessmentInfo?: string;
-    validatedContext: OrchestratorContext;
-  } = { validatedContext: {} };
+  db: any,
+  message?: string
+): Promise<ResolvedContextResult> {
+  const result: ResolvedContextResult = { validatedContext: {} };
 
-  if (!context) return result;
-
-  if (context.courseId && typeof context.courseId === 'string') {
+  if (context?.courseId && typeof context.courseId === 'string') {
     const course = await db
       .prepare('SELECT id, title, grade, price, status FROM courses WHERE id = ?')
       .bind(context.courseId.trim())
@@ -75,12 +89,98 @@ export async function resolveContext(
 
     if (course) {
       result.validatedContext.courseId = course.id;
+      result.courseTitle = course.title;
       const status = course.status || (course.is_active === 1 ? 'published' : 'draft');
       result.courseInfo = `Current Course: "${course.title}" (ID: ${course.id}, Grade: ${course.grade}, Price: ${course.price} EGP, Status: ${status})`;
     }
   }
 
-  if (context.lectureId && typeof context.lectureId === 'string') {
+  // Safe server-side entity resolution from user message when context courseId is not explicitly bound
+  if (!result.validatedContext.courseId && db && message && typeof message === 'string') {
+    let allCourses: any[] = [];
+    try {
+      if (typeof db.query === 'function') {
+        const qRes = await db.query('SELECT id, title, grade, price, status FROM courses');
+        allCourses = qRes?.rows ? qRes.rows : (Array.isArray(qRes) ? qRes : []);
+      } else if (typeof db.prepare === 'function') {
+        const qRes = await db.prepare('SELECT id, title, grade, price, status FROM courses').all();
+        allCourses = Array.isArray(qRes?.results) ? qRes.results : (Array.isArray(qRes) ? qRes : []);
+      }
+    } catch {
+      allCourses = [];
+    }
+
+    if (allCourses.length > 0) {
+      const normMessage = normalizeEntityText(message);
+      const candidateMatches: any[] = [];
+
+      // Extract candidate entity phrase if user explicitly named a course after "كورس" or "دورة"
+      const mentionMatch = message.match(/(?:كورس|دورة|course)\s+(.+?)(?:\s+(?:إلى|الى|بـ|ب|يبقى|يكون|لـ|ل|to|for)\s+\d+|\s*$)/i);
+      const extractedMention = mentionMatch ? normalizeEntityText(mentionMatch[1]) : '';
+
+      for (const c of allCourses) {
+        if (!c.title) continue;
+        const normTitle = normalizeEntityText(c.title);
+        if (normTitle.length >= 2 && normMessage.includes(normTitle)) {
+          candidateMatches.push(c);
+          continue;
+        }
+        const strippedTitle = normTitle.replace(/^(?:كورس|دورة)\s+/, '');
+        if (strippedTitle.length >= 3 && normMessage.includes(strippedTitle)) {
+          candidateMatches.push(c);
+          continue;
+        }
+        if (extractedMention.length >= 3 && (normTitle.includes(extractedMention) || strippedTitle.includes(extractedMention))) {
+          candidateMatches.push(c);
+        }
+      }
+
+      if (candidateMatches.length === 1) {
+        const course = candidateMatches[0];
+        result.validatedContext.courseId = course.id;
+        result.courseTitle = course.title;
+        const status = course.status || (course.is_active === 1 ? 'published' : 'draft');
+        result.courseInfo = `Current Course: "${course.title}" (ID: ${course.id}, Grade: ${course.grade}, Price: ${course.price} EGP, Status: ${status})`;
+      } else if (candidateMatches.length > 1) {
+        // Multiple matches: check if one is strictly more specific (longer full title)
+        const sorted = [...candidateMatches].sort((a, b) => b.title.length - a.title.length);
+        const longest = sorted[0];
+        const secondLongest = sorted[1];
+        if (
+          normalizeEntityText(longest.title).length > normalizeEntityText(secondLongest.title).length &&
+          normMessage.includes(normalizeEntityText(longest.title))
+        ) {
+          result.validatedContext.courseId = longest.id;
+          result.courseTitle = longest.title;
+          const status = longest.status || (longest.is_active === 1 ? 'published' : 'draft');
+          result.courseInfo = `Current Course: "${longest.title}" (ID: ${longest.id}, Grade: ${longest.grade}, Price: ${longest.price} EGP, Status: ${status})`;
+        } else {
+          result.ambiguousEntity = true;
+          result.ambiguityReason = 'يوجد أكثر من كورس مطابق للاسم المحدد. يرجى تحديد الكورس بدقة.';
+        }
+      } else {
+        // If the user explicitly requested a price update on "الكورس" without specifying title:
+        const hasPrice = hasPriceIntent(message);
+        if (hasPrice) {
+          if (allCourses.length === 1) {
+            const course = allCourses[0];
+            result.validatedContext.courseId = course.id;
+            result.courseTitle = course.title;
+            const status = course.status || (course.is_active === 1 ? 'published' : 'draft');
+            result.courseInfo = `Current Course: "${course.title}" (ID: ${course.id}, Grade: ${course.grade}, Price: ${course.price} EGP, Status: ${status})`;
+          } else if (allCourses.length > 1) {
+            result.ambiguousEntity = true;
+            result.ambiguityReason = 'أحتاج إلى تحديد الكورس المقصود قبل تعديل السعر، حيث يوجد أكثر من كورس مسجل.';
+          } else {
+            result.ambiguousEntity = true;
+            result.ambiguityReason = 'لم أتمكن من العثور على الكورس المطلوب. يرجى التأكد من اسم الكورس بدقة.';
+          }
+        }
+      }
+    }
+  }
+
+  if (context?.lectureId && typeof context.lectureId === 'string') {
     const lecture = await db
       .prepare('SELECT id, course_id, title, is_active FROM videos WHERE id = ?')
       .bind(context.lectureId.trim())
@@ -92,7 +192,7 @@ export async function resolveContext(
     }
   }
 
-  if (context.assessmentId && typeof context.assessmentId === 'string') {
+  if (context?.assessmentId && typeof context.assessmentId === 'string') {
     const exam = await db
       .prepare('SELECT id, course_id, title, exam_type, is_active FROM exams WHERE id = ?')
       .bind(context.assessmentId.trim())
@@ -407,7 +507,19 @@ export async function orchestrateAdminChat(
   await saveMessage(conversationId, 'user', rawMessage, null, db);
 
   // 2. Validate contextual entity references
-  const resolved = await resolveContext(options.context, db);
+  const resolved = await resolveContext(options.context, db, rawMessage);
+
+  // If entity reference is ambiguous or unresolvable, clarify before mutating
+  if (resolved.ambiguousEntity) {
+    const reply = resolved.ambiguityReason || 'يرجى تحديد الكورس المقصود بدقة قبل المتابعة.';
+    await saveMessage(conversationId, 'assistant', reply, null, db);
+    return {
+      conversationId,
+      reply,
+      actionsExecuted: [],
+      requiresConfirmation: false,
+    };
+  }
 
   // 3. Load bounded history (user & assistant messages only)
   const history = await loadConversationHistory(conversationId, staffEmail, db);
@@ -438,15 +550,59 @@ export async function orchestrateAdminChat(
       const rawActions = Array.isArray(initialPlan?.actions) ? initialPlan.actions : [];
       if (rawActions.length > 0) {
         const initialValidation = validatePlannedActions(rawActions, resolved.validatedContext);
+        for (const action of rawActions) {
+          if (isRegisteredTool(action.tool)) {
+            const compat = isToolCompatibleWithRequest(rawMessage, action.tool);
+            if (!compat.compatible) {
+              initialValidation.valid = false;
+              initialValidation.errors.push(compat.reason || `Tool '${action.tool}' is semantically incompatible with user request`);
+            }
+          }
+        }
+
         if (!initialValidation.valid) {
+          // Lock tool name ONLY if initial action is a registered tool compatible with the request
+          const initialTool = rawActions[0]?.tool;
+          const isInitialToolValid = isRegisteredTool(initialTool) && isToolCompatibleWithRequest(rawMessage, initialTool).compatible;
+          const lockedToolName = isInitialToolValid ? initialTool : undefined;
+
           // Perform exactly ONE bounded re-plan using registry-derived schemas.
-          const repairPrompt = getSchemaRepairPrompt(rawMessage, initialValidation.errors);
+          const repairPrompt = getSchemaRepairPrompt(rawMessage, initialValidation.errors, lockedToolName);
           let repairedValidation = initialValidation;
           try {
             const repairedPlan = await provider.generatePlan(repairPrompt, planContext, {
               signal: options.signal || signal,
             });
             const repairedActions = Array.isArray(repairedPlan?.actions) ? repairedPlan.actions : [];
+
+            // 1. Invariant: Tool substitution during repair is strictly rejected
+            if (lockedToolName) {
+              const substituted = repairedActions.some((a) => a.tool !== lockedToolName);
+              if (substituted) {
+                return {
+                  planText: SAFE_FALLBACK_REPLY,
+                  actions: [],
+                  explanation: `Plan repair rejected: tool substitution from '${lockedToolName}' is strictly prohibited.`,
+                  isInvalidToolPlan: true,
+                  failureReply: SAFE_FALLBACK_REPLY,
+                };
+              }
+            }
+
+            // 2. Semantic Intent Guard on repaired actions
+            for (const action of repairedActions) {
+              const compat = isToolCompatibleWithRequest(rawMessage, action.tool);
+              if (!compat.compatible) {
+                return {
+                  planText: SAFE_FALLBACK_REPLY,
+                  actions: [],
+                  explanation: `Repaired plan rejected by semantic intent guard: ${compat.reason}`,
+                  isInvalidToolPlan: true,
+                  failureReply: SAFE_FALLBACK_REPLY,
+                };
+              }
+            }
+
             repairedValidation = validatePlannedActions(repairedActions, resolved.validatedContext);
 
             if (repairedActions.length > 0 && repairedValidation.valid) {
@@ -475,11 +631,16 @@ export async function orchestrateAdminChat(
             signal: options.signal || signal,
           });
           const repairedActions = Array.isArray(repairedPlan?.actions) ? repairedPlan.actions : [];
-          const validRepaired = repairedActions.filter((a) => isRegisteredTool(a.tool));
+          const validRepaired = repairedActions.filter((a) => {
+            if (!isRegisteredTool(a.tool)) return false;
+            return isToolCompatibleWithRequest(rawMessage, a.tool).compatible;
+          });
 
           if (validRepaired.length > 0) {
-            // Repair succeeded with valid registered actions
-            return { ...repairedPlan, actions: validRepaired };
+            const repairedValidation = validatePlannedActions(validRepaired, resolved.validatedContext);
+            if (repairedValidation.valid) {
+              return { ...repairedPlan, actions: validRepaired };
+            }
           }
         } catch {
           // If repair fails, fall through to deterministic fallback
@@ -522,8 +683,11 @@ export async function orchestrateAdminChat(
     };
   }
 
-  // Filter actions to ensure ONLY canonical registered tools proceed
-  const registeredActions = (planResult.actions || []).filter((a) => isRegisteredTool(a.tool));
+  // Filter actions to ensure ONLY canonical registered tools proceed and pass semantic guard
+  const registeredActions = (planResult.actions || []).filter((a) => {
+    if (!isRegisteredTool(a.tool)) return false;
+    return isToolCompatibleWithRequest(rawMessage, a.tool).compatible;
+  });
   if ((planResult.actions || []).length > 0 && registeredActions.length === 0) {
     const reply = SAFE_FALLBACK_REPLY;
     await saveMessage(conversationId, 'assistant', reply, null, db);
@@ -553,7 +717,9 @@ export async function orchestrateAdminChat(
     const actionType = isCompound ? 'compound_plan' : actions[0].tool;
     const actionPayload = isCompound ? { steps: actions } : actions[0].parameters;
 
-    const preview = generateActionPreview(actionType, actionPayload);
+    const preview = generateActionPreview(actionType, actionPayload, {
+      courseTitle: resolved.courseTitle,
+    });
     const tokenResult = await createConfirmationRequest({
       actor: {
         email: options.actor.email,
@@ -567,7 +733,9 @@ export async function orchestrateAdminChat(
       db,
     });
 
-    const reply = planResult.planText || `تم إعداد خطة العمل (${preview.titleAr}). يرجى مراجعة التفاصيل وتأكيد التنفيذ.`;
+    const reply =
+      planResult.planText ||
+      `تم إعداد خطة العمل (${preview.descriptionAr || preview.titleAr}). يرجى مراجعة التفاصيل وتأكيد التنفيذ.`;
 
     await saveMessage(conversationId, 'assistant', reply, JSON.stringify({ tokenResult }), db);
 

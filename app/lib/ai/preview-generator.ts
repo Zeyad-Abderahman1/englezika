@@ -29,7 +29,11 @@ export interface ConfirmationPreview {
  * Generates human-readable, bilingual (Arabic & English) previews
  * for tool calls and compound plans prior to teacher confirmation.
  */
-export function generateActionPreview(actionType: string, payload: Record<string, any>): ConfirmationPreview {
+export function generateActionPreview(
+  actionType: string,
+  payload: Record<string, any>,
+  contextMeta?: { courseTitle?: string }
+): ConfirmationPreview {
   if (actionType === 'compound_plan') {
     return generateCompoundPlanPreview(payload);
   }
@@ -62,17 +66,19 @@ export function generateActionPreview(actionType: string, payload: Record<string
   const riskLevel: RiskLevel = tool.riskLevel;
   const requiresConfirmation = tool.confirmationPolicy !== 'none';
 
-
   switch (actionType) {
     case 'update_course_price': {
       const price = payload.price;
       const courseId = payload.courseId || '';
+      const courseTitle = contextMeta?.courseTitle || payload.courseTitle;
+      const displayCourse = courseTitle ? `كورس ${courseTitle}` : `الدورة (${courseId})`;
+      const summaryAr = `تغيير سعر ${displayCourse} إلى ${price} جنيه`;
       return {
         actionType,
         title: 'Update Course Price',
         titleAr: 'تعديل سعر الدورة',
-        description: `Change price for course ${courseId} to ${price} EGP`,
-        descriptionAr: `تعديل سعر الدورة (${courseId}) إلى ${price} جنيه مصري`,
+        description: `Change price for course ${courseTitle || courseId} to ${price} EGP`,
+        descriptionAr: summaryAr,
         riskLevel,
         requiresConfirmation,
         items: [
@@ -81,9 +87,36 @@ export function generateActionPreview(actionType: string, payload: Record<string
             title: 'Update Price',
             titleAr: 'تعديل السعر',
             summary: `Set price to ${price} EGP`,
-            summaryAr: `تحديد السعر بمبلغ ${price} ج.م`,
+            summaryAr: summaryAr,
             riskLevel,
             details: { courseId, price },
+          },
+        ],
+      };
+    }
+
+    case 'publish_course': {
+      const courseId = payload.courseId || '';
+      const courseTitle = contextMeta?.courseTitle || payload.courseTitle;
+      const displayCourse = courseTitle ? `كورس ${courseTitle}` : `الدورة (${courseId})`;
+      const summaryAr = `نشر ${displayCourse} للطلاب`;
+      return {
+        actionType,
+        title: 'Publish Course',
+        titleAr: 'نشر الدورة للطلاب',
+        description: `Publish course ${courseTitle || courseId} to make it visible to enrolled students`,
+        descriptionAr: `نشر ${displayCourse} وإتاحتها لجميع الطلاب المشتركين`,
+        riskLevel,
+        requiresConfirmation,
+        items: [
+          {
+            type: actionType,
+            title: 'Publish Course',
+            titleAr: 'نشر الدورة',
+            summary: `Publish course ID: ${courseId}`,
+            summaryAr: summaryAr,
+            riskLevel,
+            details: { courseId },
           },
         ],
       };

@@ -24,6 +24,27 @@ export type ToolMutationType =
   | 'financial'
   | 'generated_content';
 
+export type ToolIntentFamily =
+  | 'course.read'
+  | 'course.create'
+  | 'course.metadata.update'
+  | 'course.price.update'
+  | 'course.delete'
+  | 'course.publish'
+  | 'course.reorder'
+  | 'lecture.read'
+  | 'lecture.create'
+  | 'lecture.update'
+  | 'lecture.delete'
+  | 'lecture.publish'
+  | 'assessment.read'
+  | 'assessment.create'
+  | 'assessment.delete'
+  | 'assessment.publish'
+  | 'assignment.create'
+  | 'assignment.publish'
+  | 'announcement.create';
+
 export type ToolRiskLevel = 'low' | 'medium' | 'high' | 'critical';
 
 export type ToolConfirmationPolicy =
@@ -49,6 +70,7 @@ export interface ToolDefinition {
   description: string;
   requiredPermission: StaffPermission;
   mutationType: ToolMutationType;
+  intentFamily: ToolIntentFamily;
   riskLevel: ToolRiskLevel;
   confirmationPolicy: ToolConfirmationPolicy;
   allowedKeys: Record<string, ToolFieldSchema>;
@@ -63,6 +85,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Retrieve course metadata and ordered sequence items (videos, exams, assignments).',
     requiredPermission: 'manage_courses',
     mutationType: 'read',
+    intentFamily: 'course.read',
     riskLevel: 'low',
     confirmationPolicy: 'none',
     allowedKeys: {
@@ -76,6 +99,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Retrieve course metadata and ordered sequence items (videos, exams, assignments).',
     requiredPermission: 'manage_courses',
     mutationType: 'read',
+    intentFamily: 'course.read',
     riskLevel: 'low',
     confirmationPolicy: 'none',
     allowedKeys: {
@@ -89,6 +113,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Search courses by title or filter by grade to resolve contextual references.',
     requiredPermission: 'manage_courses',
     mutationType: 'read',
+    intentFamily: 'course.read',
     riskLevel: 'low',
     confirmationPolicy: 'none',
     allowedKeys: {
@@ -102,6 +127,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'List or search courses by title or filter by grade to resolve contextual references.',
     requiredPermission: 'manage_courses',
     mutationType: 'read',
+    intentFamily: 'course.read',
     riskLevel: 'low',
     confirmationPolicy: 'none',
     allowedKeys: {
@@ -115,6 +141,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Retrieve lecture metadata, video access parameters, and duration.',
     requiredPermission: 'manage_videos',
     mutationType: 'read',
+    intentFamily: 'lecture.read',
     riskLevel: 'low',
     confirmationPolicy: 'none',
     allowedKeys: {
@@ -128,6 +155,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Retrieve exam/quiz metadata, question list, and attempt metrics.',
     requiredPermission: 'manage_exams',
     mutationType: 'read',
+    intentFamily: 'assessment.read',
     riskLevel: 'low',
     confirmationPolicy: 'none',
     allowedKeys: {
@@ -142,6 +170,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Create a new course in draft mode.',
     requiredPermission: 'manage_courses',
     mutationType: 'create',
+    intentFamily: 'course.create',
     riskLevel: 'low',
     confirmationPolicy: 'none',
     serverOwnedKeys: ['status'],
@@ -158,6 +187,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Update metadata of an existing course (title, grade, description). Price is prohibited.',
     requiredPermission: 'manage_courses',
     mutationType: 'update',
+    intentFamily: 'course.metadata.update',
     riskLevel: 'medium',
     confirmationPolicy: 'none',
     allowedKeys: {
@@ -174,6 +204,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Update price of an existing course. Classified as a financial action requiring confirmation.',
     requiredPermission: 'manage_courses',
     mutationType: 'financial',
+    intentFamily: 'course.price.update',
     riskLevel: 'high',
     confirmationPolicy: 'mandatory',
     allowedKeys: {
@@ -188,6 +219,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Cascade-delete a course and all associated lectures, exams, and items.',
     requiredPermission: 'manage_courses',
     mutationType: 'delete',
+    intentFamily: 'course.delete',
     riskLevel: 'high',
     confirmationPolicy: 'mandatory',
     allowedKeys: {
@@ -201,6 +233,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Publish a draft course making it visible to enrolled students.',
     requiredPermission: 'manage_courses',
     mutationType: 'publish',
+    intentFamily: 'course.publish',
     riskLevel: 'medium',
     confirmationPolicy: 'mandatory',
     allowedKeys: {
@@ -215,6 +248,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Add a new lecture video to a course in draft mode.',
     requiredPermission: 'manage_videos',
     mutationType: 'create',
+    intentFamily: 'lecture.create',
     riskLevel: 'low',
     confirmationPolicy: 'none',
     serverOwnedKeys: ['status'],
@@ -233,6 +267,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Update lecture title, YouTube URL, or duration.',
     requiredPermission: 'manage_videos',
     mutationType: 'update',
+    intentFamily: 'lecture.update',
     riskLevel: 'medium',
     confirmationPolicy: 'none',
     allowedKeys: {
@@ -249,6 +284,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Delete a lecture and clean up associated storage materials.',
     requiredPermission: 'manage_videos',
     mutationType: 'delete',
+    intentFamily: 'lecture.delete',
     riskLevel: 'high',
     confirmationPolicy: 'mandatory',
     allowedKeys: {
@@ -262,6 +298,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Publish a draft lecture video.',
     requiredPermission: 'manage_videos',
     mutationType: 'publish',
+    intentFamily: 'lecture.publish',
     riskLevel: 'medium',
     confirmationPolicy: 'mandatory',
     allowedKeys: {
@@ -275,6 +312,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Configure maximum view session limit for a lecture (0 for unlimited).',
     requiredPermission: 'manage_videos',
     mutationType: 'update',
+    intentFamily: 'lecture.update',
     riskLevel: 'low',
     confirmationPolicy: 'none',
     allowedKeys: {
@@ -290,6 +328,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Reorder course sequence items (lectures, exams, assignments).',
     requiredPermission: 'manage_courses',
     mutationType: 'structural',
+    intentFamily: 'course.reorder',
     riskLevel: 'medium',
     confirmationPolicy: 'none',
     allowedKeys: {
@@ -305,6 +344,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Create an online exam in draft mode with validated question batches.',
     requiredPermission: 'manage_exams',
     mutationType: 'generated_content',
+    intentFamily: 'assessment.create',
     riskLevel: 'medium',
     confirmationPolicy: 'preview_required',
     serverOwnedKeys: ['status', 'assessmentType'],
@@ -323,6 +363,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Create an online quiz in draft mode with validated questions.',
     requiredPermission: 'manage_exams',
     mutationType: 'generated_content',
+    intentFamily: 'assessment.create',
     riskLevel: 'medium',
     confirmationPolicy: 'preview_required',
     serverOwnedKeys: ['status', 'assessmentType'],
@@ -341,6 +382,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Delete an exam or quiz and its questions/attempts.',
     requiredPermission: 'manage_exams',
     mutationType: 'delete',
+    intentFamily: 'assessment.delete',
     riskLevel: 'high',
     confirmationPolicy: 'mandatory',
     allowedKeys: {
@@ -354,6 +396,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Publish an exam or quiz making it available to students.',
     requiredPermission: 'manage_exams',
     mutationType: 'publish',
+    intentFamily: 'assessment.publish',
     riskLevel: 'medium',
     confirmationPolicy: 'mandatory',
     allowedKeys: {
@@ -367,6 +410,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Publish an exam or quiz making it available to students.',
     requiredPermission: 'manage_exams',
     mutationType: 'publish',
+    intentFamily: 'assessment.publish',
     riskLevel: 'medium',
     confirmationPolicy: 'mandatory',
     allowedKeys: {
@@ -380,6 +424,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Delete an exam or quiz and its questions/attempts.',
     requiredPermission: 'manage_exams',
     mutationType: 'delete',
+    intentFamily: 'assessment.delete',
     riskLevel: 'high',
     confirmationPolicy: 'mandatory',
     allowedKeys: {
@@ -388,13 +433,13 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     contextBindings: { assessmentId: 'assessmentId' },
   },
 
-
   // --- ASSIGNMENT TOOLS ---
   create_assignment: {
     name: 'create_assignment',
     description: 'Create an assignment in draft mode.',
     requiredPermission: 'manage_assignments',
     mutationType: 'create',
+    intentFamily: 'assignment.create',
     riskLevel: 'low',
     confirmationPolicy: 'none',
     serverOwnedKeys: ['status'],
@@ -411,6 +456,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Publish a draft assignment for students.',
     requiredPermission: 'manage_assignments',
     mutationType: 'publish',
+    intentFamily: 'assignment.publish',
     riskLevel: 'medium',
     confirmationPolicy: 'mandatory',
     allowedKeys: {
@@ -424,6 +470,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     description: 'Create a student announcement (broad impact requires review/confirmation).',
     requiredPermission: 'manage_announcements',
     mutationType: 'create',
+    intentFamily: 'announcement.create',
     riskLevel: 'medium',
     confirmationPolicy: 'preview_required',
     allowedKeys: {
@@ -454,6 +501,10 @@ export function getToolDefinition(toolName: string): ToolDefinition | undefined 
   return TOOL_DEFINITIONS[toolName];
 }
 
+export function getToolIntentFamily(toolName: string): ToolIntentFamily | undefined {
+  return TOOL_DEFINITIONS[toolName]?.intentFamily;
+}
+
 /**
  * Authoritatively checks if a registered tool schema explicitly declares and accepts a given parameter.
  * Non-registered tools or undeclared parameters strictly return false.
@@ -468,3 +519,4 @@ export function toolAcceptsParameter(toolName: string, parameterName: string): b
   }
   return Object.prototype.hasOwnProperty.call(def.allowedKeys, parameterName);
 }
+
