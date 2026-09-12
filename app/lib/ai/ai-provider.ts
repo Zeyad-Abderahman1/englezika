@@ -76,7 +76,7 @@ export interface ProviderHealthResult {
   latencyMs?: number;
 }
 
-export interface LocalAiProvider {
+export interface AiProvider {
   readonly name: string;
   readonly model: string;
   readonly bypassLocalResourceGuard?: boolean;
@@ -92,15 +92,15 @@ export interface LocalAiProvider {
   unloadModel?(): Promise<boolean>;
 }
 
-export type AiProvider = LocalAiProvider;
+export type LocalAiProvider = AiProvider;
 
-let globalProviderInstance: LocalAiProvider | null = null;
+let globalProviderInstance: AiProvider | null = null;
 
-export function setAiProvider(provider: LocalAiProvider | null): void {
+export function setAiProvider(provider: AiProvider | null): void {
   globalProviderInstance = provider;
 }
 
-export async function getAiProvider(): Promise<LocalAiProvider> {
+export async function getAiProvider(): Promise<AiProvider> {
   if (globalProviderInstance) return globalProviderInstance;
 
   const { loadAiServerConfig } = await import('./ai-config.server');

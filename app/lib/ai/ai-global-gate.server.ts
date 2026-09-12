@@ -2,15 +2,39 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { getDatabase } from '../database';
 
-export const AI_GATE_MAX_RUNNING = 1;
-export const AI_GATE_MAX_WAITING = 2;
-export const AI_GATE_MAX_TOTAL = 3;
+export const DEFAULT_AI_GATE_MAX_CONCURRENT = 3;
+export const DEFAULT_AI_GATE_MAX_WAITING = 6;
+export const SAFE_MAX_AI_GATE_CONCURRENT = 10;
+export const SAFE_MAX_AI_GATE_WAITING = 20;
+
+export const AI_GATE_MAX_CONCURRENT = DEFAULT_AI_GATE_MAX_CONCURRENT;
+export const AI_GATE_MAX_RUNNING = DEFAULT_AI_GATE_MAX_CONCURRENT;
+export const AI_GATE_MAX_WAITING = DEFAULT_AI_GATE_MAX_WAITING;
+export const AI_GATE_MAX_TOTAL = DEFAULT_AI_GATE_MAX_CONCURRENT + DEFAULT_AI_GATE_MAX_WAITING;
 export const AI_GATE_ADVISORY_LOCK = 2026091201;
 
 export const DEFAULT_HEARTBEAT_INTERVAL_MS = 5000;
 export const DEFAULT_RUNNING_EXPIRY_MS = 30000;
 export const DEFAULT_WAITING_EXPIRY_MS = 120000;
 export const DEFAULT_POLL_INTERVAL_MS = 100;
+
+export function resolveGateConcurrency(
+  explicitMax?: number,
+  envValue?: string
+): number {
+  const val = explicitMax !== undefined ? explicitMax : (envValue !== undefined ? Number(envValue) : DEFAULT_AI_GATE_MAX_CONCURRENT);
+  if (!Number.isFinite(val) || val < 1) return 1;
+  return Math.min(SAFE_MAX_AI_GATE_CONCURRENT, Math.floor(val));
+}
+
+export function resolveGateWaiting(
+  explicitMax?: number,
+  envValue?: string
+): number {
+  const val = explicitMax !== undefined ? explicitMax : (envValue !== undefined ? Number(envValue) : DEFAULT_AI_GATE_MAX_WAITING);
+  if (!Number.isFinite(val) || val < 1) return 1;
+  return Math.min(SAFE_MAX_AI_GATE_WAITING, Math.floor(val));
+}
 
 export class AiGateSaturatedError extends Error {
   readonly code = 'AI_QUEUE_SATURATED';
@@ -32,6 +56,8 @@ export class AiGateCoordinationError extends Error {
 
 export interface GlobalAiGateOptions {
   db?: any;
+  maxConcurrent?: number;
+  maxWaiting?: number;
   pollIntervalMs?: number;
   heartbeatIntervalMs?: number;
   runningExpiryMs?: number;
@@ -76,6 +102,9 @@ async function getFirstRow<T = any>(db: any, sql: string, values: any[] = []): P
 
 export class GlobalAiGate {
   private customDb?: any;
+  readonly maxConcurrent: number;
+  readonly maxWaiting: number;
+  readonly maxTotal: number;
   private pollIntervalMs: number;
   private heartbeatIntervalMs: number;
   private runningExpiryMs: number;
@@ -83,6 +112,9 @@ export class GlobalAiGate {
 
   constructor(options: GlobalAiGateOptions = {}) {
     this.customDb = options.db;
+    this.maxConcurrent = resolveGateConcurrency(options.maxConcurrent, process.env.AI_GATE_MAX_CONCURRENT);
+    this.maxWaiting = resolveGateWaiting(options.maxWaiting, process.env.AI_GATE_MAX_WAITING);
+    this.maxTotal = this.maxConcurrent + this.maxWaiting;
     this.pollIntervalMs = options.pollIntervalMs || DEFAULT_POLL_INTERVAL_MS;
     this.heartbeatIntervalMs = options.heartbeatIntervalMs || DEFAULT_HEARTBEAT_INTERVAL_MS;
     this.runningExpiryMs = options.runningExpiryMs || DEFAULT_RUNNING_EXPIRY_MS;
@@ -143,7 +175,7 @@ export class GlobalAiGate {
           );
 
           const currentCount = Number(countRow?.count ?? 0);
-          if (currentCount >= AI_GATE_MAX_TOTAL) {
+          if (currentCount >= this.maxTotal) {
             throw new AiGateSaturatedError();
           }
 
@@ -192,20 +224,32 @@ export class GlobalAiGate {
             // 1. Sweep expired rows in case a running worker crashed while we were waiting
             await runQuery(txDb, 'DELETE FROM ai_runtime_queue WHERE expires_at < ?', [now]);
 
-            // 2. Check if a non-expired running row exists
-            const runningRow = await getFirstRow<{ id: number; request_id: string }>(
+            // 2. Check if THIS request has already been promoted to running
+            const selfRow = await getFirstRow<{ id: number; request_id: string; status: string }>(
               txDb,
-              "SELECT id, request_id FROM ai_runtime_queue WHERE status = 'running' AND expires_at >= ? LIMIT 1",
+              'SELECT id, request_id, status FROM ai_runtime_queue WHERE request_id = ?',
+              [requestId]
+            );
+
+            if (!selfRow) {
+              throw new AiGateCoordinationError('تم فقد تسجيل طلب الانتظار في طابور المعالجة.');
+            }
+
+            if (selfRow.status === 'running') {
+              claimedRunning = true;
+              return;
+            }
+
+            // 3. Count currently active running jobs
+            const runningCountRow = await getFirstRow<{ count: number | string }>(
+              txDb,
+              "SELECT COUNT(*) as count FROM ai_runtime_queue WHERE status = 'running' AND expires_at >= ?",
               [now]
             );
 
-            if (runningRow) {
-              if (runningRow.request_id === requestId) {
-                // We are already marked running
-                claimedRunning = true;
-                return;
-              }
-              // Another worker is running; we must wait
+            const currentRunningCount = Number(runningCountRow?.count ?? 0);
+            if (currentRunningCount >= this.maxConcurrent) {
+              // Concurrency limit reached; we must wait
               return;
             }
 
@@ -307,9 +351,21 @@ export async function withGlobalAiGate<T>(
     workerId?: string;
     signal?: AbortSignal;
     db?: any;
+    maxConcurrent?: number;
+    maxWaiting?: number;
   }
 ): Promise<T> {
-  const gate = options?.db ? new GlobalAiGate({ db: options.db }) : getGlobalAiGate();
+  const gate = options?.db
+    ? new GlobalAiGate({
+        db: options.db,
+        maxConcurrent: options.maxConcurrent,
+        maxWaiting: options.maxWaiting,
+      })
+    : getGlobalAiGate(
+        options?.maxConcurrent !== undefined || options?.maxWaiting !== undefined
+          ? { maxConcurrent: options.maxConcurrent, maxWaiting: options.maxWaiting }
+          : undefined
+      );
   return gate.execute({
     requestId: options?.requestId,
     workerId: options?.workerId,

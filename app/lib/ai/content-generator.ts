@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { LocalAiProvider } from './local-ai-provider';
+import type { AiProvider, LocalAiProvider } from './ai-provider';
 import { getGlobalAiQueue } from './ai-queue';
 import { getGeminiProvider } from './providers/gemini-provider.server';
 import { chunkDocumentStratified, selectContextForBatch } from './document-chunker';

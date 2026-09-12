@@ -538,10 +538,10 @@ describe('AI Planner Tool-Selection & Canonical Registry Enforcement Suite', () 
     assert.equal(courseDef.requiredPermission, 'manage_courses');
   });
 
-  test('N. Existing global gate behavior remains green (concurrency constants and single flight)', () => {
-    assert.equal(AI_GATE_MAX_RUNNING, 1);
-    assert.equal(AI_GATE_MAX_WAITING, 2);
-    assert.equal(AI_GATE_MAX_TOTAL, 3);
+  test('N. Existing global gate behavior remains green (provider-neutral concurrency constants)', () => {
+    assert.equal(AI_GATE_MAX_RUNNING, 3);
+    assert.equal(AI_GATE_MAX_WAITING, 6);
+    assert.equal(AI_GATE_MAX_TOTAL, 9);
   });
 
   test('O. Empty-action plan for actionable Arabic request triggers bounded repair and resolves to list_courses', async () => {

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getDatabase } from '../database';
-import { getAiProvider } from './local-ai-provider';
-import type { LocalAiProvider, PlanResult } from './local-ai-provider';
+import { getAiProvider } from './ai-provider';
+import type { AiProvider, LocalAiProvider, PlanResult } from './ai-provider';
 import { getGlobalAiQueue } from './ai-queue';
 import { getToolDefinition, isRegisteredTool, toolAcceptsParameter, type AiToolName } from './tool-registry';
 

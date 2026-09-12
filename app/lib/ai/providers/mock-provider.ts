@@ -1,12 +1,13 @@
-import { ProviderError } from '../local-ai-provider';
+import { ProviderError } from '../ai-provider';
 import type {
+  AiProvider,
   LocalAiProvider,
   GenerateStructuredOutputOptions,
   StructuredOutputResult,
   PlanResult,
   ProviderHealthResult,
   ProviderRequestOptions,
-} from '../local-ai-provider';
+} from '../ai-provider';
 
 export type MockProviderMode =
   | 'success'

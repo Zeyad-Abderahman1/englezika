@@ -5,8 +5,9 @@ import type {
   PlanResult,
   ProviderHealthResult,
   ProviderRequestOptions,
+  AiProvider,
   LocalAiProvider,
-} from '../local-ai-provider';
+} from '../ai-provider';
 import { getPlannerSystemPrompt } from '../planner-prompt';
 
 export type GeminiErrorCode =

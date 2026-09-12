@@ -128,6 +128,11 @@ class MockRuntimeQueueDatabase {
         const args = getArgs.length > 0 ? getArgs : boundArgs;
 
         if (normalized.includes('COUNT(*)')) {
+          if (normalized.includes("WHERE status = 'running'")) {
+            const now = args[0] || Date.now();
+            const count = db.rows.filter((r) => r.status === 'running' && r.expires_at >= now).length;
+            return { count };
+          }
           const count = db.rows.length;
           return { count };
         }
@@ -164,16 +169,28 @@ class MockRuntimeQueueDatabase {
   }
 }
 
-describe('PostgreSQL Global AI Gate (Multi-Worker Single-Flight Coordination)', () => {
-  test('constants conform to specification: max running = 1, max waiting = 2, max total = 3', () => {
-    assert.equal(AI_GATE_MAX_RUNNING, 1);
-    assert.equal(AI_GATE_MAX_WAITING, 2);
-    assert.equal(AI_GATE_MAX_TOTAL, 3);
+describe('PostgreSQL Global AI Gate (Provider-Neutral Multi-Worker Concurrency)', () => {
+  test('constants conform to specification: default max concurrent = 3, max waiting = 6, total = 9', () => {
+    assert.equal(AI_GATE_MAX_RUNNING, 3);
+    assert.equal(AI_GATE_MAX_WAITING, 6);
+    assert.equal(AI_GATE_MAX_TOTAL, 9);
   });
 
-  test('Worker A and Worker B cannot both run generation (global running max = 1)', async () => {
+  test('configured max cannot exceed safe bound (clamps to [1, 10] concurrent, [1, 20] waiting)', () => {
+    const clampedHigh = new GlobalAiGate({ maxConcurrent: 50, maxWaiting: 100 });
+    assert.equal(clampedHigh.maxConcurrent, 10);
+    assert.equal(clampedHigh.maxWaiting, 20);
+    assert.equal(clampedHigh.maxTotal, 30);
+
+    const clampedLow = new GlobalAiGate({ maxConcurrent: -5, maxWaiting: 0 });
+    assert.equal(clampedLow.maxConcurrent, 1);
+    assert.equal(clampedLow.maxWaiting, 1);
+    assert.equal(clampedLow.maxTotal, 2);
+  });
+
+  test('configured max=1 still behaves as single-flight', async () => {
     const db = new MockRuntimeQueueDatabase();
-    const gate = new GlobalAiGate({ db, pollIntervalMs: 20 });
+    const gate = new GlobalAiGate({ db, maxConcurrent: 1, maxWaiting: 2, pollIntervalMs: 20 });
 
     let workerAStarted = false;
     let workerAFinished = false;
@@ -209,19 +226,131 @@ describe('PostgreSQL Global AI Gate (Multi-Worker Single-Flight Coordination)', 
     assert.equal(resB, 'result_b');
     assert.equal(workerAStarted, true);
     assert.equal(workerAFinished, true);
-    assert.equal(workerBStartedWhileAActive, false, 'Worker B must NOT run while Worker A is active');
+    assert.equal(workerBStartedWhileAActive, false, 'Worker B must NOT run while Worker A is active under max=1');
   });
 
-  test('two global waiters allowed; fourth total request is rejected with AiGateSaturatedError', async () => {
+  test('3 jobs may run concurrently by default', async () => {
     const db = new MockRuntimeQueueDatabase();
-    const gate = new GlobalAiGate({ db, pollIntervalMs: 20 });
+    const gate = new GlobalAiGate({ db, pollIntervalMs: 15 });
+
+    let activeRunning = 0;
+    let peakRunning = 0;
+
+    const makeJob = (id, durationMs = 50) =>
+      gate.execute({
+        requestId: `req_${id}`,
+        workerId: `worker_${id}`,
+        action: async () => {
+          activeRunning++;
+          peakRunning = Math.max(peakRunning, activeRunning);
+          await new Promise((r) => setTimeout(r, durationMs));
+          activeRunning--;
+          return `result_${id}`;
+        },
+      });
+
+    const results = await Promise.all([makeJob(1), makeJob(2), makeJob(3)]);
+    assert.deepEqual(results, ['result_1', 'result_2', 'result_3']);
+    assert.equal(peakRunning, 3, 'Peak concurrent running jobs must reach 3');
+  });
+
+  test('4th job waits while 3 are running concurrently, and released slot promotes waiting job', async () => {
+    const db = new MockRuntimeQueueDatabase();
+    const gate = new GlobalAiGate({ db, pollIntervalMs: 15 });
+
+    let unblockJob1;
+    const blocker1 = new Promise((resolve) => {
+      unblockJob1 = resolve;
+    });
+
+    let job1Running = false;
+    let job2Running = false;
+    let job3Running = false;
+    let job4RanWhileAll3Active = false;
+    let job4Ran = false;
+
+    // Start 3 concurrent jobs
+    const task1 = gate.execute({
+      requestId: 'req_1',
+      workerId: 'worker_1',
+      action: async () => {
+        job1Running = true;
+        await blocker1;
+        job1Running = false;
+        return 'done_1';
+      },
+    });
+
+    const task2 = gate.execute({
+      requestId: 'req_2',
+      workerId: 'worker_2',
+      action: async () => {
+        job2Running = true;
+        await new Promise((r) => setTimeout(r, 80));
+        job2Running = false;
+        return 'done_2';
+      },
+    });
+
+    const task3 = gate.execute({
+      requestId: 'req_3',
+      workerId: 'worker_3',
+      action: async () => {
+        job3Running = true;
+        await new Promise((r) => setTimeout(r, 80));
+        job3Running = false;
+        return 'done_3';
+      },
+    });
+
+    // Wait until jobs 1, 2, 3 are admitted and running
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(job1Running, true);
+    assert.equal(job2Running, true);
+    assert.equal(job3Running, true);
+
+    // 4th job arrives while 3 are active
+    const task4 = gate.execute({
+      requestId: 'req_4',
+      workerId: 'worker_4',
+      action: async () => {
+        if (job1Running && job2Running && job3Running) {
+          job4RanWhileAll3Active = true;
+        }
+        job4Ran = true;
+        return 'done_4';
+      },
+    });
+
+    // Verify 4th job is waiting in database
+    await new Promise((r) => setTimeout(r, 20));
+    const row4 = db.rows.find((r) => r.request_id === 'req_4');
+    assert.ok(row4);
+    assert.equal(row4.status, 'waiting', '4th job must be in waiting status while 3 are running');
+    assert.equal(job4Ran, false, '4th job must not have executed yet');
+
+    // Unblock job 1 -> releases 1 running slot -> promotes waiting 4th job
+    unblockJob1();
+
+    const [r1, r2, r3, r4] = await Promise.all([task1, task2, task3, task4]);
+    assert.equal(r1, 'done_1');
+    assert.equal(r2, 'done_2');
+    assert.equal(r3, 'done_3');
+    assert.equal(r4, 'done_4');
+    assert.equal(job4RanWhileAll3Active, false, '4th job must not run while all 3 concurrent slots were occupied');
+    assert.equal(job4Ran, true, '4th job was successfully promoted and executed');
+  });
+
+  test('total capacity exhaustion rejects request exceeding maxTotal with AiGateSaturatedError', async () => {
+    const db = new MockRuntimeQueueDatabase();
+    // Test with maxConcurrent: 1, maxWaiting: 2 -> maxTotal: 3
+    const gate = new GlobalAiGate({ db, maxConcurrent: 1, maxWaiting: 2, pollIntervalMs: 20 });
 
     let unblockA;
     const blockerA = new Promise((resolve) => {
       unblockA = resolve;
     });
 
-    // 1. Running task (slot 1)
     const task1 = gate.execute({
       requestId: 'req_1',
       workerId: 'worker_1',
@@ -233,7 +362,6 @@ describe('PostgreSQL Global AI Gate (Multi-Worker Single-Flight Coordination)', 
 
     await new Promise((r) => setTimeout(r, 10));
 
-    // 2. Waiting task 1 (slot 2)
     const task2 = gate.execute({
       requestId: 'req_2',
       workerId: 'worker_2',
@@ -242,7 +370,6 @@ describe('PostgreSQL Global AI Gate (Multi-Worker Single-Flight Coordination)', 
 
     await new Promise((r) => setTimeout(r, 10));
 
-    // 3. Waiting task 2 (slot 3)
     const task3 = gate.execute({
       requestId: 'req_3',
       workerId: 'worker_3',
@@ -251,7 +378,7 @@ describe('PostgreSQL Global AI Gate (Multi-Worker Single-Flight Coordination)', 
 
     await new Promise((r) => setTimeout(r, 10));
 
-    // 4. Fourth request (should be rejected immediately)
+    // 4th request exceeds maxTotal 3 -> rejected immediately
     await assert.rejects(
       async () => {
         await gate.execute({
@@ -267,7 +394,6 @@ describe('PostgreSQL Global AI Gate (Multi-Worker Single-Flight Coordination)', 
       }
     );
 
-    // Unblock task 1 and finish remaining
     unblockA();
     const [r1, r2, r3] = await Promise.all([task1, task2, task3]);
     assert.equal(r1, 'done_1');
@@ -277,7 +403,7 @@ describe('PostgreSQL Global AI Gate (Multi-Worker Single-Flight Coordination)', 
 
   test('FIFO claim order across simulated workers', async () => {
     const db = new MockRuntimeQueueDatabase();
-    const gate = new GlobalAiGate({ db, pollIntervalMs: 15 });
+    const gate = new GlobalAiGate({ db, maxConcurrent: 1, pollIntervalMs: 15 });
 
     const executionOrder = [];
     let unblock1;
@@ -328,7 +454,7 @@ describe('PostgreSQL Global AI Gate (Multi-Worker Single-Flight Coordination)', 
 
   test('cancellation removes waiting request immediately and allows next FIFO request to advance', async () => {
     const db = new MockRuntimeQueueDatabase();
-    const gate = new GlobalAiGate({ db, pollIntervalMs: 15 });
+    const gate = new GlobalAiGate({ db, maxConcurrent: 1, pollIntervalMs: 15 });
 
     let unblock1;
     const blocker = new Promise((r) => { unblock1 = r; });

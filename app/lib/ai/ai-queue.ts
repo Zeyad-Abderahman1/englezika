@@ -238,6 +238,8 @@ export class AiQueue {
             signal: abortController.signal,
             workerId: this.workerId,
             db: this.gateDb,
+            maxConcurrent: this.maxConcurrent,
+            maxWaiting: this.maxWaiting,
           }
         );
       } else {
