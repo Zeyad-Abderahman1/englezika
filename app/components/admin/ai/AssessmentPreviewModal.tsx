@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Check, Trash2, Plus, LoaderCircle, HelpCircle, BookOpen } from 'lucide-react';
+import { X, Check, Trash2, Plus, LoaderCircle, AlertTriangle, BookOpen } from 'lucide-react';
 import type { GeneratedAssessmentPreview, GeneratedQuestion } from '../../../lib/ai/content-generator';
+import { isAssessmentSubmissionAllowed, validateGeneratedQuestion } from '../../../lib/ai/assessment-validator';
 
 interface AssessmentPreviewModalProps {
   assessment: GeneratedAssessmentPreview;
@@ -26,6 +27,8 @@ export function AssessmentPreviewModal({
   const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
+
+  const submissionCheck = isAssessmentSubmissionAllowed(questions);
 
   const handlePromptChange = (idx: number, val: string) => {
     const updated = [...questions];
@@ -64,13 +67,18 @@ export function AssessmentPreviewModal({
       {
         id: `custom_q_${Date.now()}`,
         prompt: 'سؤال جديد...',
-        options: ['الخيار 1', 'الخيار 2', 'الخيار 3', 'الخيار 4'],
-        correctAnswer: 'الخيار 1',
+        options: ['الخيار A', 'الخيار B', 'الخيار C', 'الخيار D'],
+        correctAnswer: 'الخيار A',
+        correctIndex: 0,
       },
     ]);
   };
 
   const handleSubmit = async () => {
+    if (!submissionCheck.allowed) {
+      setError(submissionCheck.reason || 'يوجد أخطاء في الأسئلة يجب تصحيحها قبل الإدراج.');
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
@@ -119,6 +127,13 @@ export function AssessmentPreviewModal({
             </div>
           )}
 
+          {!submissionCheck.allowed && (
+            <div className="p-2 mb-2 bg-amber-950/50 border border-amber-500/50 rounded text-amber-200 text-xs flex items-center gap-2">
+              <AlertTriangle size={15} className="text-amber-400 shrink-0" />
+              <span>{submissionCheck.reason}</span>
+            </div>
+          )}
+
           {/* Assessment Title & Type */}
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
             <div>
@@ -145,63 +160,97 @@ export function AssessmentPreviewModal({
 
           {/* Questions Editor List */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '0.5rem' }}>
-            {questions.map((q, qIdx) => (
-              <div key={q.id || qIdx} className="ai-question-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="font-bold text-sky-400 text-sm">السؤال رقم {qIdx + 1}</span>
-                  <button
-                    type="button"
-                    className="btn btn-ghost text-red-400"
-                    onClick={() => handleDeleteQuestion(qIdx)}
-                    style={{ padding: '0.2rem 0.5rem' }}
-                    title="حذف هذا السؤال"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
+            {questions.map((q, qIdx) => {
+              const qValidation = validateGeneratedQuestion(q);
+              return (
+                <div
+                  key={q.id || qIdx}
+                  className="ai-question-card"
+                  style={{
+                    borderColor: !qValidation.valid ? '#f59e0b' : undefined,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className="font-bold text-sky-400 text-sm">السؤال رقم {qIdx + 1}</span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost text-red-400"
+                      onClick={() => handleDeleteQuestion(qIdx)}
+                      style={{ padding: '0.2rem 0.5rem' }}
+                      title="حذف هذا السؤال"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
 
-                <input
-                  type="text"
-                  className="ai-question-prompt-input"
-                  value={q.prompt}
-                  onChange={(e) => handlePromptChange(qIdx, e.target.value)}
-                  placeholder="نص السؤال..."
-                />
+                  <input
+                    type="text"
+                    className="ai-question-prompt-input"
+                    value={q.prompt}
+                    onChange={(e) => handlePromptChange(qIdx, e.target.value)}
+                    placeholder="نص السؤال..."
+                    style={{
+                      borderColor: !q.prompt?.trim() || q.prompt.trim().length < 5 ? '#ef4444' : undefined,
+                    }}
+                  />
 
-                {/* Multiple choice options */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                  {q.options.map((opt, optIdx) => {
-                    const isCorrect = q.correctAnswer === opt;
-                    return (
-                      <div key={optIdx} className="ai-option-row">
-                        <input
-                          type="radio"
-                          name={`correct_${qIdx}`}
-                          checked={isCorrect}
-                          onChange={() => handleCorrectAnswerSelect(qIdx, opt)}
-                          title="تحديد كإجابة صحيحة"
-                        />
-                        <input
-                          type="text"
-                          className="ai-option-input"
-                          value={opt}
-                          onChange={(e) => handleOptionChange(qIdx, optIdx, e.target.value)}
+                  {/* Multiple choice options */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    {q.options.map((opt, optIdx) => {
+                      const isCorrect = q.correctAnswer === opt;
+                      const isOptEmpty = !opt || !opt.trim();
+                      const letter = String.fromCharCode(65 + optIdx);
+                      return (
+                        <div
+                          key={optIdx}
+                          className="ai-option-row"
                           style={{
-                            borderColor: isCorrect ? '#22c55e' : undefined,
-                            background: isCorrect ? 'rgba(34, 197, 94, 0.08)' : undefined,
+                            borderColor: isOptEmpty ? '#ef4444' : isCorrect ? '#22c55e' : undefined,
                           }}
-                        />
-                        {isCorrect && (
-                          <span className="text-xs text-green-400 font-bold" style={{ whiteSpace: 'nowrap' }}>
-                            الإجابة الصحيحة
+                        >
+                          <span
+                            className="font-bold text-xs shrink-0"
+                            style={{
+                              color: isCorrect ? '#4ade80' : isOptEmpty ? '#f87171' : '#94a3b8',
+                              minWidth: '1.2rem',
+                            }}
+                          >
+                            {letter}.
                           </span>
-                        )}
-                      </div>
-                    );
-                  })}
+                          <input
+                            type="radio"
+                            name={`correct_${qIdx}`}
+                            checked={isCorrect}
+                            onChange={() => handleCorrectAnswerSelect(qIdx, opt)}
+                            title="تحديد كإجابة صحيحة"
+                          />
+                          <input
+                            type="text"
+                            className="ai-option-input"
+                            value={opt}
+                            placeholder={`الخيار ${letter}...`}
+                            onChange={(e) => handleOptionChange(qIdx, optIdx, e.target.value)}
+                            style={{
+                              borderColor: isOptEmpty ? '#ef4444' : isCorrect ? '#22c55e' : undefined,
+                              background: isCorrect
+                                ? 'rgba(34, 197, 94, 0.08)'
+                                : isOptEmpty
+                                ? 'rgba(239, 68, 68, 0.08)'
+                                : undefined,
+                            }}
+                          />
+                          {isCorrect && (
+                            <span className="text-xs text-green-400 font-bold" style={{ whiteSpace: 'nowrap' }}>
+                              الإجابة الصحيحة
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <button
@@ -229,7 +278,7 @@ export function AssessmentPreviewModal({
             type="button"
             className="btn btn-primary text-sm"
             onClick={handleSubmit}
-            disabled={submitting || questions.length === 0}
+            disabled={submitting || !submissionCheck.allowed}
             style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
           >
             {submitting ? (
@@ -249,3 +298,4 @@ export function AssessmentPreviewModal({
     </div>
   );
 }
+

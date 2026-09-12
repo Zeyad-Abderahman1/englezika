@@ -42,6 +42,11 @@ export async function POST(request: Request) {
     return jsonError('يجب تحديد مصدر المستند (tempFileId أو materialKey)', 400);
   }
 
+  const questionCount = typeof body.questionCount === 'number' ? body.questionCount : 5;
+  if (questionCount < 1 || questionCount > 30) {
+    return jsonError('عدد الأسئلة المطلوب يجب أن يكون بين 1 و 30 سؤالاً', 400);
+  }
+
   const storage = getPrivateStorage();
   let storageKey: string;
   let isTemp = false;
@@ -74,8 +79,10 @@ export async function POST(request: Request) {
     // 3. Generate assessment preview using batched generator
     const title = typeof body.title === 'string' ? body.title : undefined;
     const examType = body.examType === 'exam' ? 'exam' : 'quiz';
-    const questionCount = typeof body.questionCount === 'number' ? body.questionCount : 5;
-    const difficulty = body.difficulty === 'easy' || body.difficulty === 'hard' ? body.difficulty : 'medium';
+    const difficulty =
+      body.difficulty === 'easy' || body.difficulty === 'hard' || body.difficulty === 'advanced'
+        ? body.difficulty
+        : 'medium';
 
     const assessmentPreview = await generateAssessmentFromText({
       documentText: extracted.text,
@@ -94,7 +101,11 @@ export async function POST(request: Request) {
     const status =
       error?.code === 'AI_QUEUE_SATURATED' || error?.code === 'QUEUE_SATURATED'
         ? 429
-        : message.includes('ممسوح ضوئياً') || message.includes('Scanned PDF')
+        : message.includes('ممسوح ضوئياً') ||
+          message.includes('Scanned PDF') ||
+          message.includes('سؤالًا صالحًا فقط') ||
+          message.includes('سؤالاً صالحاً فقط') ||
+          message.includes('تم توليد')
         ? 422
         : 500;
     return jsonError(message, status);

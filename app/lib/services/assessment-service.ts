@@ -97,7 +97,6 @@ function parseExamQuestion(question: RawExamQuestionInput, sortOrder: number) {
   const options = Array.isArray(question.options)
     ? question.options
         .map((option) => safeText(option, 300))
-        .filter(Boolean)
         .slice(0, 8)
     : [];
   return { type, prompt, correctAnswer, rubric, explanation, points, options, sortOrder };
@@ -137,17 +136,27 @@ export class AssessmentService {
     if (mode === 'online') {
       if (
         !questions.length ||
-        questions.some((question) => !question.prompt || !question.correctAnswer)
+        questions.some((question) => !question.prompt || !question.prompt.trim() || !question.correctAnswer)
       ) {
         throw new DomainError('أضف سؤالاً واحداً على الأقل مع الإجابة الصحيحة', 400);
       }
-      if (
-        questions.some((question) => question.type === 'multiple_choice' && question.options.length < 2)
-      ) {
-        throw new DomainError('كل سؤال اختيار من متعدد يحتاج اختيارين على الأقل', 400);
-      }
-      if (questions.some((question) => !question.options.includes(question.correctAnswer))) {
-        throw new DomainError('اختر الإجابة الصحيحة من اختيارات السؤال', 400);
+      for (let i = 0; i < questions.length; i++) {
+        const q = questions[i];
+        if (q.type === 'multiple_choice') {
+          if (q.options.length !== 4) {
+            throw new DomainError(`كل سؤال اختيار من متعدد يجب أن يحتوي على 4 اختيارات (السؤال رقم ${i + 1})`, 400);
+          }
+          if (q.options.some((opt) => !opt || !opt.trim())) {
+            throw new DomainError(`لا يمكن ترك اختيارات فارغة في السؤال رقم ${i + 1}`, 400);
+          }
+          const normalized = q.options.map((opt) => opt.trim().toLowerCase());
+          if (new Set(normalized).size !== q.options.length) {
+            throw new DomainError(`يوجد اختيارات مكررة في السؤال رقم ${i + 1}`, 400);
+          }
+          if (!q.options.includes(q.correctAnswer)) {
+            throw new DomainError(`اختر الإجابة الصحيحة من اختيارات السؤال (السؤال رقم ${i + 1})`, 400);
+          }
+        }
       }
     }
 
