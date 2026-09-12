@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { LocalAiProvider } from './local-ai-provider';
-import { getAiProvider } from './local-ai-provider';
 import { getGlobalAiQueue } from './ai-queue';
+import {
+  getAssessmentGenerationProvider,
+  type AssessmentGenerationProvider,
+  type AssessmentProviderMetadata,
+} from './assessment-provider-router.server';
 import { chunkDocumentStratified, selectContextForBatch } from './document-chunker';
 
 import {
@@ -9,6 +13,7 @@ import {
   validateGeneratedAssessment,
   isAssessmentSubmissionAllowed,
   normalizePromptHash,
+  ASSESSMENT_QUESTIONS_JSON_SCHEMA,
   type CanonicalAssessmentQuestion,
   type QuestionValidationReason,
   type AssessmentValidationResult,
@@ -60,11 +65,28 @@ export interface GenerateAssessmentOptions {
   requestedQuestionCount?: number;
   difficulty?: 'easy' | 'medium' | 'hard' | 'advanced';
   provider?: LocalAiProvider;
+  assessmentProvider?: AssessmentGenerationProvider;
   signal?: AbortSignal;
 }
 
 const BATCH_SIZE_MIN = 5;
 const BATCH_SIZE_MAX = 8;
+
+function emitGenerationEvent(
+  result: unknown,
+  requestedQuestionCount: number,
+  validQuestionCount: number
+): void {
+  const metadata = (result as { assessmentProviderMetadata?: AssessmentProviderMetadata })
+    ?.assessmentProviderMetadata;
+  if (!metadata) return;
+  console.info(JSON.stringify({
+    event: 'ai_assessment_generation',
+    ...metadata,
+    requestedQuestionCount,
+    validQuestionCount,
+  }));
+}
 
 /**
  * Isolated Content Generator Mode.
@@ -88,8 +110,11 @@ export async function generateAssessmentFromText(
   const requestedCount = Math.max(1, Math.min(30, options.requestedQuestionCount || 5));
   const difficulty = options.difficulty || 'medium';
 
-  const provider = options.provider || (await getAiProvider());
+  const provider = options.assessmentProvider || options.provider ||
+    (await getAssessmentGenerationProvider());
   const queue = getGlobalAiQueue();
+  const skipLocalResourceGuard =
+    'bypassLocalResourceGuard' in provider && provider.bypassLocalResourceGuard === true;
 
   const startTime = Date.now();
 
@@ -120,6 +145,7 @@ SECURITY CONSTRAINTS:
 
     const userPrompt = `Create exactly ${questionsNeeded} high-quality multiple choice questions based on the following material.
 Difficulty: ${difficulty}.
+Assessment type: ${examType}.
 
 Educational Material:
 """
@@ -147,10 +173,11 @@ Required JSON format:
           userPrompt,
           temperature: 0.3,
           maxTokens: Math.max(1200, questionsNeeded * 250),
+          schema: ASSESSMENT_QUESTIONS_JSON_SCHEMA,
           signal: options.signal || signal,
         });
       },
-      { signal: options.signal }
+      { signal: options.signal, skipLocalResourceGuard }
     );
 
     if (!result.success || !result.data || !Array.isArray(result.data.questions)) {
@@ -158,6 +185,7 @@ Required JSON format:
     }
 
     // Validate and clean questions in this batch
+    const validCountBeforeBatch = accumulatedQuestions.length;
     for (const rawQ of result.data.questions) {
       if (accumulatedQuestions.length >= requestedCount) break;
 
@@ -176,6 +204,11 @@ Required JSON format:
         id: `gen_q_${randomUUID().slice(0, 8)}`,
       });
     }
+    emitGenerationEvent(
+      result,
+      questionsNeeded,
+      accumulatedQuestions.length - validCountBeforeBatch
+    );
   }
 
   const initialGenerationMs = Date.now() - startTime;
@@ -191,6 +224,7 @@ Required JSON format:
 
     const completionUserPrompt = `Create exactly ${missingCount} NEW, distinct multiple choice questions based on the material below.
 Difficulty: ${difficulty}.
+Assessment type: ${examType}.
 IMPORTANT: Do NOT duplicate any previously generated questions. Provide exactly 4 non-empty choices and specify the correct answer index.
 
 Educational Material:
@@ -218,13 +252,15 @@ Required JSON format:
           userPrompt: completionUserPrompt,
           temperature: 0.3,
           maxTokens: Math.max(800, missingCount * 250),
+          schema: ASSESSMENT_QUESTIONS_JSON_SCHEMA,
           signal: options.signal || signal,
         });
       },
-      { signal: options.signal }
+      { signal: options.signal, skipLocalResourceGuard }
     );
 
     if (completionResult.success && completionResult.data && Array.isArray(completionResult.data.questions)) {
+      const validCountBeforeCompletion = accumulatedQuestions.length;
       for (const rawQ of completionResult.data.questions) {
         if (accumulatedQuestions.length >= requestedCount) break;
 
@@ -243,6 +279,11 @@ Required JSON format:
           id: `gen_q_${randomUUID().slice(0, 8)}`,
         });
       }
+      emitGenerationEvent(
+        completionResult,
+        missingCount,
+        accumulatedQuestions.length - validCountBeforeCompletion
+      );
     }
 
     completionGenerationMs = Date.now() - completionStart;

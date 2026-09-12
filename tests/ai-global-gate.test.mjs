@@ -9,6 +9,7 @@ import {
   AiGateSaturatedError,
   AiGateCoordinationError,
 } from '../app/lib/ai/ai-global-gate.server.ts';
+import { OpenRouterAssessmentProvider } from '../app/lib/ai/providers/openrouter-assessment-provider.server.ts';
 
 // In-memory Mock Database for unit testing the state machine & locking
 class MockRuntimeQueueDatabase {
@@ -406,6 +407,34 @@ describe('PostgreSQL Global AI Gate (Multi-Worker Single-Flight Coordination)', 
     assert.equal(r2, 'recovered_and_done');
 
     // Verify all rows are cleaned up
+    assert.equal(db.rows.length, 0);
+  });
+
+  test('OpenRouter timeout releases the global slot for the next assessment request', async () => {
+    const db = new MockRuntimeQueueDatabase();
+    const gate = new GlobalAiGate({ db, pollIntervalMs: 15 });
+    const provider = new OpenRouterAssessmentProvider({
+      apiKey: 'test-only-secret',
+      timeoutMs: 10,
+      fetchImpl: async (_url, init) => new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+      }),
+    });
+
+    const timedOut = gate.execute({
+      requestId: 'req_remote_timeout',
+      workerId: 'worker_1',
+      action: () => provider.generateStructuredOutput({ userPrompt: 'generate' }),
+    });
+    await assert.rejects(timedOut, (error) => error.failureClass === 'timeout');
+    assert.equal(db.rows.length, 0);
+
+    const next = await gate.execute({
+      requestId: 'req_after_timeout',
+      workerId: 'worker_2',
+      action: async () => 'next-ran',
+    });
+    assert.equal(next, 'next-ran');
     assert.equal(db.rows.length, 0);
   });
 

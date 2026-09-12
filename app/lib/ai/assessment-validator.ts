@@ -40,6 +40,37 @@ export interface AssessmentValidationResult {
   }>;
 }
 
+/** Canonical structured-output schema shared by assessment inference providers. */
+export const ASSESSMENT_QUESTIONS_JSON_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['questions'],
+  properties: {
+    questions: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 30,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['prompt', 'options', 'correctIndex', 'correctAnswer'],
+        properties: {
+          prompt: { type: 'string', minLength: 1 },
+          options: {
+            type: 'array',
+            minItems: 4,
+            maxItems: 4,
+            items: { type: 'string', minLength: 1 },
+          },
+          correctIndex: { type: 'integer', minimum: 0, maximum: 3 },
+          correctAnswer: { type: 'string', minLength: 1 },
+          explanation: { type: 'string' },
+        },
+      },
+    },
+  },
+};
+
 /**
  * Normalizes prompt text for deduplication comparison.
  */
@@ -309,4 +340,3 @@ export function isAssessmentSubmissionAllowed(questions: unknown[]): {
 
   return { allowed: true };
 }
-

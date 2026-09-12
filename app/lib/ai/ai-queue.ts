@@ -147,15 +147,25 @@ export class AiQueue {
     };
   }
 
+  checkResourceHeadroom(currentQueueLength: number = this.queue.length): ResourceGuardDecision {
+    return this.resourceGuard.checkHeadroomSync(currentQueueLength);
+  }
+
   enqueue<T>(
     task: (signal: AbortSignal) => Promise<T>,
-    options?: { signal?: AbortSignal; timeoutMs?: number }
+    options?: { signal?: AbortSignal; timeoutMs?: number; skipLocalResourceGuard?: boolean }
   ): Promise<T> {
     if (options?.signal?.aborted) {
       return Promise.reject(new Error('Task was cancelled before enqueuing'));
     }
 
-    const decision = this.resourceGuard.checkHeadroomSync(this.queue.length);
+    if (this.queue.length >= this.maxWaiting) {
+      return Promise.reject(new QueueSaturatedError());
+    }
+
+    const decision = options?.skipLocalResourceGuard
+      ? { allowed: true }
+      : this.resourceGuard.checkHeadroomSync(this.queue.length);
     if (!decision.allowed) {
       if (decision.reason === 'QUEUE_SATURATED') {
         return Promise.reject(new QueueSaturatedError());
