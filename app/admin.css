@@ -1985,6 +1985,38 @@
   border-top: 1px solid var(--line);
 }
 
+.admin-nav-parent-row,
+.admin-mobile-nav-parent-row { display: flex; align-items: center; gap: 4px; }
+.admin-nav-parent-row .admin-nav-item,
+.admin-mobile-nav-parent-row .admin-mobile-nav-item { flex: 1; min-width: 0; }
+.admin-nav-expand,
+.admin-mobile-nav-expand { display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 auto; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
+.admin-nav-expand:hover,
+.admin-mobile-nav-expand:hover { background: var(--surface-2); color: var(--text); }
+.admin-nav-expand:disabled,
+.admin-mobile-nav-expand:disabled { cursor: default; opacity: .7; }
+.admin-nav-expand:focus-visible,
+.admin-mobile-nav-expand:focus-visible,
+.admin-nav-child:focus-visible,
+.admin-mobile-nav-child:focus-visible { outline: 3px solid rgba(239, 68, 68, .42); outline-offset: 2px; }
+.admin-nav-expand[aria-expanded='false'] svg,
+.admin-mobile-nav-expand[aria-expanded='false'] svg { transform: rotate(90deg); }
+.admin-nav-children,
+.admin-mobile-nav-children { display: grid; gap: 3px; margin: 3px 0 0; padding: 0 22px 0 0; list-style: none; border-inline-start: 1px solid var(--line); }
+.admin-nav-child,
+.admin-mobile-nav-child { display: flex; align-items: center; gap: 9px; min-height: 38px; padding: 7px 10px; border-radius: 8px; color: var(--muted); font-size: 12px; font-weight: 700; text-decoration: none; }
+.admin-nav-child:hover,
+.admin-mobile-nav-child:hover { background: var(--surface-2); color: var(--text); }
+.admin-nav-child.active,
+.admin-mobile-nav-child.active { background: rgba(207, 11, 39, .13); color: var(--red-bright); }
+.admin-mobile-nav-children { margin-inline: 20px 8px; padding-inline-start: 14px; }
+.admin-mobile-nav-child { min-height: 44px; font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-nav-expand svg,
+  .admin-mobile-nav-expand svg { transition: none; }
+}
+
 /* Assignment create dialog actions only. */
 .assignment-create-actions {
   gap: 12px;

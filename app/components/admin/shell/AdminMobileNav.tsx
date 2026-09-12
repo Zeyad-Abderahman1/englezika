@@ -17,9 +17,9 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LogOut, X, ShieldCheck } from 'lucide-react';
+import { ChevronDown, LogOut, X, ShieldCheck } from 'lucide-react';
 import { useAdmin } from '../../../lib/admin-context';
-import { ADMIN_NAV_GROUPS } from './admin-navigation';
+import { ADMIN_NAV_GROUPS, isAdminNavItemActive } from './admin-navigation';
 
 type DrawerState = { mounted: boolean; closing: boolean };
 type DrawerAction =
@@ -52,6 +52,7 @@ export function AdminMobileNav() {
   });
 
   const isAnimatingOut = useRef(false);
+  const [collapsedGroups, toggleGroup] = useReducer((state: Record<string, boolean>, href: string) => ({ ...state, [href]: !state[href] }), {});
 
   useEffect(() => {
     if (sidebarOpen) {
@@ -147,20 +148,19 @@ export function AdminMobileNav() {
                 <ul className="admin-mobile-nav-list">
                   {visibleItems.map((item, itemIdx) => {
                     const Icon = item.icon;
-                    const isActive =
-                      item.href === '/admin'
-                        ? pathname === '/admin'
-                        : pathname.startsWith(item.href);
+                    const isActive = isAdminNavItemActive(pathname, item.href);
+                    const visibleChildren = item.children?.filter((child) => !child.permission || can(child.permission));
+                    const expanded = Boolean(visibleChildren?.length) && (isActive || !collapsedGroups[item.href]);
                     const count = item.badgeCount ? item.badgeCount(counts) : 0;
                     const staggerDelay = groupIdx * 30 + itemIdx * 25;
 
                     return (
-                      <li key={item.href}>
-                        <Link
+                      <li key={item.href} className={visibleChildren?.length ? 'admin-mobile-nav-parent' : undefined}>
+                        <div className="admin-mobile-nav-parent-row"><Link
                           href={item.href}
                           className={`admin-mobile-nav-item ${isActive ? 'active' : ''}`}
                           onClick={() => setSidebarOpen(false)}
-                          aria-current={isActive ? 'page' : undefined}
+                          aria-current={pathname === item.href ? 'page' : undefined}
                           style={{ '--stagger-delay': `${staggerDelay}ms` } as React.CSSProperties}
                         >
                           <span className="admin-mobile-nav-icon">
@@ -172,7 +172,8 @@ export function AdminMobileNav() {
                               {count}
                             </span>
                           )}
-                        </Link>
+                        </Link>{visibleChildren?.length ? <button type="button" className="admin-mobile-nav-expand" onClick={() => toggleGroup(item.href)} aria-expanded={expanded} aria-label={isActive ? `قسم ${item.label} موسع للمسار الحالي` : `${expanded ? 'طي' : 'توسيع'} قسم ${item.label}`} disabled={isActive}><ChevronDown size={16} /></button> : null}</div>
+                        {visibleChildren?.length && expanded ? <ul className="admin-mobile-nav-children">{visibleChildren.map((child) => { const ChildIcon = child.icon; const childActive = isAdminNavItemActive(pathname, child.href); return <li key={child.href}><Link href={child.href} className={`admin-mobile-nav-child ${childActive ? 'active' : ''}`} onClick={handleClose} aria-current={childActive ? 'page' : undefined} style={{ '--stagger-delay': `${staggerDelay + 20}ms` } as React.CSSProperties}><ChildIcon size={16} /><span>{child.label}</span></Link></li>; })}</ul> : null}
                       </li>
                     );
                   })}

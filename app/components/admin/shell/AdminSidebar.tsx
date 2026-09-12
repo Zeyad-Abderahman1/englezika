@@ -10,15 +10,17 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LogOut, ShieldCheck } from 'lucide-react';
+import { ChevronDown, LogOut, ShieldCheck } from 'lucide-react';
+import { useState } from 'react';
 import { useAdmin } from '../../../lib/admin-context';
-import { ADMIN_NAV_GROUPS } from './admin-navigation';
+import { ADMIN_NAV_GROUPS, isAdminNavItemActive } from './admin-navigation';
 
 export { ADMIN_NAV_GROUPS };
 
 export function AdminSidebar({ onItemClick }: { onItemClick?: () => void }) {
   const pathname = usePathname();
   const { admin, counts, can, isTeacher } = useAdmin();
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
   const handleLogout = async () => {
     try {
@@ -65,19 +67,18 @@ export function AdminSidebar({ onItemClick }: { onItemClick?: () => void }) {
               <ul className="admin-nav-list">
                 {visibleItems.map((item) => {
                   const Icon = item.icon;
-                  const isActive =
-                    item.href === '/admin'
-                      ? pathname === '/admin'
-                      : pathname.startsWith(item.href);
+                  const isActive = isAdminNavItemActive(pathname, item.href);
+                  const visibleChildren = item.children?.filter((child) => !child.permission || can(child.permission));
+                  const expanded = Boolean(visibleChildren?.length) && (isActive || !collapsedGroups[item.href]);
                   const count = item.badgeCount ? item.badgeCount(counts) : 0;
 
                   return (
-                    <li key={item.href}>
-                      <Link
+                    <li key={item.href} className={visibleChildren?.length ? 'admin-nav-parent' : undefined}>
+                      <div className="admin-nav-parent-row"><Link
                         href={item.href}
                         className={`admin-nav-item ${isActive ? 'active' : ''}`}
                         onClick={onItemClick}
-                        aria-current={isActive ? 'page' : undefined}
+                        aria-current={pathname === item.href ? 'page' : undefined}
                       >
                         <span className="admin-nav-icon">
                           <Icon size={18} />
@@ -88,7 +89,8 @@ export function AdminSidebar({ onItemClick }: { onItemClick?: () => void }) {
                             {count}
                           </span>
                         )}
-                      </Link>
+                      </Link>{visibleChildren?.length ? <button type="button" className="admin-nav-expand" onClick={() => setCollapsedGroups((current) => ({ ...current, [item.href]: expanded }))} aria-expanded={expanded} aria-label={isActive ? `قسم ${item.label} موسع للمسار الحالي` : `${expanded ? 'طي' : 'توسيع'} قسم ${item.label}`} disabled={isActive}><ChevronDown size={15} /></button> : null}</div>
+                      {visibleChildren?.length && expanded ? <ul className="admin-nav-children">{visibleChildren.map((child) => { const ChildIcon = child.icon; const childActive = isAdminNavItemActive(pathname, child.href); return <li key={child.href}><Link href={child.href} className={`admin-nav-child ${childActive ? 'active' : ''}`} onClick={onItemClick} aria-current={childActive ? 'page' : undefined}><ChildIcon size={15} /><span>{child.label}</span></Link></li>; })}</ul> : null}
                     </li>
                   );
                 })}

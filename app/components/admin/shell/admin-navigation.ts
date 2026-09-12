@@ -30,6 +30,7 @@ export type NavItem = {
   permission?: StaffPermission;
   badgeCount?: (counts: { pendingEnrollments: number; newMessages: number }) => number;
   teacherOnly?: boolean;
+  children?: NavItem[];
 };
 
 export type NavGroup = {
@@ -76,10 +77,14 @@ export const ADMIN_NAV_GROUPS: NavGroup[] = [
         permission: 'manage_assignments',
       },
       {
-        label: 'المساعد الذكي',
+        label: 'الذكاء الاصطناعي',
         href: '/admin/ai',
         icon: Sparkles,
         permission: 'manage_courses',
+        children: [
+          { label: 'المساعد الذكي', href: '/admin/ai/assistant', icon: Sparkles, permission: 'manage_courses' },
+          { label: 'مولد الاختبارات من PDF', href: '/admin/ai/pdf-exam', icon: FileQuestion, permission: 'manage_courses' },
+        ],
       },
     ],
   },
@@ -140,3 +145,8 @@ export const ADMIN_NAV_GROUPS: NavGroup[] = [
 ];
 
 export const BRAND_ICON = ShieldCheck;
+
+export function isAdminNavItemActive(pathname: string, href: string) {
+  if (href === '/admin') return pathname === href;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}

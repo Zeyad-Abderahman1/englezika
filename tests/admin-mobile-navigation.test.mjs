@@ -56,10 +56,12 @@ test('Admin Mobile Navigation Suite', async (t) => {
 
   await t.test('F. Active route styling still works', () => {
     const source = read('app/components/admin/shell/AdminMobileNav.tsx');
+    const navigationSource = read('app/components/admin/shell/admin-navigation.ts');
     assert.ok(source.includes('isActive'), 'Must compute active state');
-    assert.ok(source.includes("pathname === '/admin'"), 'Must handle exact /admin match');
-    assert.ok(source.includes('pathname.startsWith(item.href)'), 'Must handle prefix matching');
-    assert.ok(source.includes('aria-current={isActive'), 'Must set aria-current for active items');
+    assert.ok(source.includes('isAdminNavItemActive'), 'Must use shared active-route matching');
+    assert.ok(navigationSource.includes("href === '/admin'"), 'Must handle exact /admin match');
+    assert.ok(navigationSource.includes('pathname.startsWith(`${href}/`)'), 'Must handle bounded prefix matching');
+    assert.ok(source.includes("aria-current={pathname === item.href ? 'page'"), 'Must set aria-current for exact parent item');
   });
 
   await t.test('G. Topbar retains menu control, theme control, refresh control', () => {

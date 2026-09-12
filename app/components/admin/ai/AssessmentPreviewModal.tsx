@@ -1,21 +1,30 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { X, Check, Trash2, Plus, LoaderCircle, AlertTriangle, BookOpen } from 'lucide-react';
 import type { GeneratedAssessmentPreview, GeneratedQuestion } from '../../../lib/ai/content-generator';
 import { isAssessmentSubmissionAllowed, validateGeneratedQuestion } from '../../../lib/ai/assessment-validator';
 
 interface AssessmentPreviewModalProps {
   assessment: GeneratedAssessmentPreview;
-  targetCourseId?: string;
   isOpen: boolean;
   onClose: () => void;
   onSaveToCourse: (finalQuestions: GeneratedQuestion[], title: string, examType: 'exam' | 'quiz') => Promise<void>;
 }
 
+const QUESTION_REASON_LABELS: Record<string, string> = {
+  EMPTY_QUESTION: 'أدخل نصًا واضحًا للسؤال.',
+  WRONG_OPTION_COUNT: 'يجب أن يحتوي السؤال على أربعة اختيارات.',
+  EMPTY_OPTION: 'أكمل جميع الاختيارات.',
+  DUPLICATE_OPTION: 'يجب أن تكون الاختيارات مختلفة.',
+  INVALID_CORRECT_INDEX: 'حدد إجابة صحيحة واحدة.',
+  MISSING_CORRECT_ANSWER: 'حدد الإجابة الصحيحة.',
+  MALFORMED_QUESTION: 'راجع بيانات السؤال.',
+  DUPLICATE_QUESTION_TEXT: 'نص السؤال مكرر.',
+};
+
 export function AssessmentPreviewModal({
   assessment,
-  targetCourseId,
   isOpen,
   onClose,
   onSaveToCourse,
@@ -25,32 +34,45 @@ export function AssessmentPreviewModal({
   const [questions, setQuestions] = useState<GeneratedQuestion[]>(assessment.questions || []);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    dialog?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+      if (event.key !== 'Tab' || !dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]'));
+      if (!focusable.length) return;
+      const first = focusable[0]; const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => { document.removeEventListener('keydown', handleKeyDown); previousFocus?.focus(); };
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
   const submissionCheck = isAssessmentSubmissionAllowed(questions);
 
   const handlePromptChange = (idx: number, val: string) => {
-    const updated = [...questions];
-    updated[idx].prompt = val;
-    setQuestions(updated);
+    setQuestions((current) => current.map((question, index) => index === idx ? { ...question, prompt: val } : question));
   };
 
   const handleOptionChange = (qIdx: number, optIdx: number, val: string) => {
-    const updated = [...questions];
-    const oldOption = updated[qIdx].options[optIdx];
-    updated[qIdx].options[optIdx] = val;
-    // If this option was the correct answer, update correctAnswer as well
-    if (updated[qIdx].correctAnswer === oldOption) {
-      updated[qIdx].correctAnswer = val;
-    }
-    setQuestions(updated);
+    setQuestions((current) => current.map((question, index) => {
+      if (index !== qIdx) return question;
+      const oldOption = question.options[optIdx];
+      const options = question.options.map((option, optionIndex) => optionIndex === optIdx ? val : option);
+      return { ...question, options, correctAnswer: question.correctAnswer === oldOption ? val : question.correctAnswer };
+    }));
   };
 
   const handleCorrectAnswerSelect = (qIdx: number, correctVal: string) => {
-    const updated = [...questions];
-    updated[qIdx].correctAnswer = correctVal;
-    setQuestions(updated);
+    setQuestions((current) => current.map((question, index) => index === qIdx ? { ...question, correctAnswer: correctVal, correctIndex: question.options.indexOf(correctVal) } : question));
   };
 
   const handleDeleteQuestion = (idx: number) => {
@@ -84,8 +106,8 @@ export function AssessmentPreviewModal({
     try {
       await onSaveToCourse(questions, title, examType);
       onClose();
-    } catch (err: any) {
-      setError(err?.message || 'تعذر حفظ الأسئلة في الدورة.');
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : 'تعذر حفظ الأسئلة في الدورة.');
     } finally {
       setSubmitting(false);
     }
@@ -93,7 +115,7 @@ export function AssessmentPreviewModal({
 
   return (
     <div className="ai-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="assessment-modal-title">
-      <div className="ai-modal-card">
+      <div className="ai-modal-card" ref={dialogRef} tabIndex={-1}>
         {/* Header */}
         <div className="ai-modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -102,10 +124,10 @@ export function AssessmentPreviewModal({
             </div>
             <div>
               <h3 id="assessment-modal-title" style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>
-                مراجعة وتعديل الأسئلة المُنشأة بواسطة الذكاء الاصطناعي
+                مراجعة وتعديل الأسئلة
               </h3>
               <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8' }}>
-                عدد الأسئلة: {questions.length} | المصدر: تحليل النصوص التعليمية
+                {questions.length} سؤالًا · {examType === 'quiz' ? 'Quiz' : 'Exam'}
               </p>
             </div>
           </div>
@@ -178,6 +200,7 @@ export function AssessmentPreviewModal({
                       onClick={() => handleDeleteQuestion(qIdx)}
                       style={{ padding: '0.2rem 0.5rem' }}
                       title="حذف هذا السؤال"
+                      aria-label={`حذف السؤال رقم ${qIdx + 1}`}
                     >
                       <Trash2 size={14} />
                     </button>
@@ -193,6 +216,13 @@ export function AssessmentPreviewModal({
                       borderColor: !q.prompt?.trim() || q.prompt.trim().length < 5 ? '#ef4444' : undefined,
                     }}
                   />
+
+                  {!qValidation.valid && (
+                    <p className="ai-question-validation" role="alert">
+                      <AlertTriangle size={14} />
+                      {qValidation.reasons.map((reason) => QUESTION_REASON_LABELS[reason]).join(' ')}
+                    </p>
+                  )}
 
                   {/* Multiple choice options */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
@@ -289,7 +319,7 @@ export function AssessmentPreviewModal({
             ) : (
               <>
                 <Check size={16} />
-                <span>تأكيد وإدراج الأسئلة في الدورة</span>
+                <span>تأكيد وإدراج {questions.length} سؤالًا</span>
               </>
             )}
           </button>
@@ -298,4 +328,3 @@ export function AssessmentPreviewModal({
     </div>
   );
 }
-

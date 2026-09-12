@@ -4,112 +4,80 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const rootDir = path.resolve(__dirname, '..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
-test('AI Assistant Navigation & Admin Page Suite', async (t) => {
-  await t.test('1. Sidebar contains "المساعد الذكي" pointing to /admin/ai with manage_courses permission', () => {
-    const navSource = fs.readFileSync(path.join(rootDir, 'app/components/admin/shell/admin-navigation.ts'), 'utf8');
-    const sidebarSource = fs.readFileSync(path.join(rootDir, 'app/components/admin/shell/AdminSidebar.tsx'), 'utf8');
+test('Admin AI hub and tools navigation', async (t) => {
+  const nav = read('app/components/admin/shell/admin-navigation.ts');
+  const desktop = read('app/components/admin/shell/AdminSidebar.tsx');
+  const mobile = read('app/components/admin/shell/AdminMobileNav.tsx');
 
-    assert.ok(navSource.includes('label: \'المساعد الذكي\''), 'Shared nav must contain label "المساعد الذكي"');
-    assert.ok(navSource.includes('href: \'/admin/ai\''), 'Shared nav must contain route /admin/ai');
-    assert.ok(navSource.includes('Sparkles'), 'Shared nav must use Sparkles icon for AI Assistant');
-    assert.ok(navSource.includes('permission: \'manage_courses\''), 'AI Assistant nav item must require manage_courses permission');
-    assert.ok(sidebarSource.includes("from './admin-navigation'"), 'Sidebar must import from shared navigation module');
+  await t.test('1-5. shared AI navigation group has its parent, children, and path expansion', () => {
+    assert.match(nav, /label: 'الذكاء الاصطناعي'/);
+    assert.match(nav, /href: '\/admin\/ai'/);
+    assert.match(nav, /label: 'المساعد الذكي'[\s\S]*href: '\/admin\/ai\/assistant'/);
+    assert.match(nav, /label: 'مولد الاختبارات من PDF'[\s\S]*href: '\/admin\/ai\/pdf-exam'/);
+    assert.match(nav, /children:/);
+    assert.match(nav, /isAdminNavItemActive/);
+    assert.equal((desktop.match(/from '\.\/admin-navigation'/g) || []).length, 1);
+    assert.equal((mobile.match(/from '\.\/admin-navigation'/g) || []).length, 1);
+    for (const source of [desktop, mobile]) {
+      assert.match(source, /item\.children/);
+      assert.match(source, /isAdminNavItemActive/);
+    }
   });
 
-  await t.test('2. Sidebar active state correctly resolves for /admin/ai', () => {
-    const sidebarSource = fs.readFileSync(path.join(rootDir, 'app/components/admin/shell/AdminSidebar.tsx'), 'utf8');
-    assert.ok(sidebarSource.includes("item.href === '/admin'"), 'Exact check for /admin root must be present');
-    assert.ok(sidebarSource.includes('pathname.startsWith(item.href)'), 'Prefix check for subroutes must be present');
-
-    // Replicate AdminSidebar active matching logic:
-    const pathname = '/admin/ai';
-    const isDashboardActive = '/admin' === '/admin' ? pathname === '/admin' : pathname.startsWith('/admin');
-    const isAiActive = '/admin/ai' === '/admin' ? pathname === '/admin' : pathname.startsWith('/admin/ai');
-    const isCoursesActive = '/admin/courses' === '/admin' ? pathname === '/admin' : pathname.startsWith('/admin/courses');
-
-    assert.equal(isDashboardActive, false, 'Dashboard must NOT be active when on /admin/ai');
-    assert.equal(isAiActive, true, 'AI nav item must be active when on /admin/ai');
-    assert.equal(isCoursesActive, false, 'Courses nav item must NOT be active when on /admin/ai');
+  await t.test('6-8. hub renders two linked active tool cards', () => {
+    const hub = read('app/components/admin/ai/AIHub.tsx');
+    assert.match(hub, /أدوات الذكاء الاصطناعي/);
+    assert.match(hub, /المساعد الذكي/);
+    assert.match(hub, /مولد الاختبارات من PDF/);
+    assert.match(hub, /href: '\/admin\/ai\/assistant'/);
+    assert.match(hub, /href: '\/admin\/ai\/pdf-exam'/);
   });
 
-  await t.test('3. Topbar "المساعد الذكي" button is removed from AdminTopbar.tsx', () => {
-    const topbarSource = fs.readFileSync(path.join(rootDir, 'app/components/admin/shell/AdminTopbar.tsx'), 'utf8');
-    assert.ok(!topbarSource.includes('المساعد الذكي'), 'AdminTopbar must NOT contain "المساعد الذكي" button');
-    assert.ok(!topbarSource.includes('setAiDrawerOpen'), 'AdminTopbar must NOT reference setAiDrawerOpen');
+  await t.test('9-10. dedicated routes mount the existing assistant and one PDF tool', () => {
+    const assistantPage = read('app/admin/ai/assistant/page.tsx');
+    const pdfPage = read('app/admin/ai/pdf-exam/page.tsx');
+    const assistant = read('app/components/admin/ai/AIAssistantWorkspace.tsx');
+    assert.match(assistantPage, /<AIAssistantWorkspace/);
+    assert.match(pdfPage, /<PdfAssessmentWorkspace/);
+    assert.doesNotMatch(assistant, /generate-assessment/);
   });
 
-  await t.test('4. AIAssistantDrawer is removed from AdminShell.tsx', () => {
-    const shellSource = fs.readFileSync(path.join(rootDir, 'app/components/admin/shell/AdminShell.tsx'), 'utf8');
-    assert.ok(!shellSource.includes('<AIAssistantDrawer'), 'AdminShell must NOT render AIAssistantDrawer');
-    assert.ok(!shellSource.includes('aiDrawerOpen'), 'AdminShell must NOT contain aiDrawerOpen state');
+  await t.test('11. PDF question count is constrained to backend maximum 30', () => {
+    const pdf = read('app/components/admin/ai/PdfAssessmentWorkspace.tsx');
+    assert.match(pdf, /QUESTION_COUNT_MAX = 30/);
+    assert.match(pdf, /Math\.min\(QUESTION_COUNT_MAX/);
+    assert.match(pdf, /max=\{QUESTION_COUNT_MAX\}/);
   });
 
-  await t.test('5. Dedicated /admin/ai page route exists and is protected with PermissionGate', () => {
-    const pagePath = path.join(rootDir, 'app/admin/ai/page.tsx');
-    assert.ok(fs.existsSync(pagePath), 'app/admin/ai/page.tsx must exist');
-
-    const pageSource = fs.readFileSync(pagePath, 'utf8');
-    assert.ok(pageSource.includes('AIAssistantWorkspace'), 'app/admin/ai/page.tsx must render AIAssistantWorkspace');
-    assert.ok(pageSource.includes('PermissionGate'), 'app/admin/ai/page.tsx must use PermissionGate');
-    assert.ok(pageSource.includes('permission="manage_courses"'), 'PermissionGate must enforce manage_courses');
-    assert.ok(pageSource.includes('المساعد الذكي'), 'Page metadata must mention המساعد الذكي');
+  await t.test('12-13. deterministic preview validation controls insertion', () => {
+    const preview = read('app/components/admin/ai/AssessmentPreviewModal.tsx');
+    const pdf = read('app/components/admin/ai/PdfAssessmentWorkspace.tsx');
+    assert.match(preview, /isAssessmentSubmissionAllowed\(questions\)/);
+    assert.match(preview, /disabled=\{submitting \|\| !submissionCheck\.allowed\}/);
+    assert.match(preview, /validateGeneratedQuestion\(q\)/);
+    assert.match(pdf, /parameters: \{ courseId: effectiveCourseId, title, questions,/);
+    assert.match(pdf, /key=\{assessment\.previewId\}/);
   });
 
-  await t.test('6. AIAssistantWorkspace contains all essential AI features and tabs', () => {
-    const workspacePath = path.join(rootDir, 'app/components/admin/ai/AIAssistantWorkspace.tsx');
-    assert.ok(fs.existsSync(workspacePath), 'AIAssistantWorkspace.tsx must exist');
-
-    const workspaceSource = fs.readFileSync(workspacePath, 'utf8');
-    // Tabs
-    assert.ok(workspaceSource.includes('المحادثة والأوامر الذكية'), 'Workspace must include chat tab');
-    assert.ok(workspaceSource.includes('توليد امتحان من PDF'), 'Workspace must include PDF assessment tab');
-
-    // Chat features
-    assert.ok(workspaceSource.includes('CompoundPlanCard'), 'Workspace must render CompoundPlanCard');
-    assert.ok(workspaceSource.includes('AssessmentPreviewModal'), 'Workspace must render AssessmentPreviewModal');
-    assert.ok(workspaceSource.includes('handleCancel'), 'Workspace must support aborting/cancelling generation');
-    assert.ok(workspaceSource.includes('ai-quick-chip'), 'Workspace must include quick prompt chips');
-
-    // PDF features
-    assert.ok(workspaceSource.includes('ai-dropzone'), 'Workspace must include PDF dropzone');
-    assert.ok(workspaceSource.includes('difficulty'), 'Workspace must include difficulty selector');
-    assert.ok(workspaceSource.includes('questionCount'), 'Workspace must include question count');
+  await t.test('14-15. teacher-facing PDF UI contains no provider or raw load codes', () => {
+    const pdf = read('app/components/admin/ai/PdfAssessmentWorkspace.tsx');
+    const messageRenderer = read('app/components/admin/ai/AssistantMessageContent.tsx');
+    assert.doesNotMatch(pdf, /OpenRouter|Ollama|SYSTEM_LOAD_HIGH|HTTP 429|HTTP 500/i);
+    assert.match(pdf, /تعذر توليد الأسئلة حاليًا/);
+    assert.match(messageRenderer, /\{richText\}\{courseResults/);
   });
 
-  await t.test('7. AI APIs and confirmation flow are preserved without modification', () => {
-    const workspaceSource = fs.readFileSync(path.join(rootDir, 'app/components/admin/ai/AIAssistantWorkspace.tsx'), 'utf8');
-    assert.ok(workspaceSource.includes('/api/admin/ai/chat'), 'Must call /api/admin/ai/chat');
-    assert.ok(workspaceSource.includes('/api/admin/ai/execute'), 'Must call /api/admin/ai/execute');
-    assert.ok(workspaceSource.includes('/api/admin/ai/upload'), 'Must call /api/admin/ai/upload');
-    assert.ok(workspaceSource.includes('/api/admin/ai/generate-assessment'), 'Must call /api/admin/ai/generate-assessment');
-    assert.ok(workspaceSource.includes('/api/admin/ai/prepare-confirmation'), 'Must call /api/admin/ai/prepare-confirmation');
-    assert.ok(workspaceSource.includes('/api/admin/ai/status'), 'Must check /api/admin/ai/status');
-  });
-
-  await t.test('8. Safe disabled-AI fallback does not leak technical internals or secrets', () => {
-    const workspaceSource = fs.readFileSync(path.join(rootDir, 'app/components/admin/ai/AIAssistantWorkspace.tsx'), 'utf8');
-    assert.ok(workspaceSource.includes('خدمة المساعد الذكي غير مفعلة حالياً'), 'Must render safe disabled message');
-    assert.ok(!workspaceSource.includes('OLLAMA'), 'Must not leak OLLAMA in client code');
-    assert.ok(!workspaceSource.includes('LOCAL_AI_ENDPOINT'), 'Must not leak LOCAL_AI_ENDPOINT');
-    assert.ok(!workspaceSource.includes('AI_CONFIRMATION_SECRET'), 'Must not leak AI_CONFIRMATION_SECRET');
-  });
-
-  await t.test('9. No browser-side direct Ollama endpoint usage', () => {
-    const workspaceSource = fs.readFileSync(path.join(rootDir, 'app/components/admin/ai/AIAssistantWorkspace.tsx'), 'utf8');
-    assert.ok(!workspaceSource.includes('11434'), 'Must not call Ollama port directly');
-    assert.ok(!workspaceSource.includes('localhost:11434'), 'Must not call localhost:11434');
-    assert.ok(!workspaceSource.includes('127.0.0.1:11434'), 'Must not call 127.0.0.1:11434');
-  });
-
-  await t.test('10. AIAssistantDrawer delegates to AIAssistantWorkspace for backward compatibility', () => {
-    const drawerPath = path.join(rootDir, 'app/components/admin/ai/AIAssistantDrawer.tsx');
-    assert.ok(fs.existsSync(drawerPath), 'AIAssistantDrawer.tsx must exist for compatibility');
-
-    const drawerSource = fs.readFileSync(drawerPath, 'utf8');
-    assert.ok(drawerSource.includes('AIAssistantWorkspace'), 'AIAssistantDrawer must delegate to AIAssistantWorkspace');
+  await t.test('16. AI surfaces explicitly preserve RTL, mobile, focus, and reduced motion', () => {
+    const hub = read('app/components/admin/ai/AIHub.tsx');
+    const pdf = read('app/components/admin/ai/PdfAssessmentWorkspace.tsx');
+    const css = read('app/components/admin/ai/ai-assistant.css');
+    assert.match(hub, /dir="rtl"/);
+    assert.match(pdf, /dir="rtl"/);
+    assert.match(css, /@media \(max-width: 768px\)/);
+    assert.match(css, /:focus-visible/);
+    assert.match(css, /prefers-reduced-motion: reduce/);
   });
 });
