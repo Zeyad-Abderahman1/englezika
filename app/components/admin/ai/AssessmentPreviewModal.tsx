@@ -15,11 +15,11 @@ interface AssessmentPreviewModalProps {
 const QUESTION_REASON_LABELS: Record<string, string> = {
   EMPTY_QUESTION: 'أدخل نصًا واضحًا للسؤال.',
   WRONG_OPTION_COUNT: 'يجب أن يحتوي السؤال على أربعة اختيارات.',
-  EMPTY_OPTION: 'أكمل جميع الاختيارات.',
-  DUPLICATE_OPTION: 'يجب أن تكون الاختيارات مختلفة.',
+  EMPTY_OPTION: 'هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.',
+  DUPLICATE_OPTION: 'يجب أن تكون الاختيارات مختلفة وغير مكررة.',
   INVALID_CORRECT_INDEX: 'حدد إجابة صحيحة واحدة.',
   MISSING_CORRECT_ANSWER: 'حدد الإجابة الصحيحة.',
-  MALFORMED_QUESTION: 'راجع بيانات السؤال.',
+  MALFORMED_QUESTION: 'هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.',
   DUPLICATE_QUESTION_TEXT: 'نص السؤال مكرر.',
 };
 
@@ -226,8 +226,13 @@ export function AssessmentPreviewModal({
 
                   {/* Multiple choice options */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                    {q.options.map((opt, optIdx) => {
-                      const isCorrect = q.correctAnswer === opt;
+                    {(Array.isArray(q.options) ? q.options : []).map((rawOpt, optIdx) => {
+                      const opt = typeof rawOpt === 'string'
+                        ? rawOpt
+                        : rawOpt && typeof rawOpt === 'object'
+                        ? (rawOpt as any).text || (rawOpt as any).value || (rawOpt as any).option || (rawOpt as any).content || ''
+                        : '';
+                      const isCorrect = Boolean(q.correctAnswer && q.correctAnswer === opt);
                       const isOptEmpty = !opt || !opt.trim();
                       const letter = String.fromCharCode(65 + optIdx);
                       return (
@@ -308,7 +313,7 @@ export function AssessmentPreviewModal({
             type="button"
             className="btn btn-primary text-sm"
             onClick={handleSubmit}
-            disabled={submitting || !submissionCheck.allowed}
+            disabled={submitting || !submissionCheck.allowed || questions.some((q) => !validateGeneratedQuestion(q).valid)}
             style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
           >
             {submitting ? (

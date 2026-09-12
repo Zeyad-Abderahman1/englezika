@@ -53,9 +53,9 @@ export const ASSESSMENT_QUESTIONS_JSON_SCHEMA: Record<string, unknown> = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['prompt', 'options', 'correctIndex', 'correctAnswer'],
+        required: ['prompt', 'options', 'correctIndex', 'correctAnswer', 'explanation'],
         properties: {
-          prompt: { type: 'string', minLength: 1 },
+          prompt: { type: 'string', minLength: 5 },
           options: {
             type: 'array',
             minItems: 4,
@@ -144,8 +144,16 @@ export function validateGeneratedQuestion(raw: unknown): QuestionValidationResul
       const oObj = opt as Record<string, unknown>;
       if (typeof oObj.text === 'string') {
         optStr = oObj.text.trim();
+      } else if (typeof oObj.value === 'string') {
+        optStr = oObj.value.trim();
       } else if (typeof oObj.option === 'string') {
         optStr = oObj.option.trim();
+      } else if (typeof oObj.content === 'string') {
+        optStr = oObj.content.trim();
+      } else if (typeof oObj.choice === 'string') {
+        optStr = oObj.choice.trim();
+      } else if (typeof oObj.answer === 'string') {
+        optStr = oObj.answer.trim();
       }
     }
 
@@ -320,13 +328,13 @@ export function isAssessmentSubmissionAllowed(questions: unknown[]): {
     const qResult = validateGeneratedQuestion(questions[i]);
     if (!qResult.valid) {
       if (qResult.reasons.includes('EMPTY_OPTION')) {
-        return { allowed: false, reason: `يوجد خيار فارغ في السؤال رقم ${i + 1}. يرجى إدخال نص لجميع الخيارات.` };
+        return { allowed: false, reason: `يوجد خيار فارغ في السؤال رقم ${i + 1}. هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.` };
       }
       if (qResult.reasons.includes('WRONG_OPTION_COUNT')) {
-        return { allowed: false, reason: `السؤال رقم ${i + 1} لا يحتوي على 4 خيارات تماماً.` };
+        return { allowed: false, reason: `السؤال رقم ${i + 1} لا يحتوي على 4 خيارات تماماً. هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.` };
       }
       if (qResult.reasons.includes('DUPLICATE_OPTION')) {
-        return { allowed: false, reason: `يوجد خيارات مكررة في السؤال رقم ${i + 1}.` };
+        return { allowed: false, reason: `يوجد خيارات مكررة في السؤال رقم ${i + 1}. هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.` };
       }
       if (qResult.reasons.includes('EMPTY_QUESTION')) {
         return { allowed: false, reason: `نص السؤال رقم ${i + 1} فارغ أو غير مكتمل.` };
@@ -334,7 +342,7 @@ export function isAssessmentSubmissionAllowed(questions: unknown[]): {
       if (qResult.reasons.includes('MISSING_CORRECT_ANSWER') || qResult.reasons.includes('INVALID_CORRECT_INDEX')) {
         return { allowed: false, reason: `يرجى تحديد الإجابة الصحيحة للسؤال رقم ${i + 1}.` };
       }
-      return { allowed: false, reason: `السؤال رقم ${i + 1} غير مكتمل أو غير صالح.` };
+      return { allowed: false, reason: `السؤال رقم ${i + 1}: هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.` };
     }
   }
 

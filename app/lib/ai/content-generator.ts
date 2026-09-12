@@ -54,6 +54,7 @@ export interface GeneratedAssessmentPreview {
   timing?: {
     initialGenerationMs: number;
     completionGenerationMs: number;
+    validationDurationMs?: number;
     totalMs: number;
   };
 }
@@ -75,7 +76,9 @@ const BATCH_SIZE_MAX = 8;
 function emitGenerationEvent(
   result: unknown,
   requestedQuestionCount: number,
-  validQuestionCount: number
+  validQuestionCount: number,
+  validationDurationMs = 0,
+  completionPassDurationMs = 0
 ): void {
   const metadata = (result as { assessmentProviderMetadata?: AssessmentProviderMetadata })
     ?.assessmentProviderMetadata;
@@ -83,6 +86,8 @@ function emitGenerationEvent(
   console.info(JSON.stringify({
     event: 'ai_assessment_generation',
     ...metadata,
+    validationDurationMs,
+    completionPassDurationMs,
     requestedQuestionCount,
     validQuestionCount,
   }));
@@ -117,6 +122,7 @@ export async function generateAssessmentFromText(
     'bypassLocalResourceGuard' in provider && provider.bypassLocalResourceGuard === true;
 
   const startTime = Date.now();
+  let totalValidationMs = 0;
 
   // 1. Chunk document across 15 strata
   const chunks = chunkDocumentStratified(documentText);
@@ -185,6 +191,7 @@ Required JSON format:
     }
 
     // Validate and clean questions in this batch
+    const valStart = Date.now();
     const validCountBeforeBatch = accumulatedQuestions.length;
     for (const rawQ of result.data.questions) {
       if (accumulatedQuestions.length >= requestedCount) break;
@@ -204,10 +211,14 @@ Required JSON format:
         id: `gen_q_${randomUUID().slice(0, 8)}`,
       });
     }
+    const valDuration = Date.now() - valStart;
+    totalValidationMs += valDuration;
     emitGenerationEvent(
       result,
       questionsNeeded,
-      accumulatedQuestions.length - validCountBeforeBatch
+      accumulatedQuestions.length - validCountBeforeBatch,
+      valDuration,
+      0
     );
   }
 
@@ -260,6 +271,7 @@ Required JSON format:
     );
 
     if (completionResult.success && completionResult.data && Array.isArray(completionResult.data.questions)) {
+      const compValStart = Date.now();
       const validCountBeforeCompletion = accumulatedQuestions.length;
       for (const rawQ of completionResult.data.questions) {
         if (accumulatedQuestions.length >= requestedCount) break;
@@ -279,10 +291,14 @@ Required JSON format:
           id: `gen_q_${randomUUID().slice(0, 8)}`,
         });
       }
+      const compValDuration = Date.now() - compValStart;
+      totalValidationMs += compValDuration;
       emitGenerationEvent(
         completionResult,
         missingCount,
-        accumulatedQuestions.length - validCountBeforeCompletion
+        accumulatedQuestions.length - validCountBeforeCompletion,
+        compValDuration,
+        completionGenerationMs
       );
     }
 
@@ -290,7 +306,9 @@ Required JSON format:
   }
 
   // --- FINAL DETERMINISTIC VALIDATION & EXACT COUNT ENFORCEMENT ---
+  const finalValStart = Date.now();
   const finalValidation = validateGeneratedAssessment(accumulatedQuestions, requestedCount);
+  totalValidationMs += (Date.now() - finalValStart);
 
   if (!finalValidation.valid || finalValidation.validQuestions.length < requestedCount) {
     throw new Error(
@@ -316,6 +334,7 @@ Required JSON format:
     timing: {
       initialGenerationMs,
       completionGenerationMs,
+      validationDurationMs: totalValidationMs,
       totalMs: Date.now() - startTime,
     },
   };

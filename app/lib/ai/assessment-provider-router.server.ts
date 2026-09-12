@@ -24,8 +24,13 @@ export interface AssessmentGenerationProvider {
 export interface AssessmentProviderMetadata {
   provider: 'openrouter' | 'ollama';
   durationMs: number;
+  openrouterModel: string;
+  openrouterDurationMs: number;
   fallbackOccurred: boolean;
+  ollamaDurationMs: number | null;
   failureClass: AssessmentProviderFailureClass | null;
+  validationDurationMs?: number;
+  completionPassDurationMs?: number;
 }
 
 export class AssessmentGenerationUnavailableError extends Error {
@@ -72,22 +77,28 @@ export class AssessmentProviderRouter implements AssessmentGenerationProvider {
     options: GenerateStructuredOutputOptions<T>
   ): Promise<StructuredOutputResult<T>> {
     const startedAt = Date.now();
+    const openrouterModel = this.primary.model || 'openrouter/free';
     try {
       const result = await this.primary.generateStructuredOutput<T>(options);
       if (!result.success || !result.data) {
         throw new AssessmentProviderError('malformed_response');
       }
-      emitProviderEvent({
-        provider: 'openrouter', durationMs: Date.now() - startedAt,
-        fallbackOccurred: false, failureClass: null,
-      });
+      const openrouterDurationMs = Date.now() - startedAt;
+      const metadata: AssessmentProviderMetadata = {
+        provider: 'openrouter',
+        durationMs: openrouterDurationMs,
+        openrouterModel,
+        openrouterDurationMs,
+        fallbackOccurred: false,
+        ollamaDurationMs: null,
+        failureClass: null,
+      };
+      emitProviderEvent(metadata as unknown as Record<string, unknown>);
       return Object.assign(result, {
-        assessmentProviderMetadata: {
-          provider: 'openrouter', durationMs: Date.now() - startedAt,
-          fallbackOccurred: false, failureClass: null,
-        } satisfies AssessmentProviderMetadata,
+        assessmentProviderMetadata: metadata,
       });
     } catch (error) {
+      const openrouterDurationMs = Date.now() - startedAt;
       const primaryFailureClass = failureClassOf(error);
       if (primaryFailureClass === 'cancelled') throw error;
       if (!this.fallback) throw error;
@@ -95,22 +106,33 @@ export class AssessmentProviderRouter implements AssessmentGenerationProvider {
       const headroom = await this.checkLocalHeadroom();
       if (!headroom.allowed) {
         emitProviderEvent({
-          provider: 'ollama', durationMs: Date.now() - startedAt,
-          fallbackOccurred: true, failureClass: 'local_load_high',
+          provider: 'ollama',
+          durationMs: openrouterDurationMs,
+          openrouterModel,
+          openrouterDurationMs,
+          fallbackOccurred: true,
+          ollamaDurationMs: null,
+          failureClass: 'local_load_high',
         });
         throw new AssessmentGenerationUnavailableError();
       }
 
+      const ollamaStart = Date.now();
       const result = await this.fallback.generateStructuredOutput<T>(options);
-      emitProviderEvent({
-        provider: 'ollama', durationMs: Date.now() - startedAt,
-        fallbackOccurred: true, failureClass: primaryFailureClass,
-      });
+      const ollamaDurationMs = Date.now() - ollamaStart;
+      const totalDurationMs = Date.now() - startedAt;
+      const metadata: AssessmentProviderMetadata = {
+        provider: 'ollama',
+        durationMs: totalDurationMs,
+        openrouterModel,
+        openrouterDurationMs,
+        fallbackOccurred: true,
+        ollamaDurationMs,
+        failureClass: primaryFailureClass,
+      };
+      emitProviderEvent(metadata as unknown as Record<string, unknown>);
       return Object.assign(result, {
-        assessmentProviderMetadata: {
-          provider: 'ollama', durationMs: Date.now() - startedAt,
-          fallbackOccurred: true, failureClass: primaryFailureClass,
-        } satisfies AssessmentProviderMetadata,
+        assessmentProviderMetadata: metadata,
       });
     }
   }

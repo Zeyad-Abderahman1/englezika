@@ -4,6 +4,7 @@ import { loadAiServerConfig } from '../../../../lib/ai/ai-config.server';
 import { createConfirmationRequest } from '../../../../lib/ai/confirmation.server';
 import { getToolDefinition, isRegisteredTool, type AiToolName } from '../../../../lib/ai/tool-registry';
 import { generateActionPreview } from '../../../../lib/ai/preview-generator';
+import { validateGeneratedAssessment } from '../../../../lib/ai/assessment-validator';
 
 export const runtime = 'nodejs';
 
@@ -49,6 +50,13 @@ export async function POST(request: Request) {
     if (tool.mutationType === 'read') {
       return jsonError(`الأدوات المخصصة للقراءة فقط لا تتطلب تأكيداً: ${actionType}`, 400);
     }
+    if (actionType === 'create_quiz' || actionType === 'create_exam') {
+      const questions = Array.isArray(actionPayload.questions) ? actionPayload.questions : [];
+      const validation = validateGeneratedAssessment(questions);
+      if (!validation.valid || validation.validQuestions.length === 0) {
+        return jsonError('هذا التقييم يحتوي على اختيارات أو بيانات غير صالحة ولا يمكن إدراجه', 400);
+      }
+    }
   } else {
     const steps = Array.isArray(actionPayload.steps) ? actionPayload.steps : [];
     if (steps.length === 0) {
@@ -57,6 +65,17 @@ export async function POST(request: Request) {
     for (const step of steps) {
       if (!step.tool || !isRegisteredTool(step.tool)) {
         return jsonError(`الأداة المطلوبة في الخطة غير معروفة: ${step.tool}`, 400);
+      }
+      if (step.tool === 'create_quiz' || step.tool === 'create_exam') {
+        const questions = Array.isArray(step.parameters?.questions)
+          ? step.parameters.questions
+          : Array.isArray(step.payload?.questions)
+          ? step.payload.questions
+          : [];
+        const validation = validateGeneratedAssessment(questions);
+        if (!validation.valid || validation.validQuestions.length === 0) {
+          return jsonError('هذا التقييم يحتوي على اختيارات أو أسئلة غير صالحة ولا يمكن إدراجه', 400);
+        }
       }
     }
   }

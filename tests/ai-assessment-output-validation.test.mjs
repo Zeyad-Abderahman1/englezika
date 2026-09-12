@@ -6,6 +6,7 @@ import {
   isAssessmentSubmissionAllowed,
   generateAssessmentFromText,
 } from '../app/lib/ai/content-generator.ts';
+import { ASSESSMENT_QUESTIONS_JSON_SCHEMA } from '../app/lib/ai/assessment-validator.ts';
 import { assessmentService } from '../app/lib/services/assessment-service.ts';
 import { DomainError } from '../app/lib/services/types.ts';
 
@@ -739,4 +740,259 @@ describe('Production AI Assessment Bug: Exact Reproduction & Regression Suite', 
     );
   });
 });
+
+describe('Phase 6: End-to-End Assessment Options Integrity & Defense Suite', () => {
+  // 1. Provider returns options: ["A", "B", "C", "D"] -> all 4 visible and valid
+  test('1. Provider returns options: ["A", "B", "C", "D"] -> normalized to canonical string array and valid', () => {
+    const raw = {
+      prompt: 'What is the synonym of rapid?',
+      options: ['Quick', 'Slow', 'Tired', 'Heavy'],
+      correctIndex: 0,
+      correctAnswer: 'Quick',
+    };
+    const result = validateGeneratedQuestion(raw);
+    assert.equal(result.valid, true);
+    assert.deepEqual(result.normalizedQuestion.options, ['Quick', 'Slow', 'Tired', 'Heavy']);
+  });
+
+  // 2. Provider returns options: ["", "", "", ""] -> rejected before preview
+  test('2. Provider returns options: ["", "", "", ""] -> strictly rejected before successful preview', () => {
+    const raw = {
+      prompt: 'What is the synonym of rapid?',
+      options: ['', '', '', ''],
+      correctIndex: 0,
+      correctAnswer: '',
+    };
+    const result = validateGeneratedQuestion(raw);
+    assert.equal(result.valid, false);
+    assert.ok(result.reasons.includes('EMPTY_OPTION'));
+  });
+
+  // 3. Provider returns objects instead of strings: [{ text: "A" }] or [{ value: "A" }]
+  test('3. Provider returns objects: safely normalizes supported shapes or rejects, never silently blank', () => {
+    // 3a. Supported object shape with "value" or "text" or "label" + "value"
+    const rawWithValue = {
+      prompt: 'What is the capital of France?',
+      options: [
+        { label: 'A', value: 'Paris' },
+        { label: 'B', value: 'Lyon' },
+        { label: 'C', value: 'Marseille' },
+        { label: 'D', value: 'Nice' },
+      ],
+      correctIndex: 0,
+      correctAnswer: 'Paris',
+    };
+    const resVal = validateGeneratedQuestion(rawWithValue);
+    assert.equal(resVal.valid, true, 'Should safely normalize objects with value field into canonical string array');
+    assert.deepEqual(resVal.normalizedQuestion.options, ['Paris', 'Lyon', 'Marseille', 'Nice']);
+
+    // 3b. Unsupported object without text/value/option/content -> rejected, never silently blank
+    const rawWithUnsupported = {
+      prompt: 'What is the capital of France?',
+      options: [
+        { unknownField: 123 },
+        { unknownField: 456 },
+        { unknownField: 789 },
+        { unknownField: 999 },
+      ],
+      correctIndex: 0,
+      correctAnswer: 'Paris',
+    };
+    const resUnsupported = validateGeneratedQuestion(rawWithUnsupported);
+    assert.equal(resUnsupported.valid, false);
+    assert.ok(resUnsupported.reasons.includes('EMPTY_OPTION'));
+  });
+
+  // 4. Provider returns valid options but UI contract requires string[] so UI cannot read wrong property
+  test('4. Canonical question contract strictly guarantees options is [string, string, string, string]', () => {
+    const raw = {
+      prompt: 'What is the capital of France?',
+      options: [
+        { text: 'Paris' },
+        { text: 'Lyon' },
+        { text: 'Marseille' },
+        { text: 'Nice' },
+      ],
+      correctIndex: 0,
+      correctAnswer: 'Paris',
+    };
+    const res = validateGeneratedQuestion(raw);
+    assert.equal(res.valid, true);
+    for (const opt of res.normalizedQuestion.options) {
+      assert.equal(typeof opt, 'string', 'Canonical options must be pure strings, never objects');
+      assert.ok(opt.length > 0);
+    }
+  });
+
+  // 5. correctIndex valid but option text missing/empty -> invalid
+  test('5. correctIndex valid (0) but option text at that index is missing or empty -> rejected', () => {
+    const raw = {
+      prompt: 'What is the capital of Germany?',
+      options: ['', 'Munich', 'Hamburg', 'Frankfurt'],
+      correctIndex: 0,
+      correctAnswer: 'Berlin',
+    };
+    const res = validateGeneratedQuestion(raw);
+    assert.equal(res.valid, false);
+    assert.ok(res.reasons.includes('EMPTY_OPTION'));
+  });
+
+  // 6. 20 questions where 1 has blank option -> valid count = 19 -> completion requests missing 1 -> fails if still < 20
+  test('6. 20 questions where 1 has blank option yields valid count = 19 and fails closed without full count', async () => {
+    let callCount = 0;
+    const provider = {
+      name: 'provider-with-one-blank',
+      model: 'test',
+      async healthCheck() { return { healthy: true, provider: 'mock', model: 'test' }; },
+      async generatePlan() { return { planText: '', actions: [] }; },
+      async generateStructuredOutput(options) {
+        callCount++;
+        if (callCount === 1) {
+          // 20 questions returned, but question 20 has blank option
+          const questions = Array.from({ length: 20 }, (_, i) => ({
+            prompt: `Educational curriculum question ${i + 1}?`,
+            options: i === 19
+              ? ['Option A', '', 'Option C', 'Option D'] // BLANK OPTION!
+              : ['Option A', 'Option B', 'Option C', 'Option D'],
+            correctAnswer: 'Option A',
+            correctIndex: 0,
+          }));
+          return { success: true, data: { questions } };
+        }
+        // Completion pass fails to produce any new valid questions
+        return { success: true, data: { questions: [] } };
+      },
+    };
+
+    await assert.rejects(
+      async () => {
+        await generateAssessmentFromText({
+          documentText: 'Grammar and reading curriculum for high school. '.repeat(60),
+          requestedQuestionCount: 20,
+          provider,
+        });
+      },
+      /تم توليد 19 من أصل 20 سؤالًا صالحًا فقط/
+    );
+  });
+
+  // 7. Teacher clears an option -> submissionCheck.allowed is false and gives exact Arabic validation message
+  test('7. Question with empty option produces exact required Arabic validation message', () => {
+    const questions = [
+      {
+        prompt: 'What is the capital of Egypt?',
+        options: ['Cairo', '', 'Giza', 'Luxor'],
+        correctAnswer: 'Cairo',
+        correctIndex: 0,
+      },
+    ];
+    const check = isAssessmentSubmissionAllowed(questions);
+    assert.equal(check.allowed, false);
+    assert.ok(
+      check.reason?.includes('هذا السؤال يحتوي على اختيارات غير صالحة') ||
+      check.reason?.includes('يوجد خيار فارغ في السؤال رقم 1'),
+      `Expected required Arabic validation error, got: ${check.reason}`
+    );
+  });
+
+  // 8. Server-side final defense: prepare-confirmation rejects payload with empty options
+  test('8. prepare-confirmation rejects compound_plan create_quiz/create_exam with empty options', async () => {
+    const prevEnv = globalThis.__ENGLIZEKA_ENV__;
+    const prevAi = process.env.AI_ASSISTANT_ENABLED;
+    const prevSec = process.env.AI_CONFIRMATION_SECRET;
+    process.env.AI_ASSISTANT_ENABLED = 'true';
+    process.env.AI_CONFIRMATION_SECRET = '0123456789abcdef0123456789abcdef';
+
+    class StaffSessionDb {
+      prepare(sql) {
+        return {
+          bind() {
+            return {
+              async first() {
+                if (sql.includes('staff_sessions')) {
+                  return {
+                    expiresAt: Date.now() + 60_000,
+                    email: 'admin@englizeka.com',
+                    name: 'Admin',
+                    role: 'admin',
+                    permissions: JSON.stringify(['manage_courses', 'manage_exams']),
+                  };
+                }
+                return null;
+              },
+              async run() { return { results: [], success: true, meta: { changes: 1 } }; },
+            };
+          },
+        };
+      }
+    }
+
+    globalThis.__ENGLIZEKA_ENV__ = { DB: new StaffSessionDb() };
+
+    try {
+      const { POST: prepareConfirmation } = await import('../app/api/admin/ai/prepare-confirmation/route.ts');
+      const res = await prepareConfirmation(
+        new Request('https://englezika.com/api/admin/ai/prepare-confirmation', {
+          method: 'POST',
+          headers: {
+            origin: 'https://englezika.com',
+            cookie: 'englizeka_staff=valid-staff-token-12345678',
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            actionType: 'compound_plan',
+            actionPayload: {
+              steps: [
+                {
+                  tool: 'create_quiz',
+                  parameters: {
+                    courseId: 'c_test',
+                    title: 'Crafted Quiz With Blank Option',
+                    questions: [
+                      {
+                        prompt: 'Valid prompt for test question?',
+                        options: ['A', '', 'C', 'D'], // BLANK OPTION!
+                        correctAnswer: 'A',
+                        correctIndex: 0,
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          }),
+        })
+      );
+
+      // Must be rejected with 400!
+      assert.equal(res.status, 400, 'prepare-confirmation must reject empty options with 400');
+    } finally {
+      globalThis.__ENGLIZEKA_ENV__ = prevEnv;
+      process.env.AI_ASSISTANT_ENABLED = prevAi;
+      process.env.AI_CONFIRMATION_SECRET = prevSec;
+    }
+  });
+
+  // 9. OpenRouter JSON Schema strictness audit
+  test('9. ASSESSMENT_QUESTIONS_JSON_SCHEMA is strictly aligned with canonical contract', () => {
+    const schema = ASSESSMENT_QUESTIONS_JSON_SCHEMA;
+    assert.equal(schema.type, 'object');
+    const qItems = schema.properties.questions.items;
+    assert.equal(qItems.type, 'object');
+    assert.equal(qItems.additionalProperties, false);
+    // Strict schema requirement: every property listed in properties must be in required
+    const propKeys = Object.keys(qItems.properties).sort();
+    const requiredKeys = [...qItems.required].sort();
+    assert.deepEqual(
+      requiredKeys,
+      propKeys,
+      'OpenRouter strict JSON schema requires all properties to be in required array'
+    );
+    assert.equal(qItems.properties.options.minItems, 4);
+    assert.equal(qItems.properties.options.maxItems, 4);
+    assert.equal(qItems.properties.options.items.type, 'string');
+    assert.ok(qItems.properties.prompt.minLength >= 5, 'prompt minLength should match validator requirement (>=5)');
+  });
+});
+
 
