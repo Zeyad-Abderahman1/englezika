@@ -313,7 +313,7 @@ export function AssessmentPreviewModal({
             type="button"
             className="btn btn-primary text-sm"
             onClick={handleSubmit}
-            disabled={submitting || !submissionCheck.allowed || questions.some((q) => !validateGeneratedQuestion(q).valid)}
+            disabled={submitting || !submissionCheck.allowed}
             style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
           >
             {submitting ? (

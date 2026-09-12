@@ -1,11 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { LocalAiProvider } from './local-ai-provider';
 import { getGlobalAiQueue } from './ai-queue';
-import {
-  getAssessmentGenerationProvider,
-  type AssessmentGenerationProvider,
-  type AssessmentProviderMetadata,
-} from './assessment-provider-router.server';
+import { getGeminiProvider } from './providers/gemini-provider.server';
 import { chunkDocumentStratified, selectContextForBatch } from './document-chunker';
 
 import {
@@ -57,6 +53,27 @@ export interface GeneratedAssessmentPreview {
     validationDurationMs?: number;
     totalMs: number;
   };
+}
+
+export interface AssessmentProviderMetadata {
+  provider: string;
+  durationMs: number;
+  model: string;
+  fallbackOccurred: boolean;
+  validationDurationMs?: number;
+  completionPassDurationMs?: number;
+}
+
+export type AssessmentGenerationProvider = LocalAiProvider;
+
+export async function getAssessmentGenerationProvider(): Promise<LocalAiProvider> {
+  const { loadAiServerConfig } = await import('./ai-config.server');
+  const config = loadAiServerConfig();
+  if (config.provider === 'mock') {
+    const { MockAiProvider } = await import('./providers/mock-provider');
+    return new MockAiProvider({ model: config.model });
+  }
+  return getGeminiProvider();
 }
 
 export interface GenerateAssessmentOptions {

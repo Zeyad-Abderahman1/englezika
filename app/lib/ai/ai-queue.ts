@@ -1,15 +1,12 @@
-import os from 'node:os';
-
 /**
  * AI Request Queue & Resource Guard
  *
- * Implements a single-flight queue (maxConcurrent = 1) with load shedding,
- * bounded waiting queue (maxWaiting = 2), FIFO processing, timeout enforcement,
+ * Implements a bounded concurrency queue with load shedding,
+ * bounded waiting queue, FIFO processing, timeout enforcement,
  * and cancellation support.
  */
 
 export interface ResourceGuardOptions {
-  maxLoadAverage?: number;
   maxQueueLength?: number;
   maxActiveStudentExams?: number;
   getActiveExamsCount?: () => Promise<number> | number;
@@ -19,21 +16,18 @@ export interface ResourceGuardDecision {
   allowed: boolean;
   reason?: string;
   details?: {
-    loadAvg?: number;
     queueLength?: number;
     activeExams?: number;
   };
 }
 
 export class ResourceGuard {
-  private readonly maxLoadAverage: number;
   private readonly maxQueueLength: number;
   private readonly maxActiveStudentExams: number;
   private readonly getActiveExamsCount?: () => Promise<number> | number;
 
   constructor(options: ResourceGuardOptions = {}) {
-    this.maxLoadAverage = options.maxLoadAverage ?? 3.0;
-    this.maxQueueLength = options.maxQueueLength ?? 2;
+    this.maxQueueLength = options.maxQueueLength ?? 6;
     this.maxActiveStudentExams = options.maxActiveStudentExams ?? 25;
     this.getActiveExamsCount = options.getActiveExamsCount;
   }
@@ -48,20 +42,9 @@ export class ResourceGuard {
       };
     }
 
-    // 2. OS Load Average check (VPS multi-core metric)
-    const loadAvg = os.loadavg()[0];
-    if (typeof loadAvg === 'number' && loadAvg > 0 && loadAvg > this.maxLoadAverage) {
-      return {
-        allowed: false,
-        reason: 'SYSTEM_LOAD_HIGH',
-        details: { loadAvg, queueLength: currentQueueLength },
-      };
-    }
-
     return {
       allowed: true,
       details: {
-        loadAvg,
         queueLength: currentQueueLength,
       },
     };
@@ -73,7 +56,7 @@ export class ResourceGuard {
       return syncCheck;
     }
 
-    // 3. Active Student Exams check (pluggable without DB coupling)
+    // 2. Active Student Exams check (pluggable without DB coupling)
     if (this.getActiveExamsCount) {
       try {
         const activeExams = await this.getActiveExamsCount();
@@ -112,6 +95,7 @@ export class QueueSaturatedError extends Error {
 }
 
 export interface AiQueueOptions {
+  maxConcurrent?: number;
   maxWaiting?: number;
   resourceGuard?: ResourceGuard;
   useGlobalGate?: boolean;
@@ -120,7 +104,7 @@ export interface AiQueueOptions {
 }
 
 export class AiQueue {
-  readonly maxConcurrent: number = 1;
+  readonly maxConcurrent: number;
   readonly maxWaiting: number;
   private running: number = 0;
   private queue: Array<QueueJob<unknown>> = [];
@@ -130,7 +114,8 @@ export class AiQueue {
   private gateDb?: any;
 
   constructor(options: AiQueueOptions = {}) {
-    this.maxWaiting = options.maxWaiting ?? 2;
+    this.maxConcurrent = options.maxConcurrent ?? 1;
+    this.maxWaiting = options.maxWaiting ?? 6;
     this.resourceGuard =
       options.resourceGuard ?? new ResourceGuard({ maxQueueLength: this.maxWaiting });
     this.useGlobalGate = options.useGlobalGate ?? false;
@@ -270,13 +255,14 @@ export class AiQueue {
   }
 }
 
-/** Global shared single-flight AI queue instance */
+/** Global shared AI queue instance */
 let globalAiQueue: AiQueue | null = null;
 
 export function getGlobalAiQueue(): AiQueue {
   if (!globalAiQueue) {
     globalAiQueue = new AiQueue({
-      maxWaiting: 2,
+      maxConcurrent: Math.max(1, Math.min(10, Number(process.env.AI_QUEUE_MAX_CONCURRENT || 3))),
+      maxWaiting: Math.max(1, Math.min(20, Number(process.env.AI_QUEUE_MAX_WAITING || 6))),
       useGlobalGate: Boolean(process.env.DATABASE_URL),
     });
   }

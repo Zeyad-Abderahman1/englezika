@@ -9,7 +9,7 @@ import {
   AiGateSaturatedError,
   AiGateCoordinationError,
 } from '../app/lib/ai/ai-global-gate.server.ts';
-import { OpenRouterAssessmentProvider } from '../app/lib/ai/providers/openrouter-assessment-provider.server.ts';
+import { GeminiAiProvider } from '../app/lib/ai/providers/gemini-provider.server.ts';
 
 // In-memory Mock Database for unit testing the state machine & locking
 class MockRuntimeQueueDatabase {
@@ -410,10 +410,10 @@ describe('PostgreSQL Global AI Gate (Multi-Worker Single-Flight Coordination)', 
     assert.equal(db.rows.length, 0);
   });
 
-  test('OpenRouter timeout releases the global slot for the next assessment request', async () => {
+  test('Gemini provider timeout releases the global slot for the next assessment request', async () => {
     const db = new MockRuntimeQueueDatabase();
     const gate = new GlobalAiGate({ db, pollIntervalMs: 15 });
-    const provider = new OpenRouterAssessmentProvider({
+    const provider = new GeminiAiProvider({
       apiKey: 'test-only-secret',
       timeoutMs: 10,
       fetchImpl: async (_url, init) => new Promise((_resolve, reject) => {
@@ -426,7 +426,7 @@ describe('PostgreSQL Global AI Gate (Multi-Worker Single-Flight Coordination)', 
       workerId: 'worker_1',
       action: () => provider.generateStructuredOutput({ userPrompt: 'generate' }),
     });
-    await assert.rejects(timedOut, (error) => error.failureClass === 'timeout');
+    await assert.rejects(timedOut, (error) => error.code === 'TIMEOUT');
     assert.equal(db.rows.length, 0);
 
     const next = await gate.execute({

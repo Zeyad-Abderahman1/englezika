@@ -136,7 +136,7 @@ export class GlobalAiGate {
           // A. Sweep expired rows (recovers stale crashed entries)
           await runQuery(txDb, 'DELETE FROM ai_runtime_queue WHERE expires_at < ?', [now]);
 
-          // B. Check current total active capacity (1 running + 2 waiting = max 3)
+          // B. Check current total active capacity
           const countRow = await getFirstRow<{ count: number | string }>(
             txDb,
             'SELECT COUNT(*) as count FROM ai_runtime_queue'
@@ -209,7 +209,7 @@ export class GlobalAiGate {
               return;
             }
 
-            // 3. No one is currently running; check who is the oldest waiting row
+            // 4. Running capacity is available; check if we are the oldest waiting row
             const oldestWaiting = await getFirstRow<{ id: number; request_id: string }>(
               txDb,
               "SELECT id, request_id FROM ai_runtime_queue WHERE status = 'waiting' ORDER BY id ASC LIMIT 1"

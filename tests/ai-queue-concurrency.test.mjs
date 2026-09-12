@@ -9,8 +9,7 @@ import {
 import { getClientAiState } from '../app/lib/ai/ai-client-state.ts';
 import { AiQueue, QueueSaturatedError, ResourceGuard } from '../app/lib/ai/ai-queue.ts';
 import { MockAiProvider } from '../app/lib/ai/providers/mock-provider.ts';
-import { OllamaAiProvider } from '../app/lib/ai/providers/ollama-provider.ts';
-import { LlamaCppAiProvider } from '../app/lib/ai/providers/llamacpp-provider.ts';
+import { GeminiAiProvider } from '../app/lib/ai/providers/gemini-provider.server.ts';
 
 describe('Phase 2: Server-Only AI Config & Security Controls', () => {
   test('feature flag disabled: does not require secret and defaults safely', () => {
@@ -49,11 +48,11 @@ describe('Phase 2: Server-Only AI Config & Security Controls', () => {
     const config = loadAiServerConfig({
       AI_ASSISTANT_ENABLED: 'true',
       AI_CONFIRMATION_SECRET: validSecret,
-      LOCAL_AI_PROVIDER: 'ollama',
+      GEMINI_API_KEY: 'test-gemini-key',
     });
     assert.equal(config.enabled, true);
     assert.equal(config.confirmationSecret, validSecret);
-    assert.equal(config.provider, 'ollama');
+    assert.equal(config.provider, 'gemini');
   });
 
   test('client-safe config exposes only safe flags and never leaks secrets or endpoints', () => {
@@ -91,14 +90,12 @@ describe('Phase 2: Server-Only AI Config & Security Controls', () => {
     assert.equal(isLoopbackEndpoint(''), false);
   });
 
-  test('loadAiServerConfig throws when configured with external endpoint', () => {
-    assert.throws(
-      () =>
-        loadAiServerConfig({
-          LOCAL_AI_ENDPOINT: 'http://attacker.com/api',
-        }),
-      /Invalid LOCAL_AI_ENDPOINT/
-    );
+  test('loadAiServerConfig defaults model and timeout', () => {
+    const config = loadAiServerConfig({
+      AI_ASSISTANT_ENABLED: 'false',
+    });
+    assert.equal(config.model, 'gemini-3.1-flash-lite');
+    assert.equal(config.timeoutMs, 60000);
   });
 });
 
@@ -299,36 +296,15 @@ describe('Phase 2: Local AI Provider Abstraction & Implementations', () => {
     assert.match(res.rawText, /MALFORMED/);
   });
 
-  test('OllamaAiProvider: keep_alive configuration and endpoint security', () => {
-    const ollama = new OllamaAiProvider({
-      endpoint: 'http://127.0.0.1:11434',
-      idleTimeoutMinutes: 10,
+  test('GeminiAiProvider: model configuration and timeout defaults', () => {
+    const gemini = new GeminiAiProvider({
+      apiKey: 'test-key',
+      model: 'gemini-3.1-flash-lite',
+      timeoutMs: 45000,
     });
-    assert.equal(ollama.getKeepAliveString(), '10m');
-
-    // Reject non-loopback
-    assert.throws(
-      () =>
-        new OllamaAiProvider({
-          endpoint: 'http://remote-server.test:11434',
-        }),
-      /must be restricted to loopback/
-    );
-  });
-
-  test('LlamaCppAiProvider: endpoint security and loopback enforcement', () => {
-    const llamacpp = new LlamaCppAiProvider({
-      endpoint: 'http://127.0.0.1:8080',
-    });
-    assert.equal(llamacpp.name, 'llamacpp');
-
-    assert.throws(
-      () =>
-        new LlamaCppAiProvider({
-          endpoint: 'http://192.168.1.50:8080',
-        }),
-      /must be restricted to loopback/
-    );
+    assert.equal(gemini.name, 'gemini');
+    assert.equal(gemini.model, 'gemini-3.1-flash-lite');
+    assert.equal(gemini.timeoutMs, 45000);
   });
 
   test('no AI provider contains or executes LMS mutations', () => {
@@ -349,8 +325,7 @@ describe('Phase 2: Local AI Provider Abstraction & Implementations', () => {
 
     const providers = [
       new MockAiProvider(),
-      new OllamaAiProvider({ endpoint: 'http://127.0.0.1:11434' }),
-      new LlamaCppAiProvider({ endpoint: 'http://127.0.0.1:8080' }),
+      new GeminiAiProvider({ apiKey: 'test-key' }),
     ];
 
     for (const provider of providers) {

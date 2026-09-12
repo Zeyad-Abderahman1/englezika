@@ -3,23 +3,18 @@ import 'server-only';
 /**
  * Server-Only AI Configuration
  *
- * Isolated configuration for local AI integration.
+ * Isolated configuration for AI integration (Google Gemini API).
  * Client components MUST NEVER import this file.
  */
 
 export interface AiServerConfig {
   enabled: boolean;
   confirmationSecret: string;
-  provider: 'ollama' | 'llamacpp' | 'mock';
-  endpoint: string;
+  provider: 'gemini' | 'mock';
   model: string;
-  idleTimeoutMinutes: number;
-  maxInferenceThreads: number;
-  maxContextTokens: number;
-  maxOutputTokens: number;
-  requestTimeoutMs: number;
+  timeoutMs: number;
+  geminiApiKey: string;
   loadShedding: {
-    maxLoadAverage: number;
     maxActiveStudentExams: number;
     maxQueueLength: number;
   };
@@ -28,6 +23,7 @@ export interface AiServerConfig {
 /**
  * Validates that an endpoint URL resolves strictly to a local loopback address.
  * Rejects external domains, internal RFC1918 subnets, and cloud metadata services.
+ * Retained as a server-side SSRF security validator.
  */
 export function isLoopbackEndpoint(endpoint: string): boolean {
   if (!endpoint || typeof endpoint !== 'string') return false;
@@ -73,48 +69,32 @@ export function validateConfirmationSecret(secret: string | undefined, enabled: 
 }
 
 /**
- * Loads and validates AI server configuration from a given environment map.
+ * Loads and validates AI server configuration from environment.
  */
 export function loadAiServerConfig(env: NodeJS.ProcessEnv = process.env): AiServerConfig {
   const enabled = env.AI_ASSISTANT_ENABLED === 'true';
   const confirmationSecret = validateConfirmationSecret(env.AI_CONFIRMATION_SECRET, enabled);
 
-  const rawProvider = (env.LOCAL_AI_PROVIDER?.trim().toLowerCase() || 'mock');
-  const provider = (rawProvider === 'ollama' || rawProvider === 'llamacpp' || rawProvider === 'mock')
-    ? rawProvider
-    : 'mock';
+  const geminiApiKey = env.GEMINI_API_KEY?.trim() || '';
+  const model = env.GEMINI_MODEL?.trim() || 'gemini-3.1-flash-lite';
+  const parsedTimeout = Number(env.GEMINI_TIMEOUT_MS || env.AI_REQUEST_TIMEOUT_MS || 60_000);
+  const timeoutMs = Number.isFinite(parsedTimeout)
+    ? Math.max(1_000, Math.min(600_000, parsedTimeout))
+    : 60_000;
 
-  const defaultEndpoint = provider === 'llamacpp' ? 'http://127.0.0.1:8080' : 'http://127.0.0.1:11434';
-  const endpoint = env.LOCAL_AI_ENDPOINT?.trim() || defaultEndpoint;
-
-  if (endpoint && !isLoopbackEndpoint(endpoint)) {
-    throw new Error(
-      `FATAL: Invalid LOCAL_AI_ENDPOINT "${endpoint}". AI endpoint must be restricted to loopback (127.0.0.1, localhost, [::1]). Arbitrary network targets are prohibited.`
-    );
-  }
-
-  const model = env.LOCAL_AI_MODEL?.trim() || 'qwen2.5:1.5b-instruct-q4_K_M';
-  const idleTimeoutMinutes = Math.max(1, Math.min(120, Number(env.LOCAL_AI_IDLE_MINUTES || 5)));
-  const maxInferenceThreads = Math.max(1, Math.min(64, Number(env.LOCAL_AI_THREADS || 2)));
-  const maxContextTokens = Math.max(512, Math.min(65536, Number(env.LOCAL_AI_MAX_CONTEXT_TOKENS || 2048)));
-  const maxOutputTokens = Math.max(64, Math.min(16384, Number(env.LOCAL_AI_MAX_OUTPUT_TOKENS || 1024)));
-  const requestTimeoutMs = Math.max(1000, Math.min(600000, Number(env.AI_REQUEST_TIMEOUT_MS || 180_000)));
+  const isMock = !enabled || env.AI_PROVIDER === 'mock' || !geminiApiKey;
+  const provider: 'gemini' | 'mock' = isMock ? 'mock' : 'gemini';
 
   return {
     enabled,
     confirmationSecret,
     provider,
-    endpoint,
     model,
-    idleTimeoutMinutes,
-    maxInferenceThreads,
-    maxContextTokens,
-    maxOutputTokens,
-    requestTimeoutMs,
+    timeoutMs,
+    geminiApiKey,
     loadShedding: {
-      maxLoadAverage: 3.0,
       maxActiveStudentExams: 25,
-      maxQueueLength: 2,
+      maxQueueLength: 6,
     },
   };
 }

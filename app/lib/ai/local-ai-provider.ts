@@ -1,8 +1,9 @@
 /**
- * Local AI Provider Abstraction
+ * AI Provider Abstraction
  *
- * Provider-independent interface for local inference engines (Ollama, llama.cpp, mock).
- * This layer generates structured output ONLY. It NEVER executes LMS domain tools or DB operations.
+ * Provider-independent interface for AI inference engines (Gemini, mock).
+ * This layer generates structured output and plans ONLY.
+ * It NEVER executes LMS domain tools or writes SQL to the database.
  */
 
 export class ProviderError extends Error {
@@ -78,6 +79,7 @@ export interface ProviderHealthResult {
 export interface LocalAiProvider {
   readonly name: string;
   readonly model: string;
+  readonly bypassLocalResourceGuard?: boolean;
   healthCheck(options?: ProviderRequestOptions): Promise<ProviderHealthResult>;
   generateStructuredOutput<T = unknown>(
     options: GenerateStructuredOutputOptions<T>
@@ -89,6 +91,8 @@ export interface LocalAiProvider {
   ): Promise<PlanResult>;
   unloadModel?(): Promise<boolean>;
 }
+
+export type AiProvider = LocalAiProvider;
 
 let globalProviderInstance: LocalAiProvider | null = null;
 
@@ -102,26 +106,12 @@ export async function getAiProvider(): Promise<LocalAiProvider> {
   const { loadAiServerConfig } = await import('./ai-config.server');
   const config = loadAiServerConfig();
 
-  if (config.provider === 'ollama') {
-    const { OllamaAiProvider } = await import('./providers/ollama-provider');
-    globalProviderInstance = new OllamaAiProvider({
-      endpoint: config.endpoint,
+  if (config.provider === 'gemini' && config.geminiApiKey) {
+    const { GeminiAiProvider } = await import('./providers/gemini-provider.server');
+    globalProviderInstance = new GeminiAiProvider({
+      apiKey: config.geminiApiKey,
       model: config.model,
-      idleTimeoutMinutes: config.idleTimeoutMinutes,
-      maxInferenceThreads: config.maxInferenceThreads,
-      maxContextTokens: config.maxContextTokens,
-      maxOutputTokens: config.maxOutputTokens,
-      requestTimeoutMs: config.requestTimeoutMs,
-    });
-  } else if (config.provider === 'llamacpp') {
-    const { LlamaCppAiProvider } = await import('./providers/llamacpp-provider');
-    globalProviderInstance = new LlamaCppAiProvider({
-      endpoint: config.endpoint,
-      model: config.model,
-      maxInferenceThreads: config.maxInferenceThreads,
-      maxContextTokens: config.maxContextTokens,
-      maxOutputTokens: config.maxOutputTokens,
-      requestTimeoutMs: config.requestTimeoutMs,
+      timeoutMs: config.timeoutMs,
     });
   } else {
     const { MockAiProvider } = await import('./providers/mock-provider');
@@ -130,4 +120,3 @@ export async function getAiProvider(): Promise<LocalAiProvider> {
 
   return globalProviderInstance;
 }
-

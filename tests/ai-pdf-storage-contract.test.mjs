@@ -55,12 +55,12 @@ beforeEach(async () => {
   previousEnvironment = {
     AI_ASSISTANT_ENABLED: process.env.AI_ASSISTANT_ENABLED,
     AI_CONFIRMATION_SECRET: process.env.AI_CONFIRMATION_SECRET,
-    LOCAL_AI_PROVIDER: process.env.LOCAL_AI_PROVIDER,
+    AI_PROVIDER: process.env.AI_PROVIDER,
     PRIVATE_STORAGE_DIR: process.env.PRIVATE_STORAGE_DIR,
   };
   process.env.AI_ASSISTANT_ENABLED = 'true';
   process.env.AI_CONFIRMATION_SECRET = '0123456789abcdef0123456789abcdef';
-  process.env.LOCAL_AI_PROVIDER = 'mock';
+  process.env.AI_PROVIDER = 'mock';
   process.env.PRIVATE_STORAGE_DIR = storageDirectory;
   globalThis.__ENGLIZEKA_ENV__ = {
     DB: new AiRouteDatabase(),

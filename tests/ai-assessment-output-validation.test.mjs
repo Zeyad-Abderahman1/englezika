@@ -622,7 +622,7 @@ describe('Production AI Assessment Bug: Exact Reproduction & Regression Suite', 
     const provider = {
       name: 'prod-mock-provider',
       model: 'qwen2.5:1.5b-instruct-q4_K_M',
-      async healthCheck() { return { healthy: true, provider: 'ollama', model: 'qwen2.5' }; },
+      async healthCheck() { return { healthy: true, provider: 'gemini', model: 'gemini-3.1-flash-lite' }; },
       async generatePlan() { return { planText: '', actions: [] }; },
       async generateStructuredOutput(options) {
         callIdx++;
@@ -696,7 +696,7 @@ describe('Production AI Assessment Bug: Exact Reproduction & Regression Suite', 
     const provider = {
       name: 'prod-incomplete-provider',
       model: 'qwen2.5:1.5b-instruct-q4_K_M',
-      async healthCheck() { return { healthy: true, provider: 'ollama', model: 'qwen2.5' }; },
+      async healthCheck() { return { healthy: true, provider: 'gemini', model: 'gemini-3.1-flash-lite' }; },
       async generatePlan() { return { planText: '', actions: [] }; },
       async generateStructuredOutput() {
         callIdx++;
@@ -973,7 +973,7 @@ describe('Phase 6: End-to-End Assessment Options Integrity & Defense Suite', () 
     }
   });
 
-  // 9. OpenRouter JSON Schema strictness audit
+  // 9. Structured Output JSON Schema strictness audit
   test('9. ASSESSMENT_QUESTIONS_JSON_SCHEMA is strictly aligned with canonical contract', () => {
     const schema = ASSESSMENT_QUESTIONS_JSON_SCHEMA;
     assert.equal(schema.type, 'object');
@@ -986,7 +986,7 @@ describe('Phase 6: End-to-End Assessment Options Integrity & Defense Suite', () 
     assert.deepEqual(
       requiredKeys,
       propKeys,
-      'OpenRouter strict JSON schema requires all properties to be in required array'
+      'Structured output strict JSON schema requires all properties to be in required array'
     );
     assert.equal(qItems.properties.options.minItems, 4);
     assert.equal(qItems.properties.options.maxItems, 4);

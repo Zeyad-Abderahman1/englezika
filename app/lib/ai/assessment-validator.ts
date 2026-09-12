@@ -38,6 +38,7 @@ export interface AssessmentValidationResult {
     question: unknown;
     reasons: QuestionValidationReason[];
   }>;
+  errors?: string[];
 }
 
 /** Canonical structured-output schema shared by assessment inference providers. */
@@ -300,15 +301,21 @@ export function validateGeneratedAssessment(
     validQuestions.push(qResult.normalizedQuestion);
   });
 
+  const errors: string[] = [];
+  if (questions.length > 30 || (requestedCount !== undefined && requestedCount > 30)) {
+    errors.push('عدد الأسئلة يتجاوز الحد الأقصى المسموح به (30 سؤالاً)');
+  }
+
   const countMatches =
     requestedCount !== undefined ? validQuestions.length === requestedCount : true;
 
-  const valid = countMatches && invalidQuestions.length === 0;
+  const valid = countMatches && invalidQuestions.length === 0 && errors.length === 0;
 
   return {
     valid,
     validQuestions,
     invalidQuestions,
+    errors: errors.length > 0 ? errors : undefined,
   };
 }
 
