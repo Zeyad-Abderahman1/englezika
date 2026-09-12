@@ -410,6 +410,47 @@ describe('AI Planner Tool-Selection & Canonical Registry Enforcement Suite', () 
     assert.equal(compoundPreview.riskLevel, 'low');
   });
 
+  test('E2. Compound assessment steps accept parameters and preserve legacy payload previews', () => {
+    const examParameters = {
+      courseId: 'course-english-10',
+      title: 'PDF Midterm',
+      questions: [{
+        prompt: 'Choose the passive sentence.',
+        options: ['The letter was written by Ali.', 'Ali wrote the letter.', 'Ali writes.', 'The letter writes.'],
+        correctIndex: 0,
+        correctAnswer: 'The letter was written by Ali.',
+      }],
+    };
+    const quizParameters = {
+      courseId: 'course-english-10',
+      title: 'PDF Quiz',
+      questions: examParameters.questions,
+    };
+
+    const parametersPreview = generateActionPreview('compound_plan', {
+      steps: [
+        { tool: 'create_exam', parameters: examParameters },
+        { tool: 'create_quiz', parameters: quizParameters },
+      ],
+    });
+
+    assert.equal(parametersPreview.actionType, 'compound_plan');
+    assert.equal(parametersPreview.requiresConfirmation, true);
+    assert.equal(parametersPreview.isUnknown, undefined);
+    assert.equal(parametersPreview.items.length, 2);
+    assert.deepEqual(parametersPreview.items[0].details, examParameters);
+    assert.deepEqual(parametersPreview.items[1].details, quizParameters);
+
+    const legacyPayload = { courseId: 'course-legacy', title: 'Legacy Quiz' };
+    const legacyPreview = generateActionPreview('compound_plan', {
+      steps: [{ tool: 'create_quiz', payload: legacyPayload }],
+    });
+
+    assert.equal(legacyPreview.requiresConfirmation, true);
+    assert.equal(legacyPreview.items.length, 1);
+    assert.deepEqual(legacyPreview.items[0].details, legacyPayload);
+  });
+
   test('F. Unknown tool cannot reach tool execution', async () => {
     const db = new MockToolSelectionDb();
     await assert.rejects(

@@ -324,7 +324,11 @@ export function generateActionPreview(
  * Generates preview for a compound multi-step plan
  */
 function generateCompoundPlanPreview(payload: Record<string, any>): ConfirmationPreview {
-  const steps: Array<{ tool: string; payload: Record<string, any> }> = Array.isArray(payload.steps)
+  const steps: Array<{
+    tool: string;
+    parameters?: Record<string, any>;
+    payload?: Record<string, any>;
+  }> = Array.isArray(payload.steps)
     ? payload.steps
     : [];
 
@@ -367,7 +371,8 @@ function generateCompoundPlanPreview(payload: Record<string, any>): Confirmation
   };
 
   const items: ActionPreviewItem[] = steps.map((step, idx) => {
-    const singlePreview = generateActionPreview(step.tool, step.payload);
+    const stepPayload = step.parameters || step.payload || {};
+    const singlePreview = generateActionPreview(step.tool, stepPayload);
     const item = singlePreview.items[0] || {
       type: step.tool,
       title: step.tool,
@@ -375,7 +380,7 @@ function generateCompoundPlanPreview(payload: Record<string, any>): Confirmation
       summary: `Step ${idx + 1}`,
       summaryAr: `الخطوة ${idx + 1}`,
       riskLevel: 'low' as RiskLevel,
-      details: step.payload,
+      details: stepPayload,
     };
 
     if (riskWeights[item.riskLevel] > riskWeights[highestRisk]) {
