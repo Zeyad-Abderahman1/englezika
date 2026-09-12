@@ -7,6 +7,8 @@ import {
   resolveContext,
   loadConversationHistory,
   saveMessage,
+  injectCompatibleContext,
+  toolAcceptsParameter,
   MAX_MESSAGE_LENGTH,
   MAX_STORED_MESSAGES,
 } from '../app/lib/ai/orchestrator.ts';
@@ -45,6 +47,18 @@ class MockOrchestratorDatabase {
 
   async withTransaction(callback) {
     return callback(this);
+  }
+
+  async query(sql, params) {
+    if (sql.includes('FROM courses WHERE id = $1')) {
+      const course = this.courses.get(params[0]);
+      return { rows: course ? [{ ...course, course_id: course.id }] : [], rowCount: course ? 1 : 0 };
+    }
+    if (sql.includes('FROM courses')) {
+      const all = Array.from(this.courses.values());
+      return { rows: all, rowCount: all.length };
+    }
+    return { rows: [], rowCount: 0 };
   }
 
   prepare(sql) {
@@ -296,5 +310,87 @@ describe('Phase 6: Risk Escalation & Compound Action Planner', () => {
     assert.equal(result.actionsExecuted?.length, 1);
     assert.equal(result.actionsExecuted[0].tool, 'update_course');
     assert.equal(db.courses.get('c_unit4').title, 'Unit 4: New Title');
+  });
+});
+
+describe('Phase 6: Schema-Bounded Context Parameter Injection', () => {
+  const sampleContext = {
+    courseId: 'c_unit4',
+    lectureId: 'v_lec1',
+    assessmentId: 'ex_quiz1',
+  };
+
+  test('A. list_courses does NOT receive contextual courseId', () => {
+    const injected = injectCompatibleContext('list_courses', {}, sampleContext);
+    assert.equal(injected.courseId, undefined);
+    assert.deepEqual(injected, {});
+  });
+
+  test('B. list_courses executes successfully even when current admin context contains a courseId', async () => {
+    const db = new MockOrchestratorDatabase();
+    const mockProvider = new MockAiProvider({
+      mockPlan: {
+        planText: '',
+        actions: [{ tool: 'list_courses', parameters: {} }],
+      },
+    });
+
+    const result = await orchestrateAdminChat({
+      actor: teacherActor,
+      message: 'اعرض قائمة الكورسات',
+      context: { courseId: 'c_unit4' },
+      provider: mockProvider,
+      secret: TEST_SECRET,
+      db,
+    });
+
+    assert.equal(result.requiresConfirmation, false);
+    assert.equal(result.actionsExecuted?.length, 1);
+    assert.equal(result.actionsExecuted[0].tool, 'list_courses');
+    assert.ok(result.reply.includes('Unit 4: Advanced Grammar'));
+    assert.ok(result.reply.includes('مسودة'));
+  });
+
+  test('C. get_course receives contextual courseId when its schema accepts it', () => {
+    const injected = injectCompatibleContext('get_course', {}, sampleContext);
+    assert.equal(injected.courseId, 'c_unit4');
+  });
+
+  test('D. Explicit valid model courseId is not unexpectedly overwritten', () => {
+    const injected = injectCompatibleContext(
+      'get_course',
+      { courseId: 'c_model_explicit' },
+      sampleContext
+    );
+    assert.equal(injected.courseId, 'c_model_explicit');
+  });
+
+  test('E. get_lecture_details receives contextual lectureId only when declared (declares videoId -> not injected)', () => {
+    const injected = injectCompatibleContext('get_lecture_details', {}, sampleContext);
+    assert.equal(injected.lectureId, undefined);
+    assert.equal(toolAcceptsParameter('get_lecture_details', 'lectureId'), false);
+    assert.equal(toolAcceptsParameter('get_lecture_details', 'videoId'), true);
+  });
+
+  test('F. assessment tools receive assessmentId only when declared', () => {
+    const detailsParams = injectCompatibleContext('get_assessment_details', {}, sampleContext);
+    assert.equal(detailsParams.assessmentId, 'ex_quiz1');
+
+    const publishParams = injectCompatibleContext('publish_assessment', {}, sampleContext);
+    assert.equal(publishParams.assessmentId, 'ex_quiz1');
+
+    const deleteParams = injectCompatibleContext('delete_exam', { examId: 'e_1' }, sampleContext);
+    assert.equal(deleteParams.assessmentId, undefined);
+    assert.equal(deleteParams.examId, 'e_1');
+  });
+
+  test('G. model-supplied unknown parameters remain preserved and are rejected at execution boundary', () => {
+    const injected = injectCompatibleContext(
+      'list_courses',
+      { maliciousArg: 'attack' },
+      sampleContext
+    );
+    assert.equal(injected.maliciousArg, 'attack', 'Model args must never be silently sanitized');
+    assert.equal(injected.courseId, undefined);
   });
 });

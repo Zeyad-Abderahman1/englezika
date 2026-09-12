@@ -5,12 +5,14 @@ import {
   orchestrateAdminChat,
   evaluatePlanRisk,
   formatReadToolOutput,
+  injectCompatibleContext,
 } from '../app/lib/ai/orchestrator.ts';
 import {
   getToolDefinition,
   isRegisteredTool,
   isReadOnlyTool,
   CANONICAL_TOOL_NAMES,
+  toolAcceptsParameter,
 } from '../app/lib/ai/tool-registry.ts';
 import { executeTool, ToolExecutionError } from '../app/lib/ai/tool-executor.ts';
 import { generateActionPreview } from '../app/lib/ai/preview-generator.ts';
@@ -46,6 +48,10 @@ class MockToolSelectionDb {
   }
 
   async query(sql, params) {
+    if (sql.includes('FROM courses WHERE id = $1')) {
+      const course = this.courses.find((c) => c.id === params[0]);
+      return { rows: course ? [{ ...course, course_id: course.id }] : [], rowCount: course ? 1 : 0 };
+    }
     if (sql.includes('FROM courses')) {
       return { rows: [...this.courses], rowCount: this.courses.length };
     }
@@ -58,6 +64,10 @@ class MockToolSelectionDb {
       bind(...args) {
         return {
           async first() {
+            if (sql.includes('FROM courses WHERE id = ?')) {
+              const row = db.courses.find((c) => c.id === args[0]);
+              return row ? { ...row } : null;
+            }
             if (sql.includes('FROM ai_conversations WHERE id = ?')) {
               const row = db.conversations.get(args[0]);
               return row ? { ...row } : null;
@@ -580,6 +590,189 @@ describe('AI Planner Tool-Selection & Canonical Registry Enforcement Suite', () 
     assert.ok(result.reply.includes('Unit 1: The Basics'));
     assert.ok(result.reply.includes('منشور'));
     assert.ok(result.reply.includes('مسودة'));
+  });
+
+  test('W. Production Regression: Arabic list request with admin context containing courseId executes list_courses without courseId injection', async () => {
+    const db = new MockToolSelectionDb();
+    let executedArgs = null;
+    const mockProvider = new MockAiProvider({
+      mockPlan: {
+        planText: '',
+        actions: [{ tool: 'list_courses', parameters: {} }],
+      },
+    });
+
+    const arabicPrompt = 'اعرض لي الكورسات الموجودة حاليًا مع اسم كل كورس وحالته فقط. لا تنشئ أو تعدل أو تحذف أي شيء.';
+
+    // Admin context contains an active courseId
+    const result = await orchestrateAdminChat({
+      actor: teacherActor,
+      message: arabicPrompt,
+      context: { courseId: 'c_1' },
+      provider: mockProvider,
+      secret: TEST_SECRET,
+      db,
+    });
+
+    // 1. No confirmation
+    assert.equal(result.requiresConfirmation, false, 'list_courses must never require confirmation');
+    assert.equal(result.confirmationToken, undefined, 'Must not produce confirmation token');
+
+    // 2. list_courses executes
+    assert.equal(result.actionsExecuted?.length, 1);
+    const action = result.actionsExecuted[0];
+    assert.equal(action.tool, 'list_courses');
+
+    // 3. Schema-bounded parameters: courseId was NOT injected into list_courses
+    // In db.messages, check stored tool execution payload
+    const lastMsg = db.messages[db.messages.length - 1];
+    assert.ok(lastMsg.tool_call_json, 'Must store executed actions');
+    const storedActions = JSON.parse(lastMsg.tool_call_json);
+    assert.equal(storedActions[0].tool, 'list_courses');
+
+    // 4. Real courses returned
+    assert.ok(action.result?.result?.courses?.length >= 2);
+
+    // 5. Arabic formatted output includes title + status (published -> منشور, draft -> مسودة)
+    assert.ok(result.reply.includes('إليك قائمة الكورسات الموجودة حاليًا'));
+    assert.ok(result.reply.includes('Unit 1: The Basics'));
+    assert.ok(result.reply.includes('منشور'));
+    assert.ok(result.reply.includes('Unit 2: Past Simple'));
+    assert.ok(result.reply.includes('مسودة'));
+
+    // 6. No IDs unless explicitly requested
+    assert.ok(!result.reply.includes('c_1'), 'Course ID c_1 must not be leaked');
+    assert.ok(!result.reply.includes('c_2'), 'Course ID c_2 must not be leaked');
+  });
+
+  test('X. toolAcceptsParameter authoritatively checks registry schemas without hard-coded matrices', () => {
+    // Read tools
+    assert.equal(toolAcceptsParameter('list_courses', 'courseId'), false, 'list_courses schema does not accept courseId');
+    assert.equal(toolAcceptsParameter('list_courses', 'query'), true, 'list_courses accepts query');
+    assert.equal(toolAcceptsParameter('list_courses', 'grade'), true, 'list_courses accepts grade');
+    assert.equal(toolAcceptsParameter('search_courses', 'courseId'), false, 'search_courses schema does not accept courseId');
+    assert.equal(toolAcceptsParameter('get_course', 'courseId'), true, 'get_course accepts courseId');
+    assert.equal(toolAcceptsParameter('get_course_structure', 'courseId'), true, 'get_course_structure accepts courseId');
+
+    // Lecture tools
+    assert.equal(toolAcceptsParameter('get_lecture_details', 'lectureId'), false, 'get_lecture_details declares videoId, not lectureId');
+    assert.equal(toolAcceptsParameter('get_lecture_details', 'videoId'), true, 'get_lecture_details accepts videoId');
+    assert.equal(toolAcceptsParameter('add_lecture', 'courseId'), true, 'add_lecture accepts courseId');
+    assert.equal(toolAcceptsParameter('delete_lecture', 'courseId'), false, 'delete_lecture does not accept courseId');
+    assert.equal(toolAcceptsParameter('delete_lecture', 'videoId'), true, 'delete_lecture accepts videoId');
+
+    // Assessment tools
+    assert.equal(toolAcceptsParameter('get_assessment_details', 'assessmentId'), true, 'get_assessment_details accepts assessmentId');
+    assert.equal(toolAcceptsParameter('delete_exam', 'assessmentId'), false, 'delete_exam declares examId, not assessmentId');
+    assert.equal(toolAcceptsParameter('delete_exam', 'examId'), true, 'delete_exam accepts examId');
+    assert.equal(toolAcceptsParameter('publish_assessment', 'assessmentId'), true, 'publish_assessment accepts assessmentId');
+    assert.equal(toolAcceptsParameter('delete_assessment', 'assessmentId'), true, 'delete_assessment accepts assessmentId');
+
+    // Course tools
+    assert.equal(toolAcceptsParameter('create_course', 'courseId'), false, 'create_course does not accept courseId');
+    assert.equal(toolAcceptsParameter('update_course', 'courseId'), true, 'update_course accepts courseId');
+    assert.equal(toolAcceptsParameter('delete_course', 'courseId'), true, 'delete_course accepts courseId');
+    assert.equal(toolAcceptsParameter('publish_course', 'courseId'), true, 'publish_course accepts courseId');
+
+    // Non-registered tools
+    assert.equal(toolAcceptsParameter('unknown_tool', 'courseId'), false);
+  });
+
+  test('Y. injectCompatibleContext injects context ONLY when registered schema allows it', () => {
+    const validatedContext = {
+      courseId: 'c_unit1',
+      lectureId: 'v_lec1',
+      assessmentId: 'ex_quiz1',
+    };
+
+    // A. list_courses does NOT receive contextual courseId
+    const listParams = injectCompatibleContext('list_courses', {}, validatedContext);
+    assert.deepEqual(listParams, {}, 'list_courses must not receive courseId');
+
+    // search_courses injects only declared schema parameters
+    const searchParams = injectCompatibleContext('search_courses', { query: 'intro' }, validatedContext);
+    assert.deepEqual(searchParams, { query: 'intro' });
+
+    // C. get_course receives contextual courseId when schema accepts it
+    const getCourseParams = injectCompatibleContext('get_course', {}, validatedContext);
+    assert.deepEqual(getCourseParams, { courseId: 'c_unit1' });
+
+    // D. Explicit valid model courseId is not unexpectedly overwritten
+    const explicitParams = injectCompatibleContext('get_course', { courseId: 'c_explicit' }, validatedContext);
+    assert.equal(explicitParams.courseId, 'c_explicit', 'Explicit model parameter must take precedence');
+
+    // E. get_lecture_details receives contextual lectureId only when declared (not declared -> not injected)
+    const getLectureParams = injectCompatibleContext('get_lecture_details', {}, validatedContext);
+    assert.equal(getLectureParams.lectureId, undefined, 'lectureId must not be injected unless declared in schema');
+
+    // F. assessment tools receive assessmentId only when declared
+    const assessmentDetailsParams = injectCompatibleContext('get_assessment_details', {}, validatedContext);
+    assert.equal(assessmentDetailsParams.assessmentId, 'ex_quiz1');
+
+    const deleteExamParams = injectCompatibleContext('delete_exam', { examId: 'ex_1' }, validatedContext);
+    assert.equal(deleteExamParams.assessmentId, undefined, 'delete_exam declares examId, must not receive assessmentId');
+    assert.equal(deleteExamParams.examId, 'ex_1');
+  });
+
+  test('Z. CRITICAL SECURITY: Model-supplied invalid parameters remain rejected by strict validation', async () => {
+    const db = new MockToolSelectionDb();
+    const mockProvider = new MockAiProvider({
+      mockPlan: {
+        planText: '',
+        actions: [{ tool: 'list_courses', parameters: { evilUnknown: 'x' } }],
+      },
+    });
+
+    // Validated context is present
+    const validatedContext = { courseId: 'c_1' };
+    const injected = injectCompatibleContext('list_courses', { evilUnknown: 'x' }, validatedContext);
+    // Preserves evilUnknown, does not sanitize or strip it
+    assert.equal(injected.evilUnknown, 'x');
+    assert.equal(injected.courseId, undefined);
+
+    // Full orchestration must fail execution with strict validation error
+    await assert.rejects(
+      async () => {
+        await orchestrateAdminChat({
+          actor: teacherActor,
+          message: 'اعرض الكورسات',
+          context: { courseId: 'c_1' },
+          provider: mockProvider,
+          secret: TEST_SECRET,
+          db,
+        });
+      },
+      (err) => {
+        assert.ok(err instanceof ToolExecutionError);
+        assert.ok(err.message.includes("Unrecognized parameter 'evilUnknown' for tool 'list_courses'"));
+        return true;
+      }
+    );
+  });
+
+  test('AA. get_course receives contextual courseId when its schema accepts it and executes successfully', async () => {
+    const db = new MockToolSelectionDb();
+    const mockProvider = new MockAiProvider({
+      mockPlan: {
+        planText: '',
+        actions: [{ tool: 'get_course', parameters: {} }],
+      },
+    });
+
+    const result = await orchestrateAdminChat({
+      actor: teacherActor,
+      message: 'أعطني تفاصيل الدورة الحالية',
+      context: { courseId: 'c_1' },
+      provider: mockProvider,
+      secret: TEST_SECRET,
+      db,
+    });
+
+    assert.equal(result.requiresConfirmation, false);
+    assert.equal(result.actionsExecuted?.length, 1);
+    assert.equal(result.actionsExecuted[0].tool, 'get_course');
+    assert.ok(result.reply.includes('Unit 1: The Basics'));
+    assert.ok(result.reply.includes('منشور'));
   });
 
 });

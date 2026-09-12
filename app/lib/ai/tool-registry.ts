@@ -424,4 +424,19 @@ export function getToolDefinition(toolName: string): ToolDefinition | undefined 
   return TOOL_DEFINITIONS[toolName];
 }
 
+/**
+ * Authoritatively checks if a registered tool schema explicitly declares and accepts a given parameter.
+ * Non-registered tools or undeclared parameters strictly return false.
+ */
+export function toolAcceptsParameter(toolName: string, parameterName: string): boolean {
+  if (!isRegisteredTool(toolName)) {
+    return false;
+  }
+  const def = TOOL_DEFINITIONS[toolName];
+  if (!def || !def.allowedKeys) {
+    return false;
+  }
+  return Object.prototype.hasOwnProperty.call(def.allowedKeys, parameterName);
+}
+
 

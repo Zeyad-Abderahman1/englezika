@@ -3,7 +3,9 @@ import { getDatabase } from '../database';
 import { getAiProvider } from './local-ai-provider';
 import type { LocalAiProvider, PlanResult } from './local-ai-provider';
 import { getGlobalAiQueue } from './ai-queue';
-import { getToolDefinition, isRegisteredTool, type AiToolName } from './tool-registry';
+import { getToolDefinition, isRegisteredTool, toolAcceptsParameter, type AiToolName } from './tool-registry';
+
+export { toolAcceptsParameter };
 import { executeTool } from './tool-executor';
 import { createConfirmationRequest } from './confirmation.server';
 import { generateActionPreview, type ConfirmationPreview } from './preview-generator';
@@ -255,6 +257,38 @@ export function formatReadToolOutput(actionsExecuted: Array<{ tool: string; resu
 
 
 /**
+ * Injects validated server-side contextual IDs into action parameters ONLY IF:
+ * 1. The parameter was not explicitly provided by the model.
+ * 2. The authoritative registered tool schema explicitly declares and accepts that parameter.
+ *
+ * CRITICAL SECURITY INVARIANT:
+ * Model-generated parameters (including any invalid or unknown keys) MUST NOT be stripped or sanitized;
+ * they must be preserved so strict schema validation downstream rejects them.
+ */
+export function injectCompatibleContext(
+  toolName: string,
+  modelParameters: Record<string, unknown> | undefined,
+  validatedContext: OrchestratorContext | undefined
+): Record<string, unknown> {
+  const params: Record<string, unknown> = { ...(modelParameters || {}) };
+  if (!validatedContext) {
+    return params;
+  }
+
+  for (const [key, value] of Object.entries(validatedContext)) {
+    if (value !== undefined && value !== null && value !== '') {
+      const existing = params[key];
+      const isMissing = existing === undefined || existing === null || existing === '';
+      if (isMissing && toolAcceptsParameter(toolName, key)) {
+        params[key] = value;
+      }
+    }
+  }
+
+  return params;
+}
+
+/**
  * Main AI Orchestrator Entrypoint
  */
 export async function orchestrateAdminChat(
@@ -428,17 +462,8 @@ export async function orchestrateAdminChat(
   }
 
   const actions = registeredActions.map((a) => {
-    // Inject validated contextual IDs if not provided by model
-    const params = { ...a.parameters };
-    if (!params.courseId && resolved.validatedContext.courseId) {
-      params.courseId = resolved.validatedContext.courseId;
-    }
-    if (!params.lectureId && resolved.validatedContext.lectureId) {
-      params.lectureId = resolved.validatedContext.lectureId;
-    }
-    if (!params.assessmentId && resolved.validatedContext.assessmentId) {
-      params.assessmentId = resolved.validatedContext.assessmentId;
-    }
+    // Inject validated contextual IDs ONLY if accepted by authoritative tool schema
+    const params = injectCompatibleContext(a.tool, a.parameters, resolved.validatedContext);
     return {
       tool: a.tool,
       parameters: params,
