@@ -453,9 +453,14 @@
 .admin-mobile-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
+  background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
-  animation: adminFadeIn 0.2s ease-out;
+  opacity: 1;
+  transition: opacity 280ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.admin-mobile-backdrop.is-closing {
+  opacity: 0;
 }
 
 .admin-mobile-drawer {
@@ -468,11 +473,19 @@
   display: flex;
   flex-direction: column;
   z-index: 1001;
-  box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
-  animation: adminSlideInFromEnd 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
   overflow: hidden;
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
+  transform: translateX(0);
+  opacity: 1;
+  transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1),
+              opacity 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.admin-mobile-drawer.is-closing {
+  transform: translateX(100%);
+  opacity: 0;
 }
 
 @supports (height: 100dvh) {
@@ -485,28 +498,42 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
+  background: var(--surface);
 }
 
 .admin-mobile-drawer-title {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.01em;
 }
 
 .admin-mobile-close-btn {
   background: transparent;
   border: none;
-  color: var(--text);
+  color: var(--muted);
   padding: 6px;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: 10px;
   min-width: 44px;
   min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background 180ms ease, color 180ms ease, transform 150ms ease;
+}
+
+.admin-mobile-close-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.admin-mobile-close-btn:active {
+  transform: scale(0.92);
+  background: var(--surface-2);
 }
 
 /* ── Mobile Nav Body (scrollable navigation) ─────────────────────────────── */
@@ -516,10 +543,15 @@
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding: 8px 0;
+  overscroll-behavior: contain;
 }
 
 .admin-mobile-nav-group {
   padding: 4px 0;
+}
+
+.admin-mobile-nav-group + .admin-mobile-nav-group {
+  margin-top: 4px;
 }
 
 .admin-mobile-nav-group-title {
@@ -528,37 +560,58 @@
   font-weight: 800;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 10px 18px 4px;
+  letter-spacing: 0.06em;
+  padding: 12px 20px 6px;
+  opacity: 0.7;
 }
 
 .admin-mobile-nav-list {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0 8px;
 }
 
 .admin-mobile-nav-item {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 11px 18px;
+  padding: 11px 14px;
+  margin: 1px 0;
   color: var(--text);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: none;
-  transition: background 0.18s, color 0.18s;
+  border-radius: 10px;
+  transition: background 160ms ease, color 160ms ease, transform 120ms ease;
+  animation: adminNavItemEnter 300ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation-delay: var(--stagger-delay, 0ms);
 }
 
-.admin-mobile-nav-item:hover,
+@keyframes adminNavItemEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.admin-mobile-nav-item:hover {
+  background: var(--surface-2);
+}
+
 .admin-mobile-nav-item:active {
+  transform: scale(0.98);
   background: var(--surface-2);
 }
 
 .admin-mobile-nav-item.active {
   background: var(--red);
   color: #ffffff;
-  font-weight: 800;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(207, 11, 39, 0.25);
 }
 
 .admin-mobile-nav-icon {
@@ -566,8 +619,15 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
+  opacity: 0.7;
+  transition: opacity 160ms ease;
+}
+
+.admin-mobile-nav-item:hover .admin-mobile-nav-icon,
+.admin-mobile-nav-item.active .admin-mobile-nav-icon {
+  opacity: 1;
 }
 
 .admin-mobile-nav-label {
@@ -582,9 +642,9 @@
   font-size: 11px;
   font-weight: 800;
   border-radius: 999px;
-  background: #ffffff;
-  color: var(--red);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  background: var(--red);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }
 
 .admin-mobile-nav-item.active .admin-mobile-nav-badge {
@@ -596,40 +656,44 @@
 
 .admin-mobile-drawer-footer {
   flex-shrink: 0;
-  padding: 12px 18px;
+  padding: 14px 20px;
   border-top: 1px solid var(--line);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  gap: 12px;
+  padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  background: var(--surface);
 }
 
 .admin-mobile-user-info {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 12px;
   color: var(--muted);
   overflow: hidden;
+  min-width: 0;
 }
 
 .admin-mobile-user-icon {
   flex-shrink: 0;
   color: var(--red);
+  opacity: 0.8;
 }
 
 .admin-mobile-user-name {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-weight: 600;
 }
 
 .admin-mobile-logout-btn {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 12px;
+  padding: 8px 14px;
   border-radius: 8px;
   background: transparent;
   border: 1px solid var(--line);
@@ -639,23 +703,51 @@
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: background 0.2s, color 0.2s;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease, transform 120ms ease;
 }
 
 .admin-mobile-logout-btn:hover {
-  background: rgba(207, 11, 39, 0.12);
+  background: rgba(207, 11, 39, 0.1);
   color: var(--red-bright);
-  border-color: rgba(207, 11, 39, 0.35);
+  border-color: rgba(207, 11, 39, 0.3);
 }
 
-@keyframes adminFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.admin-mobile-logout-btn:active {
+  transform: scale(0.96);
+  background: rgba(207, 11, 39, 0.15);
 }
 
-@keyframes adminSlideInFromEnd {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
+/* ── Reduced Motion ──────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-mobile-backdrop {
+    transition: opacity 120ms ease;
+  }
+
+  .admin-mobile-drawer {
+    transition: opacity 120ms ease;
+  }
+
+  .admin-mobile-drawer.is-closing {
+    transform: none;
+    opacity: 0;
+  }
+
+  .admin-mobile-nav-item {
+    animation: none;
+  }
+
+  .admin-mobile-close-btn,
+  .admin-mobile-nav-item,
+  .admin-mobile-logout-btn {
+    transition: none;
+  }
+
+  .admin-mobile-close-btn:active,
+  .admin-mobile-nav-item:active,
+  .admin-mobile-logout-btn:active {
+    transform: none;
+  }
 }
 
 /* ── Page Header & Breadcrumbs ─────────────────────────────────────────────── */
@@ -1932,6 +2024,16 @@
     min-width: 0;
     width: 100%;
   }
+}
+
+@keyframes adminFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes adminSlideInFromEnd {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
 }
 
 @keyframes adminScaleUp {

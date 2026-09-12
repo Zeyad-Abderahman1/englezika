@@ -8,22 +8,63 @@
  * (same source as the desktop AdminSidebar).
  * Closes after navigation, supports keyboard Escape, touch interactions,
  * and preserves permission filtering.
+ *
+ * Supports smooth enter/exit animations via CSS transitions.
+ * The component stays mounted during the closing animation and unmounts
+ * after the CSS transition completes.
  */
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LogOut, X, ShieldCheck } from 'lucide-react';
 import { useAdmin } from '../../../lib/admin-context';
 import { ADMIN_NAV_GROUPS } from './admin-navigation';
 
+type DrawerState = { mounted: boolean; closing: boolean };
+type DrawerAction =
+  | { type: 'OPEN' }
+  | { type: 'CLOSE' }
+  | { type: 'ANIMATION_END' };
+
+function drawerReducer(state: DrawerState, action: DrawerAction): DrawerState {
+  switch (action.type) {
+    case 'OPEN':
+      return { mounted: true, closing: false };
+    case 'CLOSE':
+      return state.closing ? state : { ...state, closing: true };
+    case 'ANIMATION_END':
+      return { mounted: false, closing: false };
+    default:
+      return state;
+  }
+}
+
 export function AdminMobileNav() {
   const pathname = usePathname();
   const { sidebarOpen, setSidebarOpen, admin, counts, can, isTeacher } = useAdmin();
   const drawerRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+
+  const [state, dispatch] = useReducer(drawerReducer, {
+    mounted: false,
+    closing: false,
+  });
+
+  const isAnimatingOut = useRef(false);
 
   useEffect(() => {
-    if (!sidebarOpen) return;
+    if (sidebarOpen) {
+      isAnimatingOut.current = false;
+      dispatch({ type: 'OPEN' });
+    } else if (state.mounted) {
+      isAnimatingOut.current = true;
+      dispatch({ type: 'CLOSE' });
+    }
+  }, [sidebarOpen, state.mounted]);
+
+  useEffect(() => {
+    if (!sidebarOpen || !state.mounted) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setSidebarOpen(false);
@@ -36,7 +77,18 @@ export function AdminMobileNav() {
       document.body.style.overflow = '';
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [sidebarOpen, setSidebarOpen]);
+  }, [sidebarOpen, state.mounted, setSidebarOpen]);
+
+  const handleBackdropTransitionEnd = useCallback(() => {
+    if (isAnimatingOut.current) {
+      isAnimatingOut.current = false;
+      dispatch({ type: 'ANIMATION_END' });
+    }
+  }, []);
+
+  const handleClose = useCallback(() => {
+    setSidebarOpen(false);
+  }, [setSidebarOpen]);
 
   const handleLogout = async () => {
     try {
@@ -46,28 +98,33 @@ export function AdminMobileNav() {
     }
   };
 
-  if (!sidebarOpen) return null;
+  if (!state.mounted) return null;
 
   return (
     <div
-      className="admin-mobile-nav-container"
+      className={`admin-mobile-nav-container ${state.closing ? 'is-closing' : ''}`}
       role="dialog"
       aria-modal="true"
       aria-label="قائمة التنقل للموبايل"
     >
       <div
-        className="admin-mobile-backdrop"
-        onClick={() => setSidebarOpen(false)}
+        ref={backdropRef}
+        className={`admin-mobile-backdrop ${state.closing ? 'is-closing' : ''}`}
+        onClick={handleClose}
+        onTransitionEnd={handleBackdropTransitionEnd}
         aria-hidden="true"
       />
 
-      <div ref={drawerRef} className="admin-mobile-drawer">
+      <div
+        ref={drawerRef}
+        className={`admin-mobile-drawer ${state.closing ? 'is-closing' : ''}`}
+      >
         <header className="admin-mobile-drawer-header">
           <span className="admin-mobile-drawer-title">قائمة الإدارة</span>
           <button
             type="button"
             className="admin-mobile-close-btn"
-            onClick={() => setSidebarOpen(false)}
+            onClick={handleClose}
             aria-label="إغلاق القائمة"
           >
             <X size={20} />
@@ -75,7 +132,7 @@ export function AdminMobileNav() {
         </header>
 
         <nav className="admin-mobile-nav-body" aria-label="أقسام الإدارة">
-          {ADMIN_NAV_GROUPS.map((group) => {
+          {ADMIN_NAV_GROUPS.map((group, groupIdx) => {
             const visibleItems = group.items.filter((item) => {
               if (item.teacherOnly && !isTeacher) return false;
               if (item.permission && !can(item.permission)) return false;
@@ -88,13 +145,14 @@ export function AdminMobileNav() {
               <div key={group.group} className="admin-mobile-nav-group">
                 <span className="admin-mobile-nav-group-title">{group.group}</span>
                 <ul className="admin-mobile-nav-list">
-                  {visibleItems.map((item) => {
+                  {visibleItems.map((item, itemIdx) => {
                     const Icon = item.icon;
                     const isActive =
                       item.href === '/admin'
                         ? pathname === '/admin'
                         : pathname.startsWith(item.href);
                     const count = item.badgeCount ? item.badgeCount(counts) : 0;
+                    const staggerDelay = groupIdx * 30 + itemIdx * 25;
 
                     return (
                       <li key={item.href}>
@@ -103,6 +161,7 @@ export function AdminMobileNav() {
                           className={`admin-mobile-nav-item ${isActive ? 'active' : ''}`}
                           onClick={() => setSidebarOpen(false)}
                           aria-current={isActive ? 'page' : undefined}
+                          style={{ '--stagger-delay': `${staggerDelay}ms` } as React.CSSProperties}
                         >
                           <span className="admin-mobile-nav-icon">
                             <Icon size={18} />
