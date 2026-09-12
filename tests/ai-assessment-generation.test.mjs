@@ -87,6 +87,36 @@ describe('Phase 5: 15-Strata Sampling Document Chunker', () => {
 });
 
 describe('Phase 5: Content Generator Mode (ZERO Tools, Strict Batching & Injection Defense)', () => {
+  test('caps generated assessment previews at 30 questions', async () => {
+    let sequence = 0;
+    const provider = {
+      name: 'counting-provider',
+      model: 'test-model',
+      async healthCheck() { return { healthy: true, provider: 'mock', model: 'test' }; },
+      async generatePlan() { return { planText: '', actions: [] }; },
+      async generateStructuredOutput() {
+        const questions = Array.from({ length: 8 }, () => {
+          sequence += 1;
+          return {
+            prompt: `Unique generated question number ${sequence}?`,
+            options: ['Correct', 'Wrong A', 'Wrong B', 'Wrong C'],
+            correctAnswer: 'Correct',
+          };
+        });
+        return { success: true, data: { questions } };
+      },
+    };
+
+    const result = await generateAssessmentFromText({
+      documentText: 'A sufficiently detailed English lesson for question generation. '.repeat(100),
+      requestedQuestionCount: 40,
+      provider,
+    });
+
+    assert.equal(result.questionCount, 30);
+    assert.equal(result.questions.length, 30);
+  });
+
   test('generates batch of valid questions conforming to schema', async () => {
     const mockProvider = new MockAiProvider();
     const docText = `

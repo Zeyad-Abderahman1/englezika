@@ -6,6 +6,7 @@ import {
   evaluatePlanRisk,
   formatReadToolOutput,
   injectCompatibleContext,
+  validatePlannedActions,
 } from '../app/lib/ai/orchestrator.ts';
 import {
   getToolDefinition,
@@ -18,7 +19,7 @@ import { executeTool, ToolExecutionError } from '../app/lib/ai/tool-executor.ts'
 import { generateActionPreview } from '../app/lib/ai/preview-generator.ts';
 import { createConfirmationRequest } from '../app/lib/ai/confirmation.server.ts';
 import { MockAiProvider } from '../app/lib/ai/providers/mock-provider.ts';
-import { SAFE_FALLBACK_REPLY, getRepairPlanPrompt, getPlannerSystemPrompt } from '../app/lib/ai/planner-prompt.ts';
+import { SAFE_FALLBACK_REPLY, getCanonicalToolCatalog, getPlannerSystemPrompt } from '../app/lib/ai/planner-prompt.ts';
 import { AI_GATE_MAX_RUNNING, AI_GATE_MAX_WAITING, AI_GATE_MAX_TOTAL } from '../app/lib/ai/ai-global-gate.server.ts';
 
 
@@ -129,6 +130,157 @@ class MockToolSelectionDb {
 }
 
 describe('AI Planner Tool-Selection & Canonical Registry Enforcement Suite', () => {
+  test('production regression: prohibited create_course status is repaired once before execution', async () => {
+    const db = new MockToolSelectionDb();
+    let plannerCalls = 0;
+    const mockProvider = new MockAiProvider({
+      planHandler() {
+        plannerCalls += 1;
+        if (plannerCalls === 1) {
+          return {
+            planText: 'سأنشئ الدورة في وضع المسودة.',
+            actions: [{
+              tool: 'create_course',
+              parameters: { title: 'English Grade 10', grade: 'Grade 10', status: 'draft' },
+            }],
+          };
+        }
+        return {
+          planText: 'تم إنشاء الدورة.',
+          actions: [{
+            tool: 'create_course',
+            parameters: { title: 'English Grade 10', grade: 'Grade 10' },
+          }],
+        };
+      },
+    });
+
+    const result = await orchestrateAdminChat({
+      actor: teacherActor,
+      message: 'أنشئ دورة جديدة باسم English Grade 10 للصف Grade 10',
+      provider: mockProvider,
+      secret: TEST_SECRET,
+      db,
+    });
+
+    assert.equal(plannerCalls, 2, 'the planner must receive exactly one repair attempt');
+    assert.equal(result.requiresConfirmation, false);
+    assert.equal(result.actionsExecuted?.[0]?.tool, 'create_course');
+    assert.equal(result.actionsExecuted?.[0]?.result?.result?.course?.title, 'English Grade 10');
+  });
+
+  test('create_course with a genuinely missing grade asks the user instead of inventing data', async () => {
+    const db = new MockToolSelectionDb();
+    let plannerCalls = 0;
+    const mockProvider = new MockAiProvider({
+      planHandler() {
+        plannerCalls += 1;
+        return {
+          planText: 'سأنشئ الدورة.',
+          actions: [{ tool: 'create_course', parameters: { title: 'English Grade 10' } }],
+        };
+      },
+    });
+
+    const result = await orchestrateAdminChat({
+      actor: teacherActor,
+      message: 'أنشئ دورة جديدة باسم English Grade 10',
+      provider: mockProvider,
+      secret: TEST_SECRET,
+      db,
+    });
+
+    assert.equal(plannerCalls, 2, 'missing fields receive no more than one repair attempt');
+    assert.equal(result.actionsExecuted?.length, 0);
+    assert.match(result.reply, /الصف/);
+  });
+
+  test('planner conformance matrix accepts canonical schema-valid actions and preserves confirmation policy', () => {
+    const matrix = [
+      ['list_courses', {}, false],
+      ['get_course', { courseId: 'course-1' }, false],
+      ['create_course', { title: 'English Grade 10', grade: 'Grade 10' }, false],
+      ['update_course', { courseId: 'course-1', title: 'Updated Course' }, false],
+      ['update_course_price', { courseId: 'course-1', price: 500 }, true],
+      ['add_lecture', { courseId: 'course-1', title: 'Lesson One', youtubeUrl: 'https://youtu.be/abc123' }, false],
+      ['update_lecture', { videoId: 'video-1', title: 'Updated Lesson' }, false],
+      ['get_lecture_details', { videoId: 'video-1' }, false],
+      ['create_exam', { courseId: 'course-1', title: 'Unit Exam', questions: [] }, true],
+      ['create_quiz', { courseId: 'course-1', title: 'Unit Quiz', questions: [] }, true],
+      ['create_assignment', { courseId: 'course-1', title: 'Unit Assignment' }, false],
+      ['reorder_course_items', { courseId: 'course-1', items: [] }, false],
+      ['publish_course', { courseId: 'course-1' }, true],
+      ['delete_course', { courseId: 'course-1' }, true],
+    ];
+
+    for (const [tool, parameters, requiresConfirmation] of matrix) {
+      assert.equal(isRegisteredTool(tool), true, `${tool} must be canonical`);
+      assert.equal(validatePlannedActions([{ tool, parameters }]).valid, true, `${tool} parameters must conform`);
+      assert.equal(evaluatePlanRisk([{ tool, parameters }]).requiresConfirmation, requiresConfirmation, `${tool} confirmation policy`);
+      for (const key of Object.keys(parameters)) {
+        assert.ok(!['status', 'staffEmail', 'role', 'permissions', 'is_active'].includes(key));
+      }
+    }
+  });
+
+  test('planner catalog is generated from every authoritative registry definition', () => {
+    const catalog = getCanonicalToolCatalog();
+    assert.ok(catalog.includes('create_course:'));
+    assert.ok(catalog.includes('server-owned=[status]'));
+    for (const toolName of CANONICAL_TOOL_NAMES) {
+      const definition = getToolDefinition(toolName);
+      assert.ok(catalog.includes(`- ${toolName}:`));
+      assert.ok(catalog.includes(`mutation=${definition.mutationType}`));
+      assert.ok(catalog.includes(`confirmation=${definition.confirmationPolicy}`));
+      for (const fieldName of Object.keys(definition.allowedKeys)) {
+        assert.ok(catalog.includes(`${fieldName}:`), `${toolName}.${fieldName} must be exposed`);
+      }
+    }
+  });
+
+  test('repair matrix gives invalid plans at most one schema-guided replan', async () => {
+    const cases = [
+      {
+        initial: { tool: 'list_courses', parameters: { courseId: 'unsupported' } },
+        repaired: { tool: 'list_courses', parameters: {} },
+        executes: true,
+      },
+      {
+        initial: { tool: 'update_lecture', parameters: { lectureId: 'wrong-alias', title: 'Lesson' } },
+        repaired: { tool: 'update_lecture', parameters: { lectureId: 'still-wrong', title: 'Lesson' } },
+        executes: false,
+      },
+      {
+        initial: { tool: 'list_courses', parameters: { extraUnknown: true } },
+        repaired: { tool: 'list_courses', parameters: {} },
+        executes: true,
+      },
+    ];
+
+    for (const scenario of cases) {
+      const db = new MockToolSelectionDb();
+      let plannerCalls = 0;
+      const provider = new MockAiProvider({
+        planHandler() {
+          plannerCalls += 1;
+          return {
+            planText: '',
+            actions: [plannerCalls === 1 ? scenario.initial : scenario.repaired],
+          };
+        },
+      });
+      const result = await orchestrateAdminChat({
+        actor: teacherActor,
+        message: 'نفذ الطلب المحدد',
+        provider,
+        secret: TEST_SECRET,
+        db,
+      });
+      assert.equal(plannerCalls, 2);
+      assert.equal((result.actionsExecuted?.length || 0) > 0, scenario.executes);
+    }
+  });
+
   test('A. Arabic request: "اعرض لي الكورسات الموجودة حاليًا مع اسم كل كورس وحالته فقط" resolves to list_courses', async () => {
     const db = new MockToolSelectionDb();
     const mockProvider = new MockAiProvider({
@@ -719,10 +871,13 @@ describe('AI Planner Tool-Selection & Canonical Registry Enforcement Suite', () 
   test('Z. CRITICAL SECURITY: Model-supplied invalid parameters remain rejected by strict validation', async () => {
     const db = new MockToolSelectionDb();
     const mockProvider = new MockAiProvider({
-      mockPlan: {
+      mockPlans: [{
         planText: '',
         actions: [{ tool: 'list_courses', parameters: { evilUnknown: 'x' } }],
-      },
+      }, {
+        planText: '',
+        actions: [{ tool: 'list_courses', parameters: { evilUnknown: 'x' } }],
+      }],
     });
 
     // Validated context is present
@@ -732,18 +887,21 @@ describe('AI Planner Tool-Selection & Canonical Registry Enforcement Suite', () 
     assert.equal(injected.evilUnknown, 'x');
     assert.equal(injected.courseId, undefined);
 
-    // Full orchestration must fail execution with strict validation error
+    // Orchestration refuses safely after one repair instead of leaking raw errors.
+    const orchestrationResult = await orchestrateAdminChat({
+      actor: teacherActor,
+      message: 'اعرض الكورسات',
+      context: { courseId: 'c_1' },
+      provider: mockProvider,
+      secret: TEST_SECRET,
+      db,
+    });
+    assert.equal(orchestrationResult.actionsExecuted?.length, 0);
+    assert.equal(orchestrationResult.reply, SAFE_FALLBACK_REPLY);
+
+    // The executor independently keeps the strict fail-closed boundary.
     await assert.rejects(
-      async () => {
-        await orchestrateAdminChat({
-          actor: teacherActor,
-          message: 'اعرض الكورسات',
-          context: { courseId: 'c_1' },
-          provider: mockProvider,
-          secret: TEST_SECRET,
-          db,
-        });
-      },
+      () => executeTool({ actor: teacherActor, toolName: 'list_courses', args: injected, context: { db } }),
       (err) => {
         assert.ok(err instanceof ToolExecutionError);
         assert.ok(err.message.includes("Unrecognized parameter 'evilUnknown' for tool 'list_courses'"));
@@ -754,38 +912,42 @@ describe('AI Planner Tool-Selection & Canonical Registry Enforcement Suite', () 
 
   test('Z1. Explicit null courseId remains model-owned and strict validation rejects it', async () => {
     const db = new MockToolSelectionDb();
-    const mockProvider = new MockAiProvider({
-      mockPlan: { planText: '', actions: [{ tool: 'get_course', parameters: { courseId: null } }] },
-    });
+    const invalidPlan = { planText: '', actions: [{ tool: 'get_course', parameters: { courseId: null } }] };
+    const mockProvider = new MockAiProvider({ mockPlans: [invalidPlan, invalidPlan] });
 
+    const result = await orchestrateAdminChat({
+      actor: teacherActor,
+      message: 'اعرض تفاصيل الدورة',
+      context: { courseId: 'c_1' },
+      provider: mockProvider,
+      secret: TEST_SECRET,
+      db,
+    });
+    assert.equal(result.actionsExecuted?.length, 0);
+    assert.match(result.reply, /الكورس المقصود/);
     await assert.rejects(
-      () => orchestrateAdminChat({
-        actor: teacherActor,
-        message: 'اعرض تفاصيل الدورة',
-        context: { courseId: 'c_1' },
-        provider: mockProvider,
-        secret: TEST_SECRET,
-        db,
-      }),
+      () => executeTool({ actor: teacherActor, toolName: 'get_course', args: { courseId: null }, context: { db } }),
       (err) => err instanceof ToolExecutionError && err.message.includes("Missing required parameter 'courseId'")
     );
   });
 
   test('Z2. Explicit empty courseId remains model-owned and strict validation rejects it', async () => {
     const db = new MockToolSelectionDb();
-    const mockProvider = new MockAiProvider({
-      mockPlan: { planText: '', actions: [{ tool: 'get_course', parameters: { courseId: '' } }] },
-    });
+    const invalidPlan = { planText: '', actions: [{ tool: 'get_course', parameters: { courseId: '' } }] };
+    const mockProvider = new MockAiProvider({ mockPlans: [invalidPlan, invalidPlan] });
 
+    const result = await orchestrateAdminChat({
+      actor: teacherActor,
+      message: 'اعرض تفاصيل الدورة',
+      context: { courseId: 'c_1' },
+      provider: mockProvider,
+      secret: TEST_SECRET,
+      db,
+    });
+    assert.equal(result.actionsExecuted?.length, 0);
+    assert.match(result.reply, /الكورس المقصود/);
     await assert.rejects(
-      () => orchestrateAdminChat({
-        actor: teacherActor,
-        message: 'اعرض تفاصيل الدورة',
-        context: { courseId: 'c_1' },
-        provider: mockProvider,
-        secret: TEST_SECRET,
-        db,
-      }),
+      () => executeTool({ actor: teacherActor, toolName: 'get_course', args: { courseId: '' }, context: { db } }),
       (err) => err instanceof ToolExecutionError && err.message.includes("Missing required parameter 'courseId'")
     );
   });

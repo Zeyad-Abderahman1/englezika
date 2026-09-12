@@ -88,7 +88,7 @@ export function hasStaffPermission(
   return false;
 }
 
-function validateToolArguments(
+export function validateToolArguments(
   tool: ToolDefinition,
   args: Record<string, unknown>
 ): void {

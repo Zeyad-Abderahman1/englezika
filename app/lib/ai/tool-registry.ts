@@ -52,6 +52,7 @@ export interface ToolDefinition {
   riskLevel: ToolRiskLevel;
   confirmationPolicy: ToolConfirmationPolicy;
   allowedKeys: Record<string, ToolFieldSchema>;
+  serverOwnedKeys?: readonly string[];
   contextBindings?: Record<string, ToolContextKey>;
 }
 
@@ -143,6 +144,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     mutationType: 'create',
     riskLevel: 'low',
     confirmationPolicy: 'none',
+    serverOwnedKeys: ['status'],
     allowedKeys: {
       title: { type: 'string', required: true, minLength: 2, maxLength: 200 },
       grade: { type: 'string', required: true, minLength: 1, maxLength: 50 },
@@ -215,6 +217,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     mutationType: 'create',
     riskLevel: 'low',
     confirmationPolicy: 'none',
+    serverOwnedKeys: ['status'],
     allowedKeys: {
       courseId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
       title: { type: 'string', required: true, minLength: 2, maxLength: 200 },
@@ -304,6 +307,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     mutationType: 'generated_content',
     riskLevel: 'medium',
     confirmationPolicy: 'preview_required',
+    serverOwnedKeys: ['status', 'assessmentType'],
     allowedKeys: {
       courseId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
       title: { type: 'string', required: true, minLength: 2, maxLength: 200 },
@@ -321,6 +325,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     mutationType: 'generated_content',
     riskLevel: 'medium',
     confirmationPolicy: 'preview_required',
+    serverOwnedKeys: ['status', 'assessmentType'],
     allowedKeys: {
       courseId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
       title: { type: 'string', required: true, minLength: 2, maxLength: 200 },
@@ -392,6 +397,7 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     mutationType: 'create',
     riskLevel: 'low',
     confirmationPolicy: 'none',
+    serverOwnedKeys: ['status'],
     allowedKeys: {
       courseId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
       title: { type: 'string', required: true, minLength: 2, maxLength: 200 },
@@ -462,4 +468,3 @@ export function toolAcceptsParameter(toolName: string, parameterName: string): b
   }
   return Object.prototype.hasOwnProperty.call(def.allowedKeys, parameterName);
 }
-

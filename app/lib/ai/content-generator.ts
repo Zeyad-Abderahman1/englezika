@@ -56,7 +56,7 @@ export async function generateAssessmentFromText(
 
   const title = options.title?.trim() || 'تقييم تجريبي مُولد بواسطة المساعد الذكي';
   const examType = options.examType === 'exam' ? 'exam' : 'quiz';
-  const requestedCount = Math.max(1, Math.min(50, options.requestedQuestionCount || 5));
+  const requestedCount = Math.max(1, Math.min(30, options.requestedQuestionCount || 5));
   const difficulty = options.difficulty || 'medium';
 
   const provider = options.provider || (await getAiProvider());

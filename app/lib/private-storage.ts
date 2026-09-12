@@ -94,7 +94,7 @@ export class PrivateStorage {
       if (error.code === 'ENOENT') return null;
       throw error;
     });
-    return metadata ? { key, size: metadata.size } : null;
+    return metadata ? { key, size: metadata.size, mtimeMs: metadata.mtimeMs } : null;
   }
 
   async delete(key: string) {

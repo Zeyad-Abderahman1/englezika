@@ -6,11 +6,11 @@ import { getGlobalAiQueue } from './ai-queue';
 import { getToolDefinition, isRegisteredTool, toolAcceptsParameter, type AiToolName } from './tool-registry';
 
 export { toolAcceptsParameter };
-import { executeTool } from './tool-executor';
+import { executeTool, validateToolArguments } from './tool-executor';
 import { createConfirmationRequest } from './confirmation.server';
 import { generateActionPreview, type ConfirmationPreview } from './preview-generator';
 import type { StaffActor } from './tool-executor';
-import { getRepairPlanPrompt, getEmptyActionRepairPrompt, SAFE_FALLBACK_REPLY } from './planner-prompt';
+import { getSchemaRepairPrompt, getEmptyActionRepairPrompt, SAFE_FALLBACK_REPLY } from './planner-prompt';
 import { resolveSafeReadIntent, isConversationalMessage } from './read-intent-resolver';
 
 export const MAX_MESSAGE_LENGTH = 2000;
@@ -297,6 +297,68 @@ export function injectCompatibleContext(
   return params;
 }
 
+export interface PlanConformanceResult {
+  valid: boolean;
+  errors: string[];
+  missingRequiredFields: string[];
+}
+
+/**
+ * Validates model plans before risk evaluation or execution. The model payload is
+ * never mutated: trusted context is added to a copy and the executor's strict,
+ * registry-backed validator remains the authoritative argument boundary.
+ */
+export function validatePlannedActions(
+  actions: Array<{ tool: string; parameters?: Record<string, unknown> }>,
+  validatedContext?: OrchestratorContext
+): PlanConformanceResult {
+  const errors: string[] = [];
+  const missingRequiredFields: string[] = [];
+
+  for (const action of actions) {
+    const tool = getToolDefinition(action.tool);
+    if (!tool) {
+      errors.push(`Tool '${action.tool}' is not registered`);
+      continue;
+    }
+
+    const parameters = injectCompatibleContext(action.tool, action.parameters, validatedContext);
+    try {
+      validateToolArguments(tool, parameters);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid tool arguments';
+      errors.push(message);
+      const missing = message.match(/^Missing required parameter '([^']+)'/);
+      if (missing) missingRequiredFields.push(missing[1]);
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    missingRequiredFields,
+  };
+}
+
+function userFacingPlanFailure(result: PlanConformanceResult): string {
+  const fieldLabels: Record<string, string> = {
+    grade: 'الصف الدراسي',
+    courseId: 'الكورس المقصود',
+    videoId: 'المحاضرة المقصودة',
+    assessmentId: 'التقييم المقصود',
+    examId: 'الامتحان المقصود',
+    title: 'العنوان',
+    youtubeUrl: 'رابط فيديو يوتيوب',
+    questions: 'الأسئلة',
+    items: 'ترتيب العناصر المطلوب',
+  };
+  const labels = [...new Set(result.missingRequiredFields)].map((field) => fieldLabels[field] || field);
+  if (labels.length > 0) {
+    return `أحتاج إلى تحديد ${labels.join(' و')} قبل تنفيذ الطلب.`;
+  }
+  return SAFE_FALLBACK_REPLY;
+}
+
 /**
  * Main AI Orchestrator Entrypoint
  */
@@ -362,43 +424,46 @@ export async function orchestrateAdminChat(
     recentHistory: history.slice(-6).map((m) => `${m.role}: ${m.content}`),
   };
 
-  const planResult: PlanResult & { isInvalidToolPlan?: boolean; isEmptyActionRecovery?: boolean } = await queue.enqueue(
+  const planResult: PlanResult & {
+    isInvalidToolPlan?: boolean;
+    isEmptyActionRecovery?: boolean;
+    failureReply?: string;
+  } = await queue.enqueue(
     async (signal) => {
       const initialPlan = await provider.generatePlan(rawMessage, planContext, {
         signal: options.signal || signal,
       });
 
-      // Server-side validation boundary: verify all model-produced actions use registered tools
+      // Pre-execution conformance boundary: validate tool names and arguments without mutation.
       const rawActions = Array.isArray(initialPlan?.actions) ? initialPlan.actions : [];
-      const unknownTools = rawActions
-        .filter((a) => !isRegisteredTool(a.tool))
-        .map((a) => a.tool);
+      if (rawActions.length > 0) {
+        const initialValidation = validatePlannedActions(rawActions, resolved.validatedContext);
+        if (!initialValidation.valid) {
+          // Perform exactly ONE bounded re-plan using registry-derived schemas.
+          const repairPrompt = getSchemaRepairPrompt(rawMessage, initialValidation.errors);
+          let repairedValidation = initialValidation;
+          try {
+            const repairedPlan = await provider.generatePlan(repairPrompt, planContext, {
+              signal: options.signal || signal,
+            });
+            const repairedActions = Array.isArray(repairedPlan?.actions) ? repairedPlan.actions : [];
+            repairedValidation = validatePlannedActions(repairedActions, resolved.validatedContext);
 
-      if (unknownTools.length > 0) {
-        // Perform ONE bounded repair attempt using canonical tools
-        const repairPrompt = getRepairPlanPrompt(unknownTools, rawMessage);
-        try {
-          const repairedPlan = await provider.generatePlan(repairPrompt, planContext, {
-            signal: options.signal || signal,
-          });
-          const repairedActions = Array.isArray(repairedPlan?.actions) ? repairedPlan.actions : [];
-          const stillUnknown = repairedActions.filter((a) => !isRegisteredTool(a.tool));
-
-          if (stillUnknown.length === 0) {
-            // Repair succeeded!
-            return repairedPlan;
+            if (repairedActions.length > 0 && repairedValidation.valid) {
+              return repairedPlan;
+            }
+          } catch {
+            // If repair fails, fall through to the safe non-actionable result.
           }
-        } catch {
-          // If repair fails, fall through to safe invalid plan
-        }
 
-        // Repaired plan is still invalid: return safe non-actionable response marker
-        return {
-          planText: SAFE_FALLBACK_REPLY,
-          actions: [],
-          explanation: 'Plan contains unregistered tools that could not be repaired.',
-          isInvalidToolPlan: true,
-        };
+          return {
+            planText: userFacingPlanFailure(repairedValidation),
+            actions: [],
+            explanation: 'Plan arguments failed registry conformance after one repair attempt.',
+            isInvalidToolPlan: true,
+            failureReply: userFacingPlanFailure(repairedValidation),
+          };
+        }
       }
 
       // Empty-action recovery: planner returned zero actions
@@ -447,7 +512,7 @@ export async function orchestrateAdminChat(
 
   // If the plan was invalid and could not be repaired:
   if ((planResult as any).isInvalidToolPlan) {
-    const reply = SAFE_FALLBACK_REPLY;
+    const reply = planResult.failureReply || planResult.planText || SAFE_FALLBACK_REPLY;
     await saveMessage(conversationId, 'assistant', reply, null, db);
     return {
       conversationId,

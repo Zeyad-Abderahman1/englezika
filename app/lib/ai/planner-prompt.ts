@@ -1,3 +1,5 @@
+import { getToolRegistry, type ToolDefinition } from './tool-registry';
+
 /**
  * AI Planner System Prompt & Bounded Repair Templates
  *
@@ -7,35 +9,27 @@
 
 export const SAFE_FALLBACK_REPLY = 'لم أتمكن من تحديد إجراء صالح لهذا الطلب. حاول إعادة صياغة الطلب.';
 
+function describeField([name, schema]: [string, ToolDefinition['allowedKeys'][string]]): string {
+  const requirement = schema.required ? 'required' : 'optional';
+  return `${name}:${schema.type}:${requirement}`;
+}
+
+function toolCatalogLine(tool: ToolDefinition): string {
+  const fields = Object.entries(tool.allowedKeys).map(describeField).join(', ') || 'none';
+  const serverOwned = tool.serverOwnedKeys?.join(', ') || 'none';
+  return `- ${tool.name}: ${tool.description} AI arguments=[${fields}]; server-owned=[${serverOwned}]; mutation=${tool.mutationType}; risk=${tool.riskLevel}; confirmation=${tool.confirmationPolicy}.`;
+}
+
+export function getCanonicalToolCatalog(): string {
+  return Array.from(getToolRegistry().values()).map(toolCatalogLine).join('\n');
+}
+
 export function getPlannerSystemPrompt(): string {
   return `You are an educational assistant for Englizeka LMS.
 Output ONLY valid JSON: { "planText": string, "actions": [{ "tool": string, "parameters": object, "description": string }], "explanation": string }
 
-AVAILABLE TOOLS:
-- list_courses: read-only, lists all courses or filters by query/grade.
-- get_course: read-only, retrieves course metadata and structure by courseId.
-- search_courses: read-only, searches courses by query/grade.
-- get_course_structure: read-only, retrieves course sequence items by courseId.
-- get_lecture_details: read-only, retrieves lecture info by videoId.
-- get_assessment_details: read-only, retrieves exam/quiz info by assessmentId.
-- create_course: draft course creation (title, grade, description, price).
-- update_course: updates course metadata (courseId, title, grade, description). Price prohibited.
-- update_course_price: updates price (courseId, price).
-- delete_course: deletes course (courseId).
-- publish_course: publishes course (courseId).
-- add_lecture: adds draft lecture (courseId, title, youtubeUrl, duration, maxViews).
-- update_lecture: updates lecture (videoId, title, youtubeUrl, maxViews).
-- delete_lecture: deletes lecture (videoId).
-- publish_lecture: publishes lecture (videoId).
-- set_lecture_view_limit: sets view limit (videoId, maxViews).
-- reorder_course_items: reorders items (courseId, items).
-- create_exam: draft exam creation (courseId, title, questions, durationMinutes, passingScore).
-- create_quiz: draft quiz creation (courseId, title, questions, durationMinutes, passingScore).
-- delete_exam: deletes exam (examId).
-- publish_exam: publishes exam (examId).
-- create_assignment: draft assignment creation (courseId, title, description).
-- publish_assignment: publishes assignment (assignmentId).
-- create_announcement: creates announcement (title, body).
+AVAILABLE TOOLS (generated from the authoritative registry):
+${getCanonicalToolCatalog()}
 
 RULES:
 - "tool" MUST EXACTLY match one of AVAILABLE TOOLS.
@@ -48,14 +42,18 @@ RULES:
 `;
 }
 
-export function getRepairPlanPrompt(unknownTools: string[], originalInstruction: string): string {
-  return `Correction required: The tool name(s) [${unknownTools.join(', ')}] are NOT registered in the tool catalog.
-You MUST return a corrected plan using ONLY the canonical tools:
-- For viewing, listing, or showing courses: use "list_courses"
-- For course structure: use "get_course" or "get_course_structure"
-- For course search: use "search_courses"
-- For lectures: use "get_lecture_details" or "add_lecture"
-Never invent tool names like ${unknownTools.join(', ')}.
+export function getSchemaRepairPrompt(
+  originalInstruction: string,
+  validationErrors: string[]
+): string {
+  return `Correction required: the previous plan failed authoritative schema validation.
+Errors:
+${validationErrors.map((error) => `- ${error}`).join('\n')}
+
+Use only this authoritative registry catalog:
+${getCanonicalToolCatalog()}
+
+Do not silently remove or execute invalid arguments. Return a newly planned action using only declared AI arguments. Never supply actor identity, permissions, confirmation state, status, is_active, publish state, owner identity, or audit fields. Do not invent missing business values.
 Original request: "${originalInstruction}"
 Output valid JSON: { "planText": string, "actions": [{ "tool": string, "parameters": object }], "explanation": string }`;
 }
@@ -63,13 +61,8 @@ Output valid JSON: { "planText": string, "actions": [{ "tool": string, "paramete
 export function getEmptyActionRepairPrompt(originalInstruction: string): string {
   return `You returned no actions, but the user requested an operation.
 Return the correct canonical registered tool action.
-Use ONLY the listed tool identifiers:
-- For viewing, listing, or showing courses: use "list_courses"
-- For course details: use "get_course"
-- For course structure: use "get_course_structure"
-- For searching courses: use "search_courses"
-- For lecture details: use "get_lecture_details"
-- For assessment details: use "get_assessment_details"
+Use the authoritative registry catalog:
+${getCanonicalToolCatalog()}
 planText alone is NOT a valid response to a data request.
 Original request: "${originalInstruction}"
 Output valid JSON: { "planText": string, "actions": [{ "tool": string, "parameters": object }], "explanation": string }`;

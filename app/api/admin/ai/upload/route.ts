@@ -5,12 +5,13 @@ import { jsonError, requireSameOrigin } from '../../../../lib/security';
 import {
   hasAllowedContentLength,
   isPdfUpload,
-  MAX_PDF_SIZE,
-  MAX_UPLOAD_BODY_SIZE,
 } from '../../../../lib/upload-validation';
 import { loadAiServerConfig } from '../../../../lib/ai/ai-config.server';
 
 export const runtime = 'nodejs';
+
+const MAX_AI_PDF_SIZE = 10 * 1024 * 1024;
+const MAX_AI_UPLOAD_BODY_SIZE = MAX_AI_PDF_SIZE + 256 * 1024;
 
 /**
  * POST /api/admin/ai/upload
@@ -40,8 +41,8 @@ export async function POST(request: Request) {
     return jsonError('يجب رفع الملف عبر form-data', 400);
   }
 
-  if (!hasAllowedContentLength(request, MAX_UPLOAD_BODY_SIZE)) {
-    return jsonError('حجم الطلب غير صالح أو يتجاوز الحد الأقصى المسموح به (15 ميجابايت)', 413);
+  if (!hasAllowedContentLength(request, MAX_AI_UPLOAD_BODY_SIZE)) {
+    return jsonError('حجم الطلب غير صالح أو يتجاوز الحد الأقصى المسموح به (10 ميجابايت)', 413);
   }
 
   let formData: FormData;
@@ -56,8 +57,8 @@ export async function POST(request: Request) {
     return jsonError('يرجى اختيار ملف PDF صالح للرفع', 400);
   }
 
-  if (file.size > MAX_PDF_SIZE) {
-    return jsonError('حجم الملف يتجاوز الحد الأقصى (15 ميجابايت)', 413);
+  if (file.size > MAX_AI_PDF_SIZE) {
+    return jsonError('حجم الملف يتجاوز الحد الأقصى (10 ميجابايت)', 413);
   }
 
   const arrayBuffer = await file.arrayBuffer();
@@ -107,8 +108,9 @@ async function cleanStaleAiTempFiles(storage: any) {
 
     for (const fileObj of tempFiles) {
       const meta = await storage.head(fileObj.key);
-      // If file has been around > 1 hour, delete it
-      if (meta) {
+      // Delete only objects whose filesystem metadata proves they are stale.
+      // A missing/unknown timestamp fails closed by retaining the private file.
+      if (meta && typeof meta.mtimeMs === 'number' && meta.mtimeMs <= now - ONE_HOUR_MS) {
         await storage.delete(fileObj.key);
       }
     }
