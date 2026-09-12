@@ -130,6 +130,7 @@ export class CourseService {
     context?: ServiceContext
   ): Promise<{ ok: true }> {
     const db = context?.db ?? getDatabase();
+    const metadataDb = context?.metadataDb ?? db;
 
     const course = await db
       .prepare('SELECT id, title, thumbnail_key AS thumbnailKey FROM courses WHERE id = ?')
@@ -148,45 +149,45 @@ export class CourseService {
 
     const [examFiles, questionFiles, attemptFiles, materialFiles, assignmentFiles, subFiles, assignQFiles] =
       await Promise.all([
-        db
+        metadataDb
           .prepare('SELECT teacher_file_key AS key FROM exams WHERE course_id = ? AND teacher_file_key IS NOT NULL')
           .bind(id)
           .all<{ key: string }>()
           .catch(() => ({ results: [] as { key: string }[] })),
-        db
+        metadataDb
           .prepare(
             'SELECT image_file_key AS key FROM questions WHERE exam_id IN (SELECT id FROM exams WHERE course_id = ?) AND image_file_key IS NOT NULL'
           )
           .bind(id)
           .all<{ key: string }>()
           .catch(() => ({ results: [] as { key: string }[] })),
-        db
+        metadataDb
           .prepare(
             'SELECT pdf_storage_key AS key FROM attempts WHERE exam_id IN (SELECT id FROM exams WHERE course_id = ?) AND pdf_storage_key IS NOT NULL'
           )
           .bind(id)
           .all<{ key: string }>()
           .catch(() => ({ results: [] as { key: string }[] })),
-        db
+        metadataDb
           .prepare(
             'SELECT file_key AS key FROM lecture_materials WHERE video_id IN (SELECT id FROM videos WHERE course_id = ?) AND file_key IS NOT NULL'
           )
           .bind(id)
           .all<{ key: string }>()
           .catch(() => ({ results: [] as { key: string }[] })),
-        db
+        metadataDb
           .prepare('SELECT teacher_file_key AS key FROM assignments WHERE course_id = ? AND teacher_file_key IS NOT NULL')
           .bind(id)
           .all<{ key: string }>()
           .catch(() => ({ results: [] as { key: string }[] })),
-        db
+        metadataDb
           .prepare(
             'SELECT pdf_storage_key AS key FROM assignment_submissions WHERE assignment_id IN (SELECT id FROM assignments WHERE course_id = ?) AND pdf_storage_key IS NOT NULL'
           )
           .bind(id)
           .all<{ key: string }>()
           .catch(() => ({ results: [] as { key: string }[] })),
-        db
+        metadataDb
           .prepare(
             'SELECT image_file_key AS key FROM assignment_questions WHERE assignment_id IN (SELECT id FROM assignments WHERE course_id = ?) AND image_file_key IS NOT NULL'
           )
@@ -294,26 +295,34 @@ export class CourseService {
       throw new DomainError('فشل حذف الكورس وبياناته التابعة.', 500);
     }
 
-    // Best-effort storage cleanup after successful DB commit
-    const storage = context?.storage ?? getPrivateStorage();
-    for (const key of filesToDelete) {
-      try {
-        await storage.delete(key);
-      } catch (storageError) {
-        captureException(storageError, { module: 'course-delete-storage', storageKey: key, courseId: id });
+    const runPostCommitEffects = async () => {
+      // Best-effort storage cleanup after successful DB commit
+      const storage = context?.storage ?? getPrivateStorage();
+      for (const key of filesToDelete) {
+        try {
+          await storage.delete(key);
+        } catch (storageError) {
+          captureException(storageError, { module: 'course-delete-storage', storageKey: key, courseId: id });
+        }
       }
+
+      await recordAuditLog({
+        userEmail: operator.email,
+        action: 'course.force_deleted',
+        resource: 'course',
+        resourceId: id,
+        details: { title: course.title },
+        request: context?.request,
+      });
+
+      invalidatePublicCourseCache();
+    };
+
+    if (context?.afterCommit) {
+      context.afterCommit.push(runPostCommitEffects);
+    } else {
+      await runPostCommitEffects();
     }
-
-    await recordAuditLog({
-      userEmail: operator.email,
-      action: 'course.force_deleted',
-      resource: 'course',
-      resourceId: id,
-      details: { title: course.title },
-      request: context?.request,
-    });
-
-    invalidatePublicCourseCache();
     return { ok: true };
   }
 

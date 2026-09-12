@@ -204,6 +204,8 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
   const db = context.db || getDatabase();
   const serviceContext: ServiceContext = {
     db,
+    metadataDb: context.metadataDb,
+    afterCommit: context.afterCommit,
     storage: context.storage,
     request: context.request,
   };

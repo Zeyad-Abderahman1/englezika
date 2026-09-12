@@ -6,6 +6,7 @@ import { verifyAndExecuteConfirmation } from '../../../../lib/ai/confirmation.se
 import { executeTool } from '../../../../lib/ai/tool-executor';
 import type { AiToolName } from '../../../../lib/ai/tool-registry';
 import { formatUserFacingConfirmationError } from '../../../../lib/ai/confirmation-state';
+import { getDatabase } from '../../../../lib/platform';
 
 export const runtime = 'nodejs';
 
@@ -49,11 +50,14 @@ export async function POST(request: Request) {
     role: staff.role as any,
     permissions: staff.permissions || [],
   };
+  const database = getDatabase();
+  const afterCommit: Array<() => Promise<void> | void> = [];
 
   try {
     const executionResult = await verifyAndExecuteConfirmation({
       token,
       actor,
+      db: database,
       ipAddress: getClientIp(request),
       executor: async (actionType, payload, txDb) => {
         if (actionType === 'compound_plan') {
@@ -70,6 +74,8 @@ export async function POST(request: Request) {
               actor,
               context: {
                 db: txDb,
+                metadataDb: database,
+                afterCommit,
                 confirmationSatisfied: true,
               },
             });
@@ -85,11 +91,17 @@ export async function POST(request: Request) {
           actor,
           context: {
             db: txDb,
+            metadataDb: database,
+            afterCommit,
             confirmationSatisfied: true,
           },
         });
       },
     });
+
+    for (const effect of afterCommit) {
+      await effect();
+    }
 
     return Response.json({
       success: true,

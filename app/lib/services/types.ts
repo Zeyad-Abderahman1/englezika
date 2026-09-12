@@ -13,6 +13,8 @@ export class DomainError extends Error {
 
 export interface ServiceContext {
   db?: Database;
+  metadataDb?: Database;
+  afterCommit?: Array<() => Promise<void> | void>;
   storage?: PrivateStorage;
   request?: Request;
 }
