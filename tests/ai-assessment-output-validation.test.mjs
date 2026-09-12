@@ -379,8 +379,8 @@ describe('Phase 3: Bounded Missing-Question Repair & Exact Count Enforcement', (
         if (callCount === 1) {
           const questions = Array.from({ length: 16 }, (_, i) => ({
             prompt: `Batch question ${i + 1}?`,
-            options: ['A', 'B', 'C', 'D'],
-            correctAnswer: 'A',
+            options: ['Alpha', 'Beta', 'Gamma', 'Delta'],
+            correctAnswer: 'Alpha',
             correctIndex: 0,
           }));
           return { success: true, data: { questions } };
@@ -388,8 +388,8 @@ describe('Phase 3: Bounded Missing-Question Repair & Exact Count Enforcement', (
         // Completion pass returns only 2 valid questions (total 18 < 20)
         const questions = Array.from({ length: 2 }, (_, i) => ({
           prompt: `Additional question ${i + 1}?`,
-          options: ['A', 'B', 'C', 'D'],
-          correctAnswer: 'A',
+          options: ['North', 'South', 'East', 'West'],
+          correctAnswer: 'North',
           correctIndex: 0,
         }));
         return { success: true, data: { questions } };

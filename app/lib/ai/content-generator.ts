@@ -8,21 +8,27 @@ import {
   validateGeneratedQuestion,
   validateGeneratedAssessment,
   isAssessmentSubmissionAllowed,
+  validateLectureCoverageRange,
   normalizePromptHash,
   ASSESSMENT_QUESTIONS_JSON_SCHEMA,
   type CanonicalAssessmentQuestion,
   type QuestionValidationReason,
   type AssessmentValidationResult,
+  type LectureCoverageInput,
+  type LectureCoverageValidationResult,
 } from './assessment-validator';
 
 export {
   validateGeneratedQuestion,
   validateGeneratedAssessment,
   isAssessmentSubmissionAllowed,
+  validateLectureCoverageRange,
   normalizePromptHash,
   type CanonicalAssessmentQuestion,
   type QuestionValidationReason,
   type AssessmentValidationResult,
+  type LectureCoverageInput,
+  type LectureCoverageValidationResult,
 };
 
 export interface GeneratedQuestion {
@@ -34,6 +40,16 @@ export interface GeneratedQuestion {
   explanation?: string;
 }
 
+export interface AssessmentCoverageMetadata {
+  mode: 'all' | 'range';
+  startLectureId?: string | null;
+  endLectureId?: string | null;
+  startLectureTitle?: string;
+  endLectureTitle?: string;
+  courseTitle?: string;
+  sourceFileName?: string;
+}
+
 export interface GeneratedAssessmentPreview {
   previewId: string;
   title: string;
@@ -43,6 +59,7 @@ export interface GeneratedAssessmentPreview {
   generatedCount?: number;
   validatedCount?: number;
   questions: GeneratedQuestion[];
+  coverage?: AssessmentCoverageMetadata;
   sourceDocumentInfo?: {
     charCount: number;
     strataCount: number;
@@ -82,6 +99,7 @@ export interface GenerateAssessmentOptions {
   examType?: 'exam' | 'quiz';
   requestedQuestionCount?: number;
   difficulty?: 'easy' | 'medium' | 'hard' | 'advanced';
+  coverage?: AssessmentCoverageMetadata;
   provider?: LocalAiProvider;
   assessmentProvider?: AssessmentGenerationProvider;
   signal?: AbortSignal;
@@ -89,6 +107,47 @@ export interface GenerateAssessmentOptions {
 
 const BATCH_SIZE_MIN = 5;
 const BATCH_SIZE_MAX = 8;
+
+function logSanitizedDiagnostic(rawQuestions: unknown[]): void {
+  try {
+    const diagnostic = rawQuestions.map((q, index) => {
+      const qObj = q && typeof q === 'object' ? (q as Record<string, unknown>) : {};
+      const rawOpts = Array.isArray(qObj.options)
+        ? qObj.options
+        : Array.isArray(qObj.choices)
+        ? qObj.choices
+        : qObj.options && typeof qObj.options === 'object'
+        ? Object.values(qObj.options as Record<string, unknown>)
+        : undefined;
+
+      const isArr = Array.isArray(rawOpts);
+      const optionTypes = isArr ? rawOpts.map((o) => typeof o) : [];
+      const optionLengths = isArr
+        ? rawOpts.map((o) =>
+            typeof o === 'string'
+              ? o.length
+              : typeof o === 'object' && o
+              ? JSON.stringify(o).length
+              : 0
+          )
+        : [];
+
+      return {
+        questionIndex: index,
+        optionsIsArray: isArr,
+        optionsCount: isArr ? rawOpts.length : 0,
+        optionTypes,
+        optionLengths,
+        correctIndex:
+          typeof qObj.correctIndex === 'number' ? qObj.correctIndex : typeof qObj.correctIndex,
+        hasCorrectAnswer: Boolean(qObj.correctAnswer || qObj.correct_answer),
+      };
+    });
+    console.info(JSON.stringify({ event: 'ai_assessment_diagnostic_structure', questions: diagnostic }));
+  } catch {
+    // Non-blocking diagnostic logging
+  }
+}
 
 function emitGenerationEvent(
   result: unknown,
@@ -180,13 +239,14 @@ Required JSON format:
   "questions": [
     {
       "prompt": "Question text...",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "options": ["Complete option text A", "Complete option text B", "Complete option text C", "Complete option text D"],
       "correctIndex": 0,
-      "correctAnswer": "Option A",
+      "correctAnswer": "Complete option text A",
       "explanation": "Brief explanation why this is correct"
     }
   ]
-}`;
+}
+IMPORTANT: Every item in "options" must contain the complete, actual answer choice text. NEVER return single letters like "A", "B", "C", "D" as options.`;
 
     // Enqueue inference task through the single-flight queue
     const result = await queue.enqueue(
@@ -206,6 +266,8 @@ Required JSON format:
     if (!result.success || !result.data || !Array.isArray(result.data.questions)) {
       continue;
     }
+
+    logSanitizedDiagnostic(result.data.questions);
 
     // Validate and clean questions in this batch
     const valStart = Date.now();
@@ -265,13 +327,14 @@ Required JSON format:
   "questions": [
     {
       "prompt": "Question text...",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "options": ["Complete option text A", "Complete option text B", "Complete option text C", "Complete option text D"],
       "correctIndex": 0,
-      "correctAnswer": "Option A",
+      "correctAnswer": "Complete option text A",
       "explanation": "Brief explanation"
     }
   ]
-}`;
+}
+IMPORTANT: Every item in "options" must contain the complete, actual answer choice text. NEVER return single letters like "A", "B", "C", "D" as options.`;
 
     const completionResult = await queue.enqueue(
       async (signal) => {
@@ -288,6 +351,7 @@ Required JSON format:
     );
 
     if (completionResult.success && completionResult.data && Array.isArray(completionResult.data.questions)) {
+      logSanitizedDiagnostic(completionResult.data.questions);
       const compValStart = Date.now();
       const validCountBeforeCompletion = accumulatedQuestions.length;
       for (const rawQ of completionResult.data.questions) {
@@ -344,6 +408,7 @@ Required JSON format:
     generatedCount: finalQuestions.length,
     validatedCount: finalQuestions.length,
     questions: finalQuestions,
+    coverage: options.coverage,
     sourceDocumentInfo: {
       charCount: documentText.length,
       strataCount: chunks.length,

@@ -5,6 +5,7 @@ import { createConfirmationRequest } from '../../../../lib/ai/confirmation.serve
 import { getToolDefinition, isRegisteredTool, type AiToolName } from '../../../../lib/ai/tool-registry';
 import { generateActionPreview } from '../../../../lib/ai/preview-generator';
 import { validateGeneratedAssessment } from '../../../../lib/ai/assessment-validator';
+import { getDatabase } from '../../../../lib/platform';
 
 export const runtime = 'nodejs';
 
@@ -56,6 +57,24 @@ export async function POST(request: Request) {
       if (!validation.valid || validation.validQuestions.length === 0) {
         return jsonError('هذا التقييم يحتوي على اختيارات أو بيانات غير صالحة ولا يمكن إدراجه', 400);
       }
+      if (actionPayload.coverageStartLectureId || actionPayload.coverageEndLectureId) {
+        const db = getDatabase();
+        const lecsRes = await db
+          .prepare(
+            `SELECT v.id FROM videos v
+             LEFT JOIN course_items ci ON ci.video_id = v.id AND ci.course_id = v.course_id
+             WHERE v.course_id = ?
+             ORDER BY COALESCE(ci.sort_order, 999999) ASC, v.created_at ASC`
+          )
+          .bind(String(actionPayload.courseId || ''))
+          .all<{ id: string }>();
+        const lecs = (lecsRes?.results || []).map((l) => l.id);
+        const startIdx = lecs.indexOf(String(actionPayload.coverageStartLectureId || ''));
+        const endIdx = lecs.indexOf(String(actionPayload.coverageEndLectureId || ''));
+        if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) {
+          return jsonError('نطاق المحاضرات المحدد للاختبار غير صالح أو غير تابع للدورة التعليمية', 400);
+        }
+      }
     }
   } else {
     const steps = Array.isArray(actionPayload.steps) ? actionPayload.steps : [];
@@ -67,14 +86,29 @@ export async function POST(request: Request) {
         return jsonError(`الأداة المطلوبة في الخطة غير معروفة: ${step.tool}`, 400);
       }
       if (step.tool === 'create_quiz' || step.tool === 'create_exam') {
-        const questions = Array.isArray(step.parameters?.questions)
-          ? step.parameters.questions
-          : Array.isArray(step.payload?.questions)
-          ? step.payload.questions
-          : [];
+        const stepParams = step.parameters || step.payload || {};
+        const questions = Array.isArray(stepParams.questions) ? stepParams.questions : [];
         const validation = validateGeneratedAssessment(questions);
         if (!validation.valid || validation.validQuestions.length === 0) {
           return jsonError('هذا التقييم يحتوي على اختيارات أو أسئلة غير صالحة ولا يمكن إدراجه', 400);
+        }
+        if (stepParams.coverageStartLectureId || stepParams.coverageEndLectureId) {
+          const db = getDatabase();
+          const lecsRes = await db
+            .prepare(
+              `SELECT v.id FROM videos v
+               LEFT JOIN course_items ci ON ci.video_id = v.id AND ci.course_id = v.course_id
+               WHERE v.course_id = ?
+               ORDER BY COALESCE(ci.sort_order, 999999) ASC, v.created_at ASC`
+            )
+            .bind(String(stepParams.courseId || ''))
+            .all<{ id: string }>();
+          const lecs = (lecsRes?.results || []).map((l) => l.id);
+          const startIdx = lecs.indexOf(String(stepParams.coverageStartLectureId || ''));
+          const endIdx = lecs.indexOf(String(stepParams.coverageEndLectureId || ''));
+          if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) {
+            return jsonError('نطاق المحاضرات المحدد للاختبار غير صالح أو غير تابع للدورة التعليمية', 400);
+          }
         }
       }
     }

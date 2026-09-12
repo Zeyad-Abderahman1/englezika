@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, CheckCircle2, FileQuestion, LoaderCircle, Minus, Plus, RefreshCw, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useAdmin } from '../../../lib/admin-context';
 import type { GeneratedAssessmentPreview, GeneratedQuestion } from '../../../lib/ai/content-generator';
@@ -29,6 +29,12 @@ export function PdfAssessmentWorkspace() {
   const [assessment, setAssessment] = useState<GeneratedAssessmentPreview | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
 
+  // Problem 2: Lecture coverage state
+  const [coverageMode, setCoverageMode] = useState<'all' | 'range'>('all');
+  const [startLectureId, setStartLectureId] = useState('');
+  const [endLectureId, setEndLectureId] = useState('');
+  const [courseLectures, setCourseLectures] = useState<Array<{ id: string; title: string; orderIndex: number }>>([]);
+
   const effectiveCourseId = selectedCourseId || courses[0]?.id || '';
   const busy = stage !== 'idle';
   const updateCount = (value: number) => setQuestionCount(Math.max(QUESTION_COUNT_MIN, Math.min(QUESTION_COUNT_MAX, value)));
@@ -39,9 +45,36 @@ export function PdfAssessmentWorkspace() {
     setPdfFile(file);
   };
 
+  // Load ordered lectures when course changes
+  useEffect(() => {
+    if (!effectiveCourseId) return;
+    let cancelled = false;
+    fetch(`/api/admin/courses/${effectiveCourseId}/lectures`)
+      .then((res) => res.json())
+      .then((resData) => {
+        if (cancelled) return;
+        if (resData.success && Array.isArray(resData.lectures)) {
+          setCourseLectures(resData.lectures);
+          if (resData.lectures.length > 0) {
+            setStartLectureId((prev) => resData.lectures.some((l: any) => l.id === prev) ? prev : resData.lectures[0].id);
+            setEndLectureId((prev) => resData.lectures.some((l: any) => l.id === prev) ? prev : resData.lectures[resData.lectures.length - 1].id);
+          } else {
+            setStartLectureId('');
+            setEndLectureId('');
+          }
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [effectiveCourseId]);
+
+  const startIdx = courseLectures.findIndex((l) => l.id === startLectureId);
+  const endIdx = courseLectures.findIndex((l) => l.id === endLectureId);
+  const isRangeValid = coverageMode === 'all' || (startIdx !== -1 && endIdx !== -1 && startIdx <= endIdx);
+
   const generate = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!pdfFile || busy) return;
+    if (!pdfFile || busy || !isRangeValid) return;
     setError('');
     try {
       setStage('uploading');
@@ -50,7 +83,32 @@ export function PdfAssessmentWorkspace() {
       const uploadData = await uploadRes.json();
       if (!uploadRes.ok || !uploadData.success) throw new Error(uploadData.error);
       setStage('generating');
-      const response = await fetch('/api/admin/ai/generate-assessment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tempFileId: uploadData.tempFileId, title: `تقييم: ${uploadData.fileName}`, examType, questionCount, difficulty }) });
+
+      const selectedCourse = courses.find((c) => c.id === effectiveCourseId);
+      const startLec = courseLectures.find((l) => l.id === startLectureId);
+      const endLec = courseLectures.find((l) => l.id === endLectureId);
+      const coverage = {
+        mode: coverageMode,
+        startLectureId: coverageMode === 'range' ? startLectureId : null,
+        endLectureId: coverageMode === 'range' ? endLectureId : null,
+        startLectureTitle: startLec ? `المحاضرة ${startLec.orderIndex} - ${startLec.title}` : undefined,
+        endLectureTitle: endLec ? `المحاضرة ${endLec.orderIndex} - ${endLec.title}` : undefined,
+        courseTitle: selectedCourse ? selectedCourse.title : undefined,
+        sourceFileName: pdfFile.name,
+      };
+
+      const response = await fetch('/api/admin/ai/generate-assessment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tempFileId: uploadData.tempFileId,
+          title: `تقييم: ${uploadData.fileName}`,
+          examType,
+          questionCount,
+          difficulty,
+          coverage,
+        }),
+      });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error);
       setStage('validating');
@@ -61,7 +119,29 @@ export function PdfAssessmentWorkspace() {
 
   const save = async (questions: GeneratedQuestion[], title: string, type: 'exam' | 'quiz') => {
     if (!effectiveCourseId) throw new Error('يرجى اختيار الدورة التعليمية المراد إدراج التقييم فيها');
-    const prepRes = await fetch('/api/admin/ai/prepare-confirmation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ actionType: 'compound_plan', actionPayload: { steps: [{ tool: type === 'quiz' ? 'create_quiz' : 'create_exam', parameters: { courseId: effectiveCourseId, title, questions, durationMinutes: type === 'quiz' ? 15 : 45, passingScore: 50 } }] } }) });
+    const prepRes = await fetch('/api/admin/ai/prepare-confirmation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        actionType: 'compound_plan',
+        actionPayload: {
+          steps: [
+            {
+              tool: type === 'quiz' ? 'create_quiz' : 'create_exam',
+              parameters: {
+                courseId: effectiveCourseId,
+                title,
+                questions,
+                durationMinutes: type === 'quiz' ? 15 : 45,
+                passingScore: 50,
+                coverageStartLectureId: coverageMode === 'range' ? startLectureId : undefined,
+                coverageEndLectureId: coverageMode === 'range' ? endLectureId : undefined,
+              },
+            },
+          ],
+        },
+      }),
+    });
     const prep = await prepRes.json(); if (!prepRes.ok || !prep.success) throw new Error('تعذر إعداد التقييم للإدراج.');
     const execRes = await fetch('/api/admin/ai/execute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: prep.token }) });
     const executed = await execRes.json(); if (!execRes.ok || !executed.success) throw new Error('تعذر إدراج التقييم في الدورة.');
@@ -75,13 +155,26 @@ export function PdfAssessmentWorkspace() {
         <input ref={inputRef} className="ai-visually-hidden" type="file" accept="application/pdf" onChange={(e) => chooseFile(e.target.files?.[0])} />
       </section>
       <section className="ai-pdf-settings"><h2>إعدادات الاختبار</h2><label>الدورة التعليمية<select value={effectiveCourseId} onChange={(e) => setSelectedCourseId(e.target.value)}>{courses.map((course) => <option key={course.id} value={course.id}>{course.title} ({course.grade})</option>)}</select></label>
+        {/* نطاق الاختبار */}
+        <fieldset><legend>نطاق الاختبار</legend><div className="ai-segments"><button type="button" className={coverageMode === 'all' ? 'active' : ''} aria-pressed={coverageMode === 'all'} onClick={() => setCoverageMode('all')}>جميع المحاضرات</button><button type="button" className={coverageMode === 'range' ? 'active' : ''} aria-pressed={coverageMode === 'range'} onClick={() => setCoverageMode('range')}>نطاق محاضرات</button></div></fieldset>
+        {coverageMode === 'range' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <label>من المحاضرة:<select value={startLectureId} onChange={(e) => setStartLectureId(e.target.value)} disabled={courseLectures.length === 0}>{courseLectures.length === 0 ? <option value="">لا توجد محاضرات في هذه الدورة</option> : courseLectures.map((lec) => <option key={lec.id} value={lec.id}>المحاضرة {lec.orderIndex} - {lec.title}</option>)}</select></label>
+            <label>إلى المحاضرة:<select value={endLectureId} onChange={(e) => setEndLectureId(e.target.value)} disabled={courseLectures.length === 0}>{courseLectures.length === 0 ? <option value="">لا توجد محاضرات في هذه الدورة</option> : courseLectures.map((lec) => <option key={lec.id} value={lec.id}>المحاضرة {lec.orderIndex} - {lec.title}</option>)}</select></label>
+          </div>
+        )}
+        {coverageMode === 'range' && !isRangeValid && (
+          <p className="text-red-400 text-xs" style={{ marginTop: '-0.25rem' }} role="alert">
+            يجب أن تكون محاضرة البداية قبل أو نفس محاضرة النهاية في تسلسل الدورة.
+          </p>
+        )}
         <fieldset><legend>نوع التقييم</legend><div className="ai-segments">{(['quiz', 'exam'] as const).map((type) => <button key={type} type="button" className={examType === type ? 'active' : ''} aria-pressed={examType === type} onClick={() => setExamType(type)}>{type === 'quiz' ? 'Quiz' : 'Exam'}</button>)}</div></fieldset>
         <fieldset><legend>مستوى الصعوبة</legend><div className="ai-segments">{(['easy', 'medium', 'hard'] as const).map((level) => <button key={level} type="button" className={difficulty === level ? 'active' : ''} aria-pressed={difficulty === level} onClick={() => setDifficulty(level)}>{level === 'easy' ? 'سهل' : level === 'medium' ? 'متوسط' : 'متقدم'}</button>)}</div></fieldset>
         <label>عدد الأسئلة<div className="ai-count-control"><button type="button" onClick={() => updateCount(questionCount - 1)} disabled={questionCount <= QUESTION_COUNT_MIN} aria-label="تقليل عدد الأسئلة"><Minus size={17} /></button><input type="number" min={QUESTION_COUNT_MIN} max={QUESTION_COUNT_MAX} value={questionCount} onChange={(e) => updateCount(Number(e.target.value))} /><button type="button" onClick={() => updateCount(questionCount + 1)} disabled={questionCount >= QUESTION_COUNT_MAX} aria-label="زيادة عدد الأسئلة"><Plus size={17} /></button></div></label>
       </section>
       {busy ? <ol className="ai-generation-progress" aria-live="polite"><li className="done"><Check size={16} />تم اختيار الملف</li><li className={stage !== 'uploading' ? 'done' : 'current'}>{stage !== 'uploading' ? <Check size={16} /> : <LoaderCircle className="spin" size={16} />}جاري رفع الملف وقراءة المحتوى</li><li className={stage === 'generating' ? 'current' : stage === 'validating' ? 'done' : ''}>{stage === 'generating' ? <LoaderCircle className="spin" size={16} /> : stage === 'validating' ? <Check size={16} /> : <span />}جاري تحليل المحتوى وتوليد الأسئلة</li><li className={stage === 'validating' ? 'current' : ''}>{stage === 'validating' ? <LoaderCircle className="spin" size={16} /> : <span />}جاري التحقق من جودة الأسئلة</li></ol> : null}
       {error ? <div className="ai-tool-error" role="alert"><strong>تعذر توليد الأسئلة حاليًا</strong><span>{error}</span></div> : null}
-      <button className="ai-generate-button" type="submit" disabled={!pdfFile || busy}>{busy ? <LoaderCircle size={18} className="spin" /> : <Sparkles size={18} />}{busy ? 'جاري إعداد الأسئلة...' : 'توليد الأسئلة'}</button>
+      <button className="ai-generate-button" type="submit" disabled={!pdfFile || busy || !isRangeValid}>{busy ? <LoaderCircle size={18} className="spin" /> : <Sparkles size={18} />}{busy ? 'جاري إعداد الأسئلة...' : 'توليد الأسئلة'}</button>
     </form>
     {assessment && previewOpen ? <AssessmentPreviewModal key={assessment.previewId} assessment={assessment} isOpen onClose={() => setPreviewOpen(false)} onSaveToCourse={save} /> : null}
   </div>;

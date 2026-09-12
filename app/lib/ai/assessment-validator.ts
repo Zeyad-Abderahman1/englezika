@@ -168,11 +168,18 @@ export function validateGeneratedQuestion(raw: unknown): QuestionValidationResul
     reasons.push('EMPTY_OPTION');
   }
 
-  // Check duplicate options (case-insensitive)
+  // Check duplicate options (case-insensitive) and dummy letter options
   if (cleanedOptions.length === 4 && !hasEmptyOption) {
     const normalizedOptions = cleanedOptions.map((o) => o.toLowerCase().trim());
     if (new Set(normalizedOptions).size !== 4) {
       reasons.push('DUPLICATE_OPTION');
+    }
+    // Reject dummy letter choices (e.g. ["A", "B", "C", "D"] or ["(A)", "(B)", "(C)", "(D)"])
+    const isDummyLetterSet = normalizedOptions.every(
+      (o) => /^[a-d]$/i.test(o) || /^\(?[a-d]\)?\.?$/i.test(o)
+    );
+    if (isDummyLetterSet) {
+      reasons.push('EMPTY_OPTION');
     }
   }
 
@@ -355,3 +362,105 @@ export function isAssessmentSubmissionAllowed(questions: unknown[]): {
 
   return { allowed: true };
 }
+
+export interface LectureCoverageInput {
+  courseId: string;
+  mode?: 'all' | 'range' | string;
+  startLectureId?: string | null;
+  endLectureId?: string | null;
+  courseLectures?: Array<{
+    id: string;
+    courseId?: string;
+    title?: string;
+    sortOrder?: number;
+    orderIndex?: number;
+  }>;
+}
+
+export interface LectureCoverageValidationResult {
+  valid: boolean;
+  mode: 'all' | 'range';
+  startLectureId: string | null;
+  endLectureId: string | null;
+  error?: string;
+}
+
+/**
+ * Validates course lecture coverage range for PDF assessments.
+ * Strict rules:
+ * - 'all': canonical full-course coverage (startLectureId=null, endLectureId=null)
+ * - 'range': both start and end required, must belong to course, start <= end in course sequence.
+ */
+export function validateLectureCoverageRange(
+  input: LectureCoverageInput
+): LectureCoverageValidationResult {
+  const mode = input.mode === 'range' ? 'range' : 'all';
+  if (mode === 'all') {
+    return {
+      valid: true,
+      mode: 'all',
+      startLectureId: null,
+      endLectureId: null,
+    };
+  }
+
+  const startId = typeof input.startLectureId === 'string' ? input.startLectureId.trim() : '';
+  const endId = typeof input.endLectureId === 'string' ? input.endLectureId.trim() : '';
+
+  if (!startId || !endId) {
+    return {
+      valid: false,
+      mode: 'range',
+      startLectureId: startId || null,
+      endLectureId: endId || null,
+      error: 'يرجى تحديد محاضرة البداية ومحاضرة النهاية لنطاق الاختبار',
+    };
+  }
+
+  const lectures = Array.isArray(input.courseLectures) ? input.courseLectures : [];
+  if (lectures.length > 0) {
+    const startLec = lectures.find((l) => l.id === startId);
+    const endLec = lectures.find((l) => l.id === endId);
+
+    if (!startLec || (startLec.courseId && startLec.courseId !== input.courseId)) {
+      return {
+        valid: false,
+        mode: 'range',
+        startLectureId: startId,
+        endLectureId: endId,
+        error: 'محاضرة البداية المحددة غير تابعة لهذه الدورة التعليمية',
+      };
+    }
+
+    if (!endLec || (endLec.courseId && endLec.courseId !== input.courseId)) {
+      return {
+        valid: false,
+        mode: 'range',
+        startLectureId: startId,
+        endLectureId: endId,
+        error: 'محاضرة النهاية المحددة غير تابعة لهذه الدورة التعليمية',
+      };
+    }
+
+    const startIndex = lectures.indexOf(startLec);
+    const endIndex = lectures.indexOf(endLec);
+
+    if (startIndex > endIndex) {
+      return {
+        valid: false,
+        mode: 'range',
+        startLectureId: startId,
+        endLectureId: endId,
+        error: 'يجب أن تكون محاضرة البداية قبل أو نفس محاضرة النهاية في تسلسل الدورة',
+      };
+    }
+  }
+
+  return {
+    valid: true,
+    mode: 'range',
+    startLectureId: startId,
+    endLectureId: endId,
+  };
+}
+

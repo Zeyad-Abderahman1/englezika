@@ -32,6 +32,8 @@ export interface CreateExamInput {
   mode?: unknown;
   opensAt?: unknown;
   closesAt?: unknown;
+  coverageStartLectureId?: unknown;
+  coverageEndLectureId?: unknown;
   questions?: RawExamQuestionInput[];
 }
 
@@ -160,6 +162,9 @@ export class AssessmentService {
       }
     }
 
+    const coverageStartLectureId = safeText(input.coverageStartLectureId, 80) || null;
+    const coverageEndLectureId = safeText(input.coverageEndLectureId, 80) || null;
+
     const db = context?.db ?? getDatabase();
     if (courseId) {
       const course = await db.prepare('SELECT id FROM courses WHERE id = ?').bind(courseId).first();
@@ -168,38 +173,95 @@ export class AssessmentService {
       }
     }
 
+    if (coverageStartLectureId || coverageEndLectureId) {
+      if (!courseId) {
+        throw new DomainError('لا يمكن تحديد نطاق المحاضرات بدون تحديد الكورس', 400);
+      }
+      if (coverageStartLectureId) {
+        const startLec = await db.prepare('SELECT id FROM videos WHERE id = ? AND course_id = ?').bind(coverageStartLectureId, courseId).first();
+        if (!startLec) {
+          throw new DomainError('محاضرة البداية المحددة غير تابعة للكورس المحدد', 400);
+        }
+      }
+      if (coverageEndLectureId) {
+        const endLec = await db.prepare('SELECT id FROM videos WHERE id = ? AND course_id = ?').bind(coverageEndLectureId, courseId).first();
+        if (!endLec) {
+          throw new DomainError('محاضرة النهاية المحددة غير تابعة للكورس المحدد', 400);
+        }
+      }
+    }
+
     const id = crypto.randomUUID();
     const now = Date.now();
     const questionIds = questions.map(() => crypto.randomUUID());
 
-    const statements = [
-      db
-        .prepare(
-          `INSERT INTO exams
-         (id, course_id, title, description, instructions, duration_minutes, passing_score, max_attempts,
-          status, opens_at, closes_at, created_by, created_at, updated_at,
-          assessment_type, mode)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .bind(
-          id,
-          courseId,
-          title,
-          description,
-          instructions,
-          durationMinutes,
-          passingScore,
-          maxAttempts,
-          status,
-          input.opensAt ? Number(input.opensAt) : null,
-          input.closesAt ? Number(input.closesAt) : null,
-          operator.email.toLowerCase(),
-          now,
-          now,
-          assessmentType,
-          mode
-        ),
-    ];
+    let hasCoverageColumns = false;
+    try {
+      const colCheck = await db.prepare(
+        "SELECT 1 FROM information_schema.columns WHERE table_name = 'exams' AND column_name = 'coverage_start_lecture_id'"
+      ).first();
+      hasCoverageColumns = Boolean(colCheck);
+    } catch {
+      hasCoverageColumns = false;
+    }
+
+    const examInsertStmt = hasCoverageColumns
+      ? db
+          .prepare(
+            `INSERT INTO exams
+           (id, course_id, title, description, instructions, duration_minutes, passing_score, max_attempts,
+            status, opens_at, closes_at, created_by, created_at, updated_at,
+            assessment_type, mode, coverage_start_lecture_id, coverage_end_lecture_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .bind(
+            id,
+            courseId,
+            title,
+            description,
+            instructions,
+            durationMinutes,
+            passingScore,
+            maxAttempts,
+            status,
+            input.opensAt ? Number(input.opensAt) : null,
+            input.closesAt ? Number(input.closesAt) : null,
+            operator.email.toLowerCase(),
+            now,
+            now,
+            assessmentType,
+            mode,
+            coverageStartLectureId,
+            coverageEndLectureId
+          )
+      : db
+          .prepare(
+            `INSERT INTO exams
+           (id, course_id, title, description, instructions, duration_minutes, passing_score, max_attempts,
+            status, opens_at, closes_at, created_by, created_at, updated_at,
+            assessment_type, mode)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .bind(
+            id,
+            courseId,
+            title,
+            description,
+            instructions,
+            durationMinutes,
+            passingScore,
+            maxAttempts,
+            status,
+            input.opensAt ? Number(input.opensAt) : null,
+            input.closesAt ? Number(input.closesAt) : null,
+            operator.email.toLowerCase(),
+            now,
+            now,
+            assessmentType,
+            mode
+          );
+
+    const statements = [examInsertStmt];
 
     if (mode === 'online') {
       for (let i = 0; i < questions.length; i++) {

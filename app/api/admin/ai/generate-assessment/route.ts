@@ -84,12 +84,15 @@ export async function POST(request: Request) {
         ? body.difficulty
         : 'medium';
 
+    const coverage = body.coverage && typeof body.coverage === 'object' ? body.coverage : undefined;
+
     const assessmentPreview = await generateAssessmentFromText({
       documentText: extracted.text,
       title,
       examType,
       requestedQuestionCount: questionCount,
       difficulty,
+      coverage,
     });
 
     return Response.json({

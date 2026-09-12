@@ -3,7 +3,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, Check, Trash2, Plus, LoaderCircle, AlertTriangle, BookOpen } from 'lucide-react';
 import type { GeneratedAssessmentPreview, GeneratedQuestion } from '../../../lib/ai/content-generator';
-import { isAssessmentSubmissionAllowed, validateGeneratedQuestion } from '../../../lib/ai/assessment-validator';
 
 interface AssessmentPreviewModalProps {
   assessment: GeneratedAssessmentPreview;
@@ -12,16 +11,48 @@ interface AssessmentPreviewModalProps {
   onSaveToCourse: (finalQuestions: GeneratedQuestion[], title: string, examType: 'exam' | 'quiz') => Promise<void>;
 }
 
-const QUESTION_REASON_LABELS: Record<string, string> = {
-  EMPTY_QUESTION: 'أدخل نصًا واضحًا للسؤال.',
-  WRONG_OPTION_COUNT: 'يجب أن يحتوي السؤال على أربعة اختيارات.',
-  EMPTY_OPTION: 'هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.',
-  DUPLICATE_OPTION: 'يجب أن تكون الاختيارات مختلفة وغير مكررة.',
-  INVALID_CORRECT_INDEX: 'حدد إجابة صحيحة واحدة.',
-  MISSING_CORRECT_ANSWER: 'حدد الإجابة الصحيحة.',
-  MALFORMED_QUESTION: 'هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.',
-  DUPLICATE_QUESTION_TEXT: 'نص السؤال مكرر.',
-};
+export function validateQuestionClient(q: GeneratedQuestion): { valid: boolean; reason?: string } {
+  if (!q || typeof q !== 'object') {
+    return { valid: false, reason: 'هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.' };
+  }
+  const promptTrimmed = typeof q.prompt === 'string' ? q.prompt.trim() : '';
+  if (promptTrimmed.length === 0) {
+    return { valid: false, reason: 'أدخل نصًا واضحًا للسؤال.' };
+  }
+  if (!Array.isArray(q.options) || q.options.length !== 4) {
+    return { valid: false, reason: 'يجب أن يحتوي السؤال على أربعة اختيارات.' };
+  }
+  for (let i = 0; i < 4; i++) {
+    const opt = q.options[i];
+    if (typeof opt !== 'string' || opt.trim().length === 0) {
+      return { valid: false, reason: 'هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.' };
+    }
+  }
+  const normalized = q.options.map((o) => (typeof o === 'string' ? o.trim().toLowerCase() : ''));
+  if (new Set(normalized).size !== 4) {
+    return { valid: false, reason: 'يجب أن تكون الاختيارات مختلفة وغير مكررة.' };
+  }
+  const isDummyLetterSet = normalized.every(
+    (o) => /^[a-d]$/i.test(o) || /^\(?[a-d]\)?\.?$/i.test(o)
+  );
+  if (isDummyLetterSet) {
+    return { valid: false, reason: 'هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.' };
+  }
+  const cIdx =
+    typeof q.correctIndex === 'number' &&
+    Number.isInteger(q.correctIndex) &&
+    q.correctIndex >= 0 &&
+    q.correctIndex <= 3
+      ? q.correctIndex
+      : q.options.indexOf(q.correctAnswer);
+  if (cIdx < 0 || cIdx > 3) {
+    return { valid: false, reason: 'حدد إجابة صحيحة واحدة.' };
+  }
+  if (!q.correctAnswer || q.correctAnswer !== q.options[cIdx]) {
+    return { valid: false, reason: 'حدد الإجابة الصحيحة.' };
+  }
+  return { valid: true };
+}
 
 export function AssessmentPreviewModal({
   assessment,
@@ -56,23 +87,42 @@ export function AssessmentPreviewModal({
 
   if (!isOpen) return null;
 
-  const submissionCheck = isAssessmentSubmissionAllowed(questions);
+  const isAllValid = questions.length > 0 && questions.every((q) => validateQuestionClient(q).valid);
+  const firstInvalid = questions.map((q, idx) => ({ q, idx, res: validateQuestionClient(q) })).find((item) => !item.res.valid);
 
   const handlePromptChange = (idx: number, val: string) => {
     setQuestions((current) => current.map((question, index) => index === idx ? { ...question, prompt: val } : question));
   };
 
   const handleOptionChange = (qIdx: number, optIdx: number, val: string) => {
-    setQuestions((current) => current.map((question, index) => {
-      if (index !== qIdx) return question;
-      const oldOption = question.options[optIdx];
-      const options = question.options.map((option, optionIndex) => optionIndex === optIdx ? val : option);
-      return { ...question, options, correctAnswer: question.correctAnswer === oldOption ? val : question.correctAnswer };
-    }));
+    setQuestions((current) =>
+      current.map((question, index) => {
+        if (index !== qIdx) return question;
+        const options = (Array.isArray(question.options) ? question.options : []).map(
+          (option, optionIndex) => (optionIndex === optIdx ? val : (typeof option === 'string' ? option : ''))
+        );
+        const isThisCorrect = question.correctIndex === optIdx || question.correctAnswer === question.options?.[optIdx];
+        return {
+          ...question,
+          options,
+          correctAnswer: isThisCorrect ? val : question.correctAnswer,
+        };
+      })
+    );
   };
 
-  const handleCorrectAnswerSelect = (qIdx: number, correctVal: string) => {
-    setQuestions((current) => current.map((question, index) => index === qIdx ? { ...question, correctAnswer: correctVal, correctIndex: question.options.indexOf(correctVal) } : question));
+  const handleCorrectAnswerSelect = (qIdx: number, optIdx: number) => {
+    setQuestions((current) =>
+      current.map((question, index) => {
+        if (index !== qIdx) return question;
+        const selectedText = typeof question.options?.[optIdx] === 'string' ? question.options[optIdx] : '';
+        return {
+          ...question,
+          correctIndex: optIdx,
+          correctAnswer: selectedText,
+        };
+      })
+    );
   };
 
   const handleDeleteQuestion = (idx: number) => {
@@ -97,8 +147,8 @@ export function AssessmentPreviewModal({
   };
 
   const handleSubmit = async () => {
-    if (!submissionCheck.allowed) {
-      setError(submissionCheck.reason || 'يوجد أخطاء في الأسئلة يجب تصحيحها قبل الإدراج.');
+    if (!isAllValid) {
+      setError(firstInvalid?.res.reason || 'هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.');
       return;
     }
     setError(null);
@@ -149,12 +199,40 @@ export function AssessmentPreviewModal({
             </div>
           )}
 
-          {!submissionCheck.allowed && (
-            <div className="p-2 mb-2 bg-amber-950/50 border border-amber-500/50 rounded text-amber-200 text-xs flex items-center gap-2">
+          {!isAllValid && (
+            <div className="p-2 mb-2 bg-amber-950/50 border border-amber-500/50 rounded text-amber-200 text-xs flex items-center gap-2" role="alert">
               <AlertTriangle size={15} className="text-amber-400 shrink-0" />
-              <span>{submissionCheck.reason}</span>
+              <span>{firstInvalid?.res.reason || 'هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.'}</span>
             </div>
           )}
+
+          {/* Assessment Metadata Banner */}
+          <div className="ai-assessment-meta-banner">
+            <div className="ai-meta-item">
+              <span className="ai-meta-label">الدورة:</span>
+              <span className="ai-meta-val">{assessment.coverage?.courseTitle || 'الدورة المحددة'}</span>
+            </div>
+            <div className="ai-meta-item">
+              <span className="ai-meta-label">نوع التقييم:</span>
+              <span className="ai-meta-val">{examType === 'quiz' ? 'Quiz' : 'Exam'}</span>
+            </div>
+            <div className="ai-meta-item">
+              <span className="ai-meta-label">النطاق:</span>
+              <span className="ai-meta-val">
+                {assessment.coverage?.mode === 'range' && assessment.coverage.startLectureTitle && assessment.coverage.endLectureTitle
+                  ? `من ${assessment.coverage.startLectureTitle} إلى ${assessment.coverage.endLectureTitle}`
+                  : 'جميع المحاضرات'}
+              </span>
+            </div>
+            <div className="ai-meta-item">
+              <span className="ai-meta-label">المصدر:</span>
+              <span className="ai-meta-val">{assessment.coverage?.sourceFileName || 'ملف PDF'}</span>
+            </div>
+            <div className="ai-meta-item">
+              <span className="ai-meta-label">عدد الأسئلة:</span>
+              <span className="ai-meta-val">{questions.length}</span>
+            </div>
+          </div>
 
           {/* Assessment Title & Type */}
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
@@ -183,13 +261,13 @@ export function AssessmentPreviewModal({
           {/* Questions Editor List */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '0.5rem' }}>
             {questions.map((q, qIdx) => {
-              const qValidation = validateGeneratedQuestion(q);
+              const qValidation = validateQuestionClient(q);
               return (
                 <div
                   key={q.id || qIdx}
                   className="ai-question-card"
                   style={{
-                    borderColor: !qValidation.valid ? '#f59e0b' : undefined,
+                    borderColor: !qValidation.valid ? '#ef4444' : undefined,
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -218,21 +296,17 @@ export function AssessmentPreviewModal({
                   />
 
                   {!qValidation.valid && (
-                    <p className="ai-question-validation" role="alert">
-                      <AlertTriangle size={14} />
-                      {qValidation.reasons.map((reason) => QUESTION_REASON_LABELS[reason]).join(' ')}
+                    <p className="ai-question-validation text-red-400 text-xs flex items-center gap-1 mt-1" role="alert">
+                      <AlertTriangle size={14} className="shrink-0" />
+                      <span>{qValidation.reason || 'هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.'}</span>
                     </p>
                   )}
 
                   {/* Multiple choice options */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                     {(Array.isArray(q.options) ? q.options : []).map((rawOpt, optIdx) => {
-                      const opt = typeof rawOpt === 'string'
-                        ? rawOpt
-                        : rawOpt && typeof rawOpt === 'object'
-                        ? (rawOpt as any).text || (rawOpt as any).value || (rawOpt as any).option || (rawOpt as any).content || ''
-                        : '';
-                      const isCorrect = Boolean(q.correctAnswer && q.correctAnswer === opt);
+                      const opt = typeof rawOpt === 'string' ? rawOpt : '';
+                      const isCorrect = q.correctIndex === optIdx || (Boolean(q.correctAnswer) && q.correctAnswer === opt);
                       const isOptEmpty = !opt || !opt.trim();
                       const letter = String.fromCharCode(65 + optIdx);
                       return (
@@ -256,14 +330,15 @@ export function AssessmentPreviewModal({
                             type="radio"
                             name={`correct_${qIdx}`}
                             checked={isCorrect}
-                            onChange={() => handleCorrectAnswerSelect(qIdx, opt)}
-                            title="تحديد كإجابة صحيحة"
+                            onChange={() => handleCorrectAnswerSelect(qIdx, optIdx)}
+                            title={`تحديد الخيار ${letter} كإجابة صحيحة`}
+                            aria-label={`تحديد الخيار ${letter} كإجابة صحيحة للسؤال ${qIdx + 1}`}
                           />
                           <input
                             type="text"
                             className="ai-option-input"
                             value={opt}
-                            placeholder={`الخيار ${letter}...`}
+                            placeholder={`نص الخيار ${letter}...`}
                             onChange={(e) => handleOptionChange(qIdx, optIdx, e.target.value)}
                             style={{
                               borderColor: isOptEmpty ? '#ef4444' : isCorrect ? '#22c55e' : undefined,
@@ -274,7 +349,7 @@ export function AssessmentPreviewModal({
                                 : undefined,
                             }}
                           />
-                          {isCorrect && (
+                          {isCorrect && opt.trim().length > 0 && (
                             <span className="text-xs text-green-400 font-bold" style={{ whiteSpace: 'nowrap' }}>
                               الإجابة الصحيحة
                             </span>
@@ -313,7 +388,7 @@ export function AssessmentPreviewModal({
             type="button"
             className="btn btn-primary text-sm"
             onClick={handleSubmit}
-            disabled={submitting || !submissionCheck.allowed}
+            disabled={submitting || !isAllValid}
             style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
           >
             {submitting ? (
