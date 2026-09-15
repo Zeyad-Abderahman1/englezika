@@ -13,7 +13,15 @@ export type QuestionValidationReason =
   | 'INVALID_CORRECT_INDEX'
   | 'MISSING_CORRECT_ANSWER'
   | 'MALFORMED_QUESTION'
-  | 'DUPLICATE_QUESTION_TEXT';
+  | 'DUPLICATE_QUESTION_TEXT'
+  | 'MISSING_EXPLANATION'
+  | 'EMPTY_EXPLANATION'
+  | 'MALFORMED_EXPLANATION'
+  | 'THEORETICAL_QUESTION'
+  | 'INVALID_QUESTION_STYLE'
+  | 'MISSING_BLANK';
+
+export const CANONICAL_BLANK = '........';
 
 export interface CanonicalAssessmentQuestion {
   id?: string;
@@ -23,6 +31,28 @@ export interface CanonicalAssessmentQuestion {
   correctIndex: number;
   explanation?: string;
 }
+
+export interface QuestionValidationOptions {
+  allowLegacyWithoutExplanation?: boolean;
+  requireBlank?: boolean;
+}
+
+export const QUESTION_REASON_LABELS: Record<QuestionValidationReason, string> = {
+  EMPTY_QUESTION: 'نص السؤال فارغ أو قصير جداً.',
+  WRONG_OPTION_COUNT: 'يجب أن يحتوي السؤال على 4 اختيارات.',
+  EMPTY_OPTION: 'يوجد خيار فارغ في السؤال.',
+  DUPLICATE_OPTION: 'يوجد خيارات مكررة.',
+  INVALID_CORRECT_INDEX: 'يرجى تحديد إجابة صحيحة صالحة.',
+  MISSING_CORRECT_ANSWER: 'يرجى تحديد الإجابة الصحيحة.',
+  MALFORMED_QUESTION: 'بيانات السؤال غير صالحة.',
+  DUPLICATE_QUESTION_TEXT: 'نص السؤال مكرر.',
+  MISSING_EXPLANATION: 'يرجى كتابة شرح الإجابة للطالب.',
+  EMPTY_EXPLANATION: 'شرح الإجابة فارغ.',
+  MALFORMED_EXPLANATION: 'شرح الإجابة غير صالح.',
+  THEORETICAL_QUESTION: 'السؤال بصيغة نظرية غير مسموح بها. يجب صياغة الأسئلة بشكل تطبيقي في سياق جمل.',
+  INVALID_QUESTION_STYLE: 'صيغة السؤال غير مقبولة.',
+  MISSING_BLANK: 'يجب أن تحتوي الجملة على فراغ (........).',
+};
 
 export interface QuestionValidationResult {
   valid: boolean;
@@ -65,7 +95,7 @@ export const ASSESSMENT_QUESTIONS_JSON_SCHEMA: Record<string, unknown> = {
           },
           correctIndex: { type: 'integer', minimum: 0, maximum: 3 },
           correctAnswer: { type: 'string', minLength: 1 },
-          explanation: { type: 'string' },
+          explanation: { type: 'string', minLength: 5, maxLength: 1500 },
         },
       },
     },
@@ -83,13 +113,49 @@ export function normalizePromptHash(prompt: string): string {
 }
 
 /**
+ * Normalizes variable-length blanks (dots, underscores, ellipsis) to canonical 8-dot blank "........"
+ */
+export function normalizeBlank(prompt: string): string {
+  if (!prompt || typeof prompt !== 'string') return '';
+  return prompt
+    .replace(/(?:_{2,}|\.{3,}|…)/g, CANONICAL_BLANK)
+    .trim();
+}
+
+/**
+ * Detects theoretical/meta grammar-rule questions that should be rejected in favor of application-based questions.
+ */
+export function isTheoreticalQuestion(prompt: string): boolean {
+  if (!prompt || typeof prompt !== 'string') return false;
+  const p = prompt.trim().toLowerCase();
+  const theoreticalPatterns = [
+    /^what\s+is\s+the\s+rule\b/i,
+    /^what\s+rule\b/i,
+    /^which\s+rule\b/i,
+    /^which\s+tense\b/i,
+    /^what\s+is\s+the\s+structure\b/i,
+    /^what\s+is\s+the\s+formula\b/i,
+    /^which\s+(?:of\s+the\s+following\s+|sentence\s+)(?:correctly\s+)?describes\b/i,
+    /^which\s+(?:of\s+the\s+following\s+|sentence\s+)(?:correctly\s+)?explains\b/i,
+    /^what\s+does\s+.*\s+mean\b/i,
+    /^how\s+do\s+we\s+form\b/i,
+    /^what\s+is\s+the\s+definition\s+of\b/i,
+  ];
+  return theoreticalPatterns.some((pattern) => pattern.test(p));
+}
+
+/**
  * Validates and normalizes a single question according to the authoritative MCQ contract:
- * - prompt: non-empty trimmed string (>= 5 chars)
+ * - prompt: non-empty trimmed string (>= 5 chars), contextual application style, blanks normalized
  * - options: exactly 4 non-empty distinct trimmed strings
  * - correctIndex: integer between 0 and 3
  * - correctAnswer: matches options[correctIndex]
+ * - explanation: non-empty string explaining reason
  */
-export function validateGeneratedQuestion(raw: unknown): QuestionValidationResult {
+export function validateGeneratedQuestion(
+  raw: unknown,
+  options: QuestionValidationOptions = {}
+): QuestionValidationResult {
   const reasons: QuestionValidationReason[] = [];
 
   if (!raw || typeof raw !== 'object') {
@@ -98,7 +164,7 @@ export function validateGeneratedQuestion(raw: unknown): QuestionValidationResul
 
   const r = raw as Record<string, unknown>;
 
-  // 1. Prompt validation
+  // 1. Prompt validation & normalization
   const rawPrompt =
     typeof r.prompt === 'string'
       ? r.prompt
@@ -107,9 +173,18 @@ export function validateGeneratedQuestion(raw: unknown): QuestionValidationResul
       : typeof r.questionText === 'string'
       ? r.questionText
       : '';
-  const prompt = rawPrompt.trim();
+  let prompt = normalizeBlank(rawPrompt);
   if (!prompt || prompt.length < 5) {
     reasons.push('EMPTY_QUESTION');
+  } else {
+    // Quality check: Reject theoretical/meta grammar-rule questions
+    if (isTheoreticalQuestion(prompt)) {
+      reasons.push('THEORETICAL_QUESTION');
+    }
+    // Contextual blank requirement when enforced
+    if (options.requireBlank && !prompt.includes(CANONICAL_BLANK)) {
+      reasons.push('MISSING_BLANK');
+    }
   }
 
   // 2. Options normalization & extraction
@@ -237,8 +312,25 @@ export function validateGeneratedQuestion(raw: unknown): QuestionValidationResul
     reasons.push('MISSING_CORRECT_ANSWER');
   }
 
-  const explanation =
-    typeof r.explanation === 'string' ? r.explanation.trim().slice(0, 1000) : undefined;
+  // 4. Explanation validation
+  let explanation: string | undefined;
+  if (options.allowLegacyWithoutExplanation && (r.explanation === undefined || r.explanation === null)) {
+    explanation = undefined;
+  } else {
+    if (r.explanation === undefined || r.explanation === null) {
+      reasons.push('MISSING_EXPLANATION');
+    } else if (typeof r.explanation !== 'string') {
+      reasons.push('MALFORMED_EXPLANATION');
+    } else {
+      const expTrimmed = r.explanation.trim();
+      if (expTrimmed.length === 0) {
+        reasons.push('EMPTY_EXPLANATION');
+      } else {
+        explanation = expTrimmed.slice(0, 1500);
+      }
+    }
+  }
+
   const id = typeof r.id === 'string' ? r.id : undefined;
 
   if (reasons.length > 0) {
@@ -265,7 +357,8 @@ export function validateGeneratedQuestion(raw: unknown): QuestionValidationResul
  */
 export function validateGeneratedAssessment(
   questions: unknown[],
-  requestedCount?: number
+  requestedCount?: number,
+  options: QuestionValidationOptions = {}
 ): AssessmentValidationResult {
   const validQuestions: CanonicalAssessmentQuestion[] = [];
   const invalidQuestions: Array<{
@@ -284,7 +377,7 @@ export function validateGeneratedAssessment(
   }
 
   questions.forEach((rawQ, idx) => {
-    const qResult = validateGeneratedQuestion(rawQ);
+    const qResult = validateGeneratedQuestion(rawQ, options);
     if (!qResult.valid || !qResult.normalizedQuestion) {
       invalidQuestions.push({
         index: idx,
@@ -330,7 +423,10 @@ export function validateGeneratedAssessment(
  * Determines whether an assessment is eligible for final submission/insertion.
  * Disables confirmation button if any question is incomplete, empty, or structurally invalid.
  */
-export function isAssessmentSubmissionAllowed(questions: unknown[]): {
+export function isAssessmentSubmissionAllowed(
+  questions: unknown[],
+  options: QuestionValidationOptions = { allowLegacyWithoutExplanation: true }
+): {
   allowed: boolean;
   reason?: string;
 } {
@@ -339,8 +435,14 @@ export function isAssessmentSubmissionAllowed(questions: unknown[]): {
   }
 
   for (let i = 0; i < questions.length; i++) {
-    const qResult = validateGeneratedQuestion(questions[i]);
+    const qResult = validateGeneratedQuestion(questions[i], options);
     if (!qResult.valid) {
+      if (qResult.reasons.includes('THEORETICAL_QUESTION') || qResult.reasons.includes('INVALID_QUESTION_STYLE')) {
+        return {
+          allowed: false,
+          reason: `السؤال رقم ${i + 1} بصيغة نظرية غير مسموح بها. يجب صياغة الأسئلة بشكل تطبيقي في سياق جمل.`,
+        };
+      }
       if (qResult.reasons.includes('EMPTY_OPTION')) {
         return { allowed: false, reason: `يوجد خيار فارغ في السؤال رقم ${i + 1}. هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.` };
       }
@@ -355,6 +457,13 @@ export function isAssessmentSubmissionAllowed(questions: unknown[]): {
       }
       if (qResult.reasons.includes('MISSING_CORRECT_ANSWER') || qResult.reasons.includes('INVALID_CORRECT_INDEX')) {
         return { allowed: false, reason: `يرجى تحديد الإجابة الصحيحة للسؤال رقم ${i + 1}.` };
+      }
+      if (
+        qResult.reasons.includes('EMPTY_EXPLANATION') ||
+        qResult.reasons.includes('MISSING_EXPLANATION') ||
+        qResult.reasons.includes('MALFORMED_EXPLANATION')
+      ) {
+        return { allowed: false, reason: `يرجى كتابة شرح الإجابة للطالب في السؤال رقم ${i + 1}.` };
       }
       return { allowed: false, reason: `السؤال رقم ${i + 1}: هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.` };
     }

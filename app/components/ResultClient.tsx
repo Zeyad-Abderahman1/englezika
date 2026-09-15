@@ -31,6 +31,7 @@ type AttemptDetail = {
     score: number;
     points: number;
     feedback: string;
+    explanation?: string | null;
   }>;
 };
 
@@ -186,6 +187,23 @@ export default function ResultClient({ attemptId }: { attemptId: string }) {
                   )}
                   {ans.feedback && (
                     <div style={{ marginTop: '0.25rem', opacity: 0.75 }}>{ans.feedback}</div>
+                  )}
+                  {ans.explanation && (
+                    <div
+                      className="question-explanation-block"
+                      style={{
+                        marginTop: '0.5rem',
+                        padding: '0.6rem 0.75rem',
+                        borderRadius: '6px',
+                        background: 'rgba(56, 189, 248, 0.08)',
+                        borderRight: '3px solid #0284c7',
+                      }}
+                    >
+                      <b style={{ color: '#0284c7', display: 'block', marginBottom: '0.2rem' }}>ليه؟</b>
+                      <p style={{ margin: 0, direction: 'rtl', textAlign: 'right', lineHeight: '1.5' }}>
+                        {ans.explanation}
+                      </p>
+                    </div>
                   )}
                 </div>
               </article>

@@ -96,6 +96,7 @@ describe('Production Assessment Hardening: Options Integrity & Lecture Coverage 
       ],
       correctIndex: 0,
       correctAnswer: 'gigantic',
+      explanation: 'Enormous means extremely large or gigantic.',
     };
     const res1 = validateGeneratedQuestion(rawWithObjText);
     assert.equal(res1.valid, true);
@@ -112,6 +113,7 @@ describe('Production Assessment Hardening: Options Integrity & Lecture Coverage 
       ],
       correctIndex: 0,
       correctAnswer: 'A',
+      explanation: 'Explanation',
     };
     const res2 = validateGeneratedQuestion(rawWithDummyLetters);
     assert.equal(res2.valid, false, 'Dummy letter options must be rejected');
@@ -122,6 +124,7 @@ describe('Production Assessment Hardening: Options Integrity & Lecture Coverage 
       options: ['A', 'B', 'C', 'D'],
       correctIndex: 0,
       correctAnswer: 'A',
+      explanation: 'Explanation',
     };
     const res3 = validateGeneratedQuestion(rawLetterArray);
     assert.equal(res3.valid, false, 'Plain dummy letters [A, B, C, D] must be rejected');
@@ -146,6 +149,7 @@ describe('Production Assessment Hardening: Options Integrity & Lecture Coverage 
               : ['real option 1', 'real option 2', 'real option 3', 'real option 4'],
             correctAnswer: 'real option 1',
             correctIndex: 0,
+            explanation: `Explanation for question ${i + 1}.`,
           }));
           return { success: true, data: { questions } };
         }
@@ -174,6 +178,7 @@ describe('Production Assessment Hardening: Options Integrity & Lecture Coverage 
         options: ['cold', 'warm', 'boiling', 'freezing'],
         correctAnswer: 'cold',
         correctIndex: 0,
+        explanation: 'The opposite of hot is cold.',
       },
     ];
     // Initially valid

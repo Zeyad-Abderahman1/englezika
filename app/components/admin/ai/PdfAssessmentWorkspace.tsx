@@ -128,10 +128,7 @@ export function PdfAssessmentWorkspace() {
           steps: [
             {
               tool: type === 'quiz' ? 'create_quiz' : 'create_exam',
-              parameters: {
-                courseId: effectiveCourseId,
-                title,
-                questions,
+              parameters: { courseId: effectiveCourseId, title, questions,
                 durationMinutes: type === 'quiz' ? 15 : 45,
                 passingScore: 50,
                 coverageStartLectureId: coverageMode === 'range' ? startLectureId : undefined,

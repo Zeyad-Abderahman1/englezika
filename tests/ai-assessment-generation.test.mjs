@@ -98,9 +98,10 @@ describe('Phase 5: Content Generator Mode (ZERO Tools, Strict Batching & Injecti
         const questions = Array.from({ length: 8 }, () => {
           sequence += 1;
           return {
-            prompt: `Unique generated question number ${sequence}?`,
-            options: ['Correct', 'Wrong A', 'Wrong B', 'Wrong C'],
-            correctAnswer: 'Correct',
+            prompt: `Ahmed ........ to school yesterday. [${sequence}]`,
+            options: ['went', 'goes', 'gone', 'going'],
+            correctAnswer: 'went',
+            explanation: 'هنا بنستخدم went علشان الحدث في الماضي ومحتاجين Past Simple.',
           };
         });
         return { success: true, data: { questions } };
@@ -191,19 +192,22 @@ describe('Phase 5: Content Generator Mode (ZERO Tools, Strict Batching & Injecti
           data: {
             questions: [
               {
-                prompt: 'What is the capital of Egypt?',
-                options: ['Cairo', 'Alexandria', 'Giza', 'Luxor'],
-                correctAnswer: 'Cairo',
+                prompt: 'Cairo is the capital of Egypt and it ........ on the Nile.',
+                options: ['stands', 'stand', 'standing', 'stood'],
+                correctAnswer: 'stands',
+                explanation: 'حقيقة علمية أو جغرافية بنستخدم معاها Present Simple.',
               },
               {
-                prompt: 'What is the capital of Egypt?', // Exact duplicate
-                options: ['Cairo', 'Alexandria', 'Giza', 'Luxor'],
-                correctAnswer: 'Cairo',
+                prompt: 'Cairo is the capital of Egypt and it ........ on the Nile.', // Exact duplicate
+                options: ['stands', 'stand', 'standing', 'stood'],
+                correctAnswer: 'stands',
+                explanation: 'حقيقة علمية أو جغرافية بنستخدم معاها Present Simple.',
               },
               {
-                prompt: 'Which river runs through Egypt?',
-                options: ['Nile', 'Amazon', 'Mississippi', 'Danube'],
-                correctAnswer: 'Nile',
+                prompt: 'The Nile is the river that ........ through Egypt.',
+                options: ['runs', 'run', 'running', 'ran'],
+                correctAnswer: 'runs',
+                explanation: 'حقيقة جغرافية ثابتة فبنستخدم runs مع المفرد في Present Simple.',
               },
             ],
           },

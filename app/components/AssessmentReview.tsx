@@ -128,9 +128,9 @@ export default function AssessmentReview({
               )}
             </div>
 
-            {!question.isCorrect && question.explanation && (
+            {question.explanation && (
               <div className="assessment-explanation">
-                <strong>شرح الإجابة:</strong>
+                <strong>ليه؟</strong>
                 <p>{question.explanation}</p>
               </div>
             )}

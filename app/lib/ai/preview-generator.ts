@@ -309,10 +309,10 @@ export function generateActionPreview(
             type: actionType,
             title: name,
             titleAr: name,
-            summary: JSON.stringify(payload).slice(0, 100),
-            summaryAr: JSON.stringify(payload).slice(0, 100),
+            summary: (JSON.stringify(payload) || '').slice(0, 100),
+            summaryAr: (JSON.stringify(payload) || '').slice(0, 100),
             riskLevel,
-            details: payload,
+            details: payload || {},
           },
         ],
       };

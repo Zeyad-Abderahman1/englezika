@@ -169,18 +169,21 @@ describe('Phase 1 & 2: Authoritative Assessment Question Contract & Validation S
       options: ['Cairo', 'Alexandria', 'Giza', 'Luxor'],
       correctAnswer: 'Cairo',
       correctIndex: 0,
+      explanation: 'القاهرة هي عاصمة مصر.',
     };
     const q2 = {
       prompt: 'what is the capital of egypt?', // Case-insensitive duplicate
       options: ['Cairo', 'Alexandria', 'Giza', 'Luxor'],
       correctAnswer: 'Cairo',
       correctIndex: 0,
+      explanation: 'القاهرة هي عاصمة مصر.',
     };
     const q3 = {
       prompt: 'Which sea is to the north of Egypt?',
       options: ['Mediterranean', 'Red Sea', 'Dead Sea', 'Black Sea'],
       correctAnswer: 'Mediterranean',
       correctIndex: 0,
+      explanation: 'البحر المتوسط يقع في شمال مصر.',
     };
 
     const validation = validateGeneratedAssessment([q1, q2, q3], 3);
@@ -292,6 +295,7 @@ describe('Phase 3: Bounded Missing-Question Repair & Exact Count Enforcement', (
             options: ['Option A', 'Option B', 'Option C', 'Option D'],
             correctAnswer: 'Option A',
             correctIndex: 0,
+            explanation: `شرح الإجابة للسؤال ${i + 1}.`,
           }));
           return { success: true, data: { questions } };
         }
@@ -329,6 +333,7 @@ describe('Phase 3: Bounded Missing-Question Repair & Exact Count Enforcement', (
             options: ['Alpha', 'Beta', 'Gamma', 'Delta'],
             correctAnswer: 'Alpha',
             correctIndex: 0,
+            explanation: `شرح الإجابة للسؤال ${i + 1}.`,
           }));
           return { success: true, data: { questions } };
         }
@@ -339,6 +344,7 @@ describe('Phase 3: Bounded Missing-Question Repair & Exact Count Enforcement', (
           options: ['North', 'South', 'East', 'West'],
           correctAnswer: 'North',
           correctIndex: 0,
+          explanation: `شرح الإجابة للسؤال التعويضي ${i + 1}.`,
         }));
         return { success: true, data: { questions } };
       },
@@ -382,6 +388,7 @@ describe('Phase 3: Bounded Missing-Question Repair & Exact Count Enforcement', (
             options: ['Alpha', 'Beta', 'Gamma', 'Delta'],
             correctAnswer: 'Alpha',
             correctIndex: 0,
+            explanation: `شرح الإجابة للسؤال ${i + 1}.`,
           }));
           return { success: true, data: { questions } };
         }
@@ -391,6 +398,7 @@ describe('Phase 3: Bounded Missing-Question Repair & Exact Count Enforcement', (
           options: ['North', 'South', 'East', 'West'],
           correctAnswer: 'North',
           correctIndex: 0,
+          explanation: `شرح الإجابة للسؤال التعويضي ${i + 1}.`,
         }));
         return { success: true, data: { questions } };
       },
@@ -427,6 +435,7 @@ describe('Phase 3: Bounded Missing-Question Repair & Exact Count Enforcement', (
             options: ['One', 'Two', 'Three', 'Four'],
             correctAnswer: 'One',
             correctIndex: 0,
+            explanation: 'شرح الإجابة للطالب لهذا السؤال.',
           }));
           return { success: true, data: { questions } };
         }
@@ -436,6 +445,7 @@ describe('Phase 3: Bounded Missing-Question Repair & Exact Count Enforcement', (
           options: ['One', 'Two', 'Three', 'Four'],
           correctAnswer: 'One',
           correctIndex: 0,
+          explanation: 'شرح الإجابة للطالب لهذا السؤال.',
         }));
         return { success: true, data: { questions } };
       },
@@ -638,6 +648,7 @@ describe('Production AI Assessment Bug: Exact Reproduction & Regression Suite', 
             ],
             correctAnswer: `Specific answer for question ${i + 1} option A`,
             correctIndex: 0,
+            explanation: `شرح الإجابة للطالب للسؤال ${i + 1}.`,
           }));
           return { success: true, data: { questions } };
         }
@@ -654,6 +665,7 @@ describe('Production AI Assessment Bug: Exact Reproduction & Regression Suite', 
           ],
           correctAnswer: `Option A for grammar question ${i + 17}`,
           correctIndex: 0,
+          explanation: `شرح الإجابة للطالب للسؤال ${i + 17}.`,
         }));
         return { success: true, data: { questions } };
       },
@@ -706,6 +718,7 @@ describe('Production AI Assessment Bug: Exact Reproduction & Regression Suite', 
             options: ['Opt 1', 'Opt 2', 'Opt 3', 'Opt 4'],
             correctAnswer: 'Opt 1',
             correctIndex: 0,
+            explanation: `شرح الإجابة للطالب ${i + 1}.`,
           }));
           return { success: true, data: { questions } };
         }
@@ -715,6 +728,7 @@ describe('Production AI Assessment Bug: Exact Reproduction & Regression Suite', 
           options: ['Opt 1', 'Opt 2', 'Opt 3', 'Opt 4'],
           correctAnswer: 'Opt 1',
           correctIndex: 0,
+          explanation: `شرح الإجابة للطالب ${i + 17}.`,
         }));
         return { success: true, data: { questions } };
       },
@@ -749,6 +763,7 @@ describe('Phase 6: End-to-End Assessment Options Integrity & Defense Suite', () 
       options: ['Quick', 'Slow', 'Tired', 'Heavy'],
       correctIndex: 0,
       correctAnswer: 'Quick',
+      explanation: 'Rapid means fast, so Quick is the correct choice.',
     };
     const result = validateGeneratedQuestion(raw);
     assert.equal(result.valid, true);
@@ -781,6 +796,7 @@ describe('Phase 6: End-to-End Assessment Options Integrity & Defense Suite', () 
       ],
       correctIndex: 0,
       correctAnswer: 'Paris',
+      explanation: 'Paris is the capital of France.',
     };
     const resVal = validateGeneratedQuestion(rawWithValue);
     assert.equal(resVal.valid, true, 'Should safely normalize objects with value field into canonical string array');
@@ -815,6 +831,7 @@ describe('Phase 6: End-to-End Assessment Options Integrity & Defense Suite', () 
       ],
       correctIndex: 0,
       correctAnswer: 'Paris',
+      explanation: 'Paris is the capital of France.',
     };
     const res = validateGeneratedQuestion(raw);
     assert.equal(res.valid, true);
@@ -856,6 +873,7 @@ describe('Phase 6: End-to-End Assessment Options Integrity & Defense Suite', () 
               : ['Option A', 'Option B', 'Option C', 'Option D'],
             correctAnswer: 'Option A',
             correctIndex: 0,
+            explanation: `شرح الإجابة للسؤال ${i + 1}.`,
           }));
           return { success: true, data: { questions } };
         }

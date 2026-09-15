@@ -27,7 +27,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const answers = await db
     .prepare(
       `SELECT ans.id, ans.question_id AS questionId, ans.answer, ans.score, ans.feedback,
-     q.type, q.prompt, q.options, q.correct_answer AS correctAnswer, q.points, q.sort_order AS sortOrder
+     q.type, q.prompt, q.options, q.correct_answer AS correctAnswer, q.explanation AS explanation,
+     q.points, q.sort_order AS sortOrder
      FROM answers ans JOIN questions q ON q.id = ans.question_id
      WHERE ans.attempt_id = ? ORDER BY q.sort_order`
     )
@@ -48,6 +49,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     answers: answers.results.map((ans) => ({
       ...ans,
       options: ans.options ? JSON.parse(String(ans.options)) : [],
+      explanation: typeof ans.explanation === 'string' ? ans.explanation : (ans.explanation || null),
     })),
   });
 }

@@ -3,6 +3,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, Check, Trash2, Plus, LoaderCircle, AlertTriangle, BookOpen } from 'lucide-react';
 import type { GeneratedAssessmentPreview, GeneratedQuestion } from '../../../lib/ai/content-generator';
+import {
+  isAssessmentSubmissionAllowed,
+  validateGeneratedQuestion,
+  QUESTION_REASON_LABELS,
+} from '../../../lib/ai/assessment-validator';
 
 interface AssessmentPreviewModalProps {
   assessment: GeneratedAssessmentPreview;
@@ -51,6 +56,12 @@ export function validateQuestionClient(q: GeneratedQuestion): { valid: boolean; 
   if (!q.correctAnswer || q.correctAnswer !== q.options[cIdx]) {
     return { valid: false, reason: 'حدد الإجابة الصحيحة.' };
   }
+  if (q.explanation !== undefined) {
+    const expTrimmed = typeof q.explanation === 'string' ? q.explanation.trim() : '';
+    if (typeof q.explanation !== 'string' || expTrimmed.length === 0) {
+      return { valid: false, reason: 'يرجى كتابة شرح الإجابة للطالب.' };
+    }
+  }
   return { valid: true };
 }
 
@@ -87,11 +98,16 @@ export function AssessmentPreviewModal({
 
   if (!isOpen) return null;
 
-  const isAllValid = questions.length > 0 && questions.every((q) => validateQuestionClient(q).valid);
+  const submissionCheck = isAssessmentSubmissionAllowed(questions);
+  const isAllValid = questions.length > 0 && submissionCheck.allowed && questions.every((q) => validateQuestionClient(q).valid);
   const firstInvalid = questions.map((q, idx) => ({ q, idx, res: validateQuestionClient(q) })).find((item) => !item.res.valid);
 
   const handlePromptChange = (idx: number, val: string) => {
     setQuestions((current) => current.map((question, index) => index === idx ? { ...question, prompt: val } : question));
+  };
+
+  const handleExplanationChange = (idx: number, val: string) => {
+    setQuestions((current) => current.map((question, index) => index === idx ? { ...question, explanation: val } : question));
   };
 
   const handleOptionChange = (qIdx: number, optIdx: number, val: string) => {
@@ -138,17 +154,18 @@ export function AssessmentPreviewModal({
       ...questions,
       {
         id: `custom_q_${Date.now()}`,
-        prompt: 'سؤال جديد...',
+        prompt: 'سؤال جديد ........',
         options: ['الخيار A', 'الخيار B', 'الخيار C', 'الخيار D'],
         correctAnswer: 'الخيار A',
         correctIndex: 0,
+        explanation: 'شرح الإجابة للطالب...',
       },
     ]);
   };
 
   const handleSubmit = async () => {
-    if (!isAllValid) {
-      setError(firstInvalid?.res.reason || 'هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.');
+    if (!submissionCheck.allowed || !isAllValid) {
+      setError(submissionCheck.reason || firstInvalid?.res.reason || 'هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.');
       return;
     }
     setError(null);
@@ -199,10 +216,10 @@ export function AssessmentPreviewModal({
             </div>
           )}
 
-          {!isAllValid && (
+          {(!submissionCheck.allowed || !isAllValid) && (
             <div className="p-2 mb-2 bg-amber-950/50 border border-amber-500/50 rounded text-amber-200 text-xs flex items-center gap-2" role="alert">
               <AlertTriangle size={15} className="text-amber-400 shrink-0" />
-              <span>{firstInvalid?.res.reason || 'هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.'}</span>
+              <span>{submissionCheck.reason || firstInvalid?.res.reason || 'هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.'}</span>
             </div>
           )}
 
@@ -261,7 +278,9 @@ export function AssessmentPreviewModal({
           {/* Questions Editor List */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '0.5rem' }}>
             {questions.map((q, qIdx) => {
-              const qValidation = validateQuestionClient(q);
+              const qValidation = validateGeneratedQuestion(q);
+              const clientValidation = validateQuestionClient(q);
+              const isValid = qValidation.valid && clientValidation.valid;
               return (
                 <div
                   key={q.id || qIdx}
@@ -296,10 +315,10 @@ export function AssessmentPreviewModal({
                     }}
                   />
 
-                  {!qValidation.valid && (
+                  {!isValid && (
                     <p className="ai-question-validation text-red-400 text-xs flex items-center gap-1 mt-1" role="alert">
                       <AlertTriangle size={14} className="shrink-0" />
-                      <span>{qValidation.reason || 'هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.'}</span>
+                      <span>{clientValidation.reason || qValidation.reasons.map((r) => QUESTION_REASON_LABELS[r] || r).join(' ') || 'هذا السؤال يحتوي على اختيارات غير صالحة. يرجى تعديله أو إعادة التوليد.'}</span>
                     </p>
                   )}
 
@@ -361,6 +380,34 @@ export function AssessmentPreviewModal({
                       );
                     })}
                   </div>
+
+                  {/* Explanation for students */}
+                  <div style={{ marginTop: '0.6rem' }}>
+                    <label
+                      htmlFor={`explanation_${qIdx}`}
+                      className="text-xs text-slate-400 font-semibold mb-1 block"
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                    >
+                      <span>شرح الإجابة للطالب</span>
+                      <span className="text-[10px] text-slate-500 font-normal">(يظهر للطالب بعد التسليم فقط)</span>
+                    </label>
+                    <textarea
+                      id={`explanation_${qIdx}`}
+                      className="ai-question-prompt-input"
+                      dir="auto"
+                      rows={2}
+                      value={q.explanation || ''}
+                      placeholder="اكتب شرح الإجابة للطالب (بالعامية المصرية مع المصطلحات الإنجليزية)..."
+                      onChange={(e) => handleExplanationChange(qIdx, e.target.value)}
+                      style={{
+                        width: '100%',
+                        minHeight: '2.8rem',
+                        resize: 'vertical',
+                        fontSize: '0.85rem',
+                        lineHeight: '1.4',
+                      }}
+                    />
+                  </div>
                 </div>
               );
             })}
@@ -391,7 +438,7 @@ export function AssessmentPreviewModal({
             type="button"
             className="btn btn-primary text-sm"
             onClick={handleSubmit}
-            disabled={submitting || !isAllValid}
+            disabled={submitting || !submissionCheck.allowed}
             style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
           >
             {submitting ? (
