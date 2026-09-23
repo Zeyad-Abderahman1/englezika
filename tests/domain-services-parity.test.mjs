@@ -306,6 +306,79 @@ describe('Domain Services Parity & Regression Suite', () => {
     assert.equal(video.max_views, 3);
   });
 
+  test('lectureService: maxViews=0 (unlimited), maxViews=5, update roundtrip, and multiple lectures', async () => {
+    const db = new MockDatabase();
+    db.tables.courses.set('c-1', { id: 'c-1', title: 'Course 1' });
+    const context = { db };
+
+    // 1) create lecture with maxViews=0 succeeds and stores 0
+    const res0 = await lectureService.createLecture(
+      {
+        courseId: 'c-1',
+        title: 'Lecture Unlimited',
+        youtubeUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        durationSeconds: 1200,
+        maxViews: 0,
+        status: 'published',
+      },
+      mockStaff,
+      context
+    );
+    assert.equal(res0.ok, true);
+    assert.strictEqual(db.tables.videos.get(res0.id).max_views, 0, 'maxViews=0 must store 0, not null');
+
+    // 2) create lecture with maxViews=5 succeeds and stores 5
+    const res5 = await lectureService.createLecture(
+      {
+        courseId: 'c-1',
+        title: 'Lecture 5 Views',
+        youtubeUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        durationSeconds: 1200,
+        maxViews: 5,
+        status: 'published',
+      },
+      mockStaff,
+      context
+    );
+    assert.equal(res5.ok, true);
+    assert.strictEqual(db.tables.videos.get(res5.id).max_views, 5, 'maxViews=5 must store 5');
+
+    // 3) update lecture from 5 to 0 succeeds and stores 0
+    await lectureService.updateLecture(
+      res5.id,
+      { title: 'Lecture 5 Views Updated', maxViews: 0 },
+      mockStaff,
+      context
+    );
+    assert.strictEqual(db.tables.videos.get(res5.id).max_views, 0, 'updating from 5 to 0 must store 0');
+
+    // 4) update 0 to 5 succeeds
+    await lectureService.updateLecture(
+      res0.id,
+      { title: 'Lecture Unlimited Updated', maxViews: 5 },
+      mockStaff,
+      context
+    );
+    assert.strictEqual(db.tables.videos.get(res0.id).max_views, 5, 'updating 0 to 5 must store 5');
+
+    // 5) multiple different lectures can be created in the same course
+    const resThird = await lectureService.createLecture(
+      {
+        courseId: 'c-1',
+        title: 'Lecture Third',
+        youtubeUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        durationSeconds: 1200,
+        maxViews: 10,
+        status: 'published',
+      },
+      mockStaff,
+      context
+    );
+    assert.equal(resThird.ok, true);
+    const c1Videos = Array.from(db.tables.videos.values()).filter((v) => v.course_id === 'c-1');
+    assert.equal(c1Videos.length, 3, 'All 3 different lectures exist in the same course');
+  });
+
   test('assessmentService: createExam creates online exam with questions', async () => {
     const db = new MockDatabase();
     db.tables.courses.set('c-1', { id: 'c-1', title: 'Course 1' });
