@@ -96,7 +96,7 @@ export class LectureService {
         durationSeconds,
         prerequisiteExamId,
         minimumScore,
-        maxViews || null,
+        maxViews,
         status,
         Date.now()
       )
@@ -161,13 +161,13 @@ export class LectureService {
     const status = input.status === 'draft' ? 'draft' : 'published';
     const maxViews = Object.prototype.hasOwnProperty.call(input, 'maxViews')
       ? safeInteger(input.maxViews, 0, 0, 1000)
-      : existing.maxViews;
+      : safeInteger(existing.maxViews, 0, 0, 1000);
 
     await db
       .prepare(
         'UPDATE videos SET title = ?, prerequisite_exam_id = ?, minimum_score = ?, max_views = ?, status = ? WHERE id = ?'
       )
-      .bind(title, prerequisiteExamId, minimumScore, maxViews || null, status, id)
+      .bind(title, prerequisiteExamId, minimumScore, maxViews, status, id)
       .run();
 
     invalidatePublicCourseCache();
