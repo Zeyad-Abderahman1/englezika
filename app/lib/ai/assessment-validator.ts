@@ -30,6 +30,9 @@ export interface CanonicalAssessmentQuestion {
   correctAnswer: string;
   correctIndex: number;
   explanation?: string;
+  category?: string;
+  difficulty?: string;
+  skill?: string;
 }
 
 export interface QuestionValidationOptions {
@@ -337,6 +340,10 @@ export function validateGeneratedQuestion(
     return { valid: false, reasons };
   }
 
+  const category = typeof r.category === 'string' ? r.category.trim() : undefined;
+  const difficulty = typeof r.difficulty === 'string' ? r.difficulty.trim() : undefined;
+  const skill = typeof r.skill === 'string' ? r.skill.trim() : undefined;
+
   return {
     valid: true,
     reasons: [],
@@ -347,6 +354,9 @@ export function validateGeneratedQuestion(
       correctAnswer,
       correctIndex: correctIndex!,
       explanation,
+      category,
+      difficulty,
+      skill,
     },
   };
 }
