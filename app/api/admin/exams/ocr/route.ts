@@ -1,6 +1,7 @@
 import { apiStaff, isStaffResponse } from '../../../../lib/staff-auth';
 import { jsonError, requireSameOrigin } from '../../../../lib/security';
 import { extractAndSolveExamFromImages, type ImageInput } from '../../../../lib/exam-ocr';
+import { checkRateLimit, getClientIp, rateLimitResponse } from '../../../../lib/rate-limit';
 
 const ALLOWED_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
@@ -12,6 +13,18 @@ export async function POST(request: Request) {
 
   const admin = await apiStaff(request, 'manage_exams');
   if (isStaffResponse(admin)) return admin;
+
+  // Rate limiting backed by rate_limits table (SEC-05)
+  const clientIp = getClientIp(request);
+  const accountRate = await checkRateLimit('admin-exam-ocr-account', admin.email.toLowerCase(), 10, 300);
+  if (!accountRate.allowed) {
+    return rateLimitResponse(accountRate.resetAfterSeconds, 'تم تجاوز الحد المسموح به لطلبات استخراج الأسئلة. يرجى الانتظار قليلاً.');
+  }
+
+  const ipRate = await checkRateLimit('admin-exam-ocr-ip', clientIp, 30, 300);
+  if (!ipRate.allowed) {
+    return rateLimitResponse(ipRate.resetAfterSeconds, 'تم تجاوز الحد المسموح به لطلبات استخراج الأسئلة من هذا العنوان.');
+  }
 
   const contentType = request.headers.get('content-type') || '';
   const imageInputs: ImageInput[] = [];
@@ -78,7 +91,11 @@ export async function POST(request: Request) {
 
     const ocrResult = await extractAndSolveExamFromImages(imageInputs);
     if (!ocrResult.ok) {
-      return jsonError(ocrResult.error || 'تعذر استخراج الأسئلة من الصور', 502);
+      const safeError =
+        ocrResult.error && !ocrResult.error.includes('http') && !ocrResult.error.includes('AIza')
+          ? ocrResult.error
+          : 'تعذر استخراج الأسئلة من الصور عبر الذكاء الاصطناعي';
+      return jsonError(safeError, 502);
     }
 
     return Response.json({
@@ -86,6 +103,7 @@ export async function POST(request: Request) {
       questions: ocrResult.questions,
     });
   } catch (err) {
-    return jsonError(err instanceof Error ? err.message : 'حدث خطأ أثناء معالجة الصور', 500);
+    console.error('[Admin OCR Route Error]', err);
+    return jsonError('حدث خطأ أثناء معالجة الصور', 500);
   }
 }

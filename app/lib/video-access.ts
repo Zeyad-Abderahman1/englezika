@@ -119,22 +119,30 @@ export async function authorizeVideoAccess(
   }
 
   if (video.prerequisiteExamId) {
-    const bestAttempt = await db
-      .prepare(
-        `SELECT MAX(CASE WHEN max_score > 0 THEN (score * 100.0 / max_score) ELSE 0 END)
-           AS bestPercentage
-         FROM attempts
-         WHERE exam_id = ? AND user_email = ? AND status = 'submitted'`
-      )
-      .bind(video.prerequisiteExamId, normalized)
-      .first<{ bestPercentage: number | null }>();
-    if (Number(bestAttempt?.bestPercentage ?? -1) < Number(video.minimumScore || 0)) {
-      return {
-        ok: false,
-        status: 403,
-        error: 'يجب اجتياز اختبار المحاضرة بالدرجة المطلوبة أولًا',
-        code: 'LESSON_QUIZ_REQUIRED',
-      };
+    const publishedExam = await db
+      .prepare("SELECT id FROM exams WHERE id = ? AND status = 'published' LIMIT 1")
+      .bind(video.prerequisiteExamId)
+      .first<{ id: string }>();
+
+    // Only gate if the prerequisite exam is published
+    if (publishedExam) {
+      const bestAttempt = await db
+        .prepare(
+          `SELECT MAX(CASE WHEN max_score > 0 THEN (score * 100.0 / max_score) ELSE 0 END)
+             AS bestPercentage
+           FROM attempts
+           WHERE exam_id = ? AND user_email = ? AND status = 'submitted'`
+        )
+        .bind(video.prerequisiteExamId, normalized)
+        .first<{ bestPercentage: number | null }>();
+      if (Number(bestAttempt?.bestPercentage ?? -1) < Number(video.minimumScore || 0)) {
+        return {
+          ok: false,
+          status: 403,
+          error: 'يجب اجتياز اختبار المحاضرة بالدرجة المطلوبة أولًا',
+          code: 'LESSON_QUIZ_REQUIRED',
+        };
+      }
     }
   }
   return { ok: true, video };

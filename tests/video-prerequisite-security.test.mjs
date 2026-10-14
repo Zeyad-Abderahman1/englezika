@@ -34,6 +34,7 @@ class VideoAccessDatabase {
           };
         }
         if (normalizedSql.startsWith('SELECT id FROM videos')) return null;
+        if (normalizedSql.startsWith('SELECT id FROM exams')) return { id: this.bindings[0] };
         if (normalizedSql.startsWith('SELECT MAX(CASE WHEN max_score > 0')) {
           return { bestPercentage: database.bestPercentage };
         }

@@ -6,7 +6,7 @@ import { recordAuditLog } from '../../../lib/audit';
 
 type RawQuestion = Record<string, unknown>;
 
-function parseQuestion(question: RawQuestion, sortOrder: number) {
+export function parseQuestion(question: RawQuestion, sortOrder: number) {
   const rawType = String(question.type || 'multiple_choice').toLowerCase();
   const type =
     rawType === 'true_false' || rawType === 'short_answer' ? rawType : 'multiple_choice';
@@ -23,6 +23,21 @@ function parseQuestion(question: RawQuestion, sortOrder: number) {
       ? ['True', 'False']
       : [];
   return { type, prompt, correctAnswer, rubric, points, options, sortOrder };
+}
+
+export function validateQuestion(question: ReturnType<typeof parseQuestion>): string | null {
+  if (!question.prompt || !question.correctAnswer) {
+    return 'أضف سؤالاً واحداً على الأقل مع الإجابة الصحيحة';
+  }
+  if (question.type === 'multiple_choice') {
+    if (question.options.length < 2) {
+      return 'كل سؤال اختيار من متعدد يحتاج اختيارين على الأقل';
+    }
+    if (!question.options.includes(question.correctAnswer)) {
+      return 'اختر الإجابة الصحيحة من اختيارات السؤال لكل الأسئلة';
+    }
+  }
+  return null;
 }
 
 export async function POST(request: Request) {
@@ -50,24 +65,14 @@ export async function POST(request: Request) {
     : [];
 
   if (title.length < 3) return jsonError('اسم الامتحان مطلوب');
-  if (
-    !questions.length ||
-    questions.some((question) => !question.prompt || !question.correctAnswer)
-  ) {
+  if (!questions.length) {
     return jsonError('أضف سؤالاً واحداً على الأقل مع الإجابة الصحيحة');
   }
-  if (
-    questions.some((question) => question.type === 'multiple_choice' && question.options.length < 2)
-  ) {
-    return jsonError('كل سؤال اختيار من متعدد يحتاج اختيارين على الأقل');
-  }
-  if (
-    questions.some(
-      (question) =>
-        question.type === 'multiple_choice' && !question.options.includes(question.correctAnswer)
-    )
-  ) {
-    return jsonError('اختر الإجابة الصحيحة من اختيارات السؤال');
+  for (const question of questions) {
+    const questionError = validateQuestion(question);
+    if (questionError) {
+      return jsonError(questionError, 400);
+    }
   }
 
   const db = getDatabase();
@@ -80,19 +85,44 @@ export async function POST(request: Request) {
     if (!courseId) {
       return jsonError('يجب اختيار كورس عند تحديد نطاق محاضرات للاختبار', 400);
     }
-    if (fromVideoId) {
-      const vFrom = await db
-        .prepare('SELECT id FROM videos WHERE id = ? AND course_id = ?')
-        .bind(fromVideoId, courseId)
-        .first();
-      if (!vFrom) return jsonError('المحاضرة الأولى غير صالحة لهذا الكورس', 400);
+    if (!fromVideoId || !toVideoId) {
+      return jsonError('يجب تحديد المحاضرة الأولى والمحاضرة التالية لنطاق الاختبار', 400);
     }
-    if (toVideoId) {
-      const vTo = await db
-        .prepare('SELECT id FROM videos WHERE id = ? AND course_id = ?')
-        .bind(toVideoId, courseId)
-        .first();
-      if (!vTo) return jsonError('المحاضرة التالية غير صالحة لهذا الكورس', 400);
+    if (fromVideoId === toVideoId) {
+      return jsonError('لا يمكن أن تبدأ وتنتهي بوابة الاختبار عند نفس المحاضرة', 400);
+    }
+
+    const vFrom = await db
+      .prepare('SELECT id, course_id, created_at FROM videos WHERE id = ? AND course_id = ?')
+      .bind(fromVideoId, courseId)
+      .first<{ id: string; course_id: string; created_at: number }>();
+    if (!vFrom) return jsonError('المحاضرة الأولى غير صالحة لهذا الكورس', 400);
+
+    const vTo = await db
+      .prepare('SELECT id, course_id, created_at, prerequisite_exam_id FROM videos WHERE id = ? AND course_id = ?')
+      .bind(toVideoId, courseId)
+      .first<{ id: string; course_id: string; created_at: number; prerequisite_exam_id: string | null }>();
+    if (!vTo) return jsonError('المحاضرة التالية غير صالحة لهذا الكورس', 400);
+
+    // Validate sequential order: from lecture must precede to lecture
+    if (vFrom.created_at >= vTo.created_at) {
+      return jsonError('يجب أن تسبق المحاضرة الأولى المحاضرة التالية في الترتيب الزمني للكورس', 400);
+    }
+
+    // Check if target video already has a different prerequisite_exam_id
+    if (vTo.prerequisite_exam_id) {
+      const confirmOverride = Boolean(body.confirmOverride || body.overridePrerequisite);
+      if (!confirmOverride) {
+        return Response.json(
+          {
+            ok: false,
+            error: 'المحاضرة المستهدفة مرتبطة بالفعل باختبار إجباري آخر. هل ترغب في استبداله؟',
+            code: 'PREREQUISITE_CONFLICT',
+            existingPrerequisiteExamId: vTo.prerequisite_exam_id,
+          },
+          { status: 409 }
+        );
+      }
     }
   }
 
@@ -147,8 +177,8 @@ export async function POST(request: Request) {
     ),
   ];
 
-  // If lecture range has a target to_video_id, bind the inter-lecture prerequisite gate atomically
-  if (scopeType === 'lecture_range' && toVideoId && courseId) {
+  // Only bind prerequisite gate when exam status is published
+  if (status === 'published' && scopeType === 'lecture_range' && toVideoId && courseId) {
     statements.push(
       db
         .prepare(

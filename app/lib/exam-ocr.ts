@@ -90,14 +90,19 @@ export function normalizeExtractedQuestions(rawQuestions: unknown[]): ExtractedQ
       if (matchIndex >= 0) {
         correctAnswer = options[matchIndex];
       } else {
-        // Fallback to first option and mark low confidence
-        correctAnswer = options[0];
+        // Leave unselected when unmatched; require teacher to explicitly choose
+        correctAnswer = '';
         confidence = 'low';
       }
     }
 
     const points = typeof raw.points === 'number' && raw.points > 0 ? Math.min(raw.points, 100) : 1;
-    const explanation = safeText(raw.ai_explanation || '', 500);
+    const rawExplanation = safeText(raw.ai_explanation || '', 500);
+    const explanation =
+      rawExplanation ||
+      (type === 'multiple_choice' && !correctAnswer
+        ? 'لم يتم تحديد إجابة صحيحة مطابقة تلقائياً، يرجى اختيار الإجابة الصحيحة يدوياً'
+        : 'تم استخراج السؤال بالذكاء الاصطناعي');
 
     return {
       temp_id: tempId,
@@ -108,7 +113,7 @@ export function normalizeExtractedQuestions(rawQuestions: unknown[]): ExtractedQ
       correct_answer: correctAnswer,
       points,
       ai_confidence: confidence,
-      ai_explanation: explanation || 'تم تحديد الإجابة بالذكاء الاصطناعي',
+      ai_explanation: explanation,
     };
   });
 }
@@ -130,45 +135,12 @@ export async function extractAndSolveExamFromImages(
     process.env.GEMINI_API_KEY?.trim() ||
     (env as Record<string, string | undefined>).GEMINI_API_KEY?.trim();
 
-  // If no API key configured, return fallback mock questions so UI/local dev can proceed
+  // If no API key configured, return explicit error
   if (!apiKey) {
     return {
-      ok: true,
-      questions: [
-        {
-          temp_id: crypto.randomUUID(),
-          sort_order: 1,
-          type: 'multiple_choice',
-          prompt: 'She ...... to the market yesterday before the rain started.',
-          options: ['goes', 'went', 'had gone', 'has gone'],
-          correct_answer: 'had gone',
-          points: 1,
-          ai_confidence: 'high',
-          ai_explanation: 'Past perfect required for an action completed before another past event.',
-        },
-        {
-          temp_id: crypto.randomUUID(),
-          sort_order: 2,
-          type: 'multiple_choice',
-          prompt: 'If you work hard, you ...... high marks in the final exam.',
-          options: ['would achieve', 'will achieve', 'achieved', 'had achieved'],
-          correct_answer: 'will achieve',
-          points: 1,
-          ai_confidence: 'high',
-          ai_explanation: 'First conditional structure: If + present simple, will + infinitive.',
-        },
-        {
-          temp_id: crypto.randomUUID(),
-          sort_order: 3,
-          type: 'multiple_choice',
-          prompt: 'The teacher asked us to look ...... the new words in our dictionaries.',
-          options: ['up', 'after', 'for', 'at'],
-          correct_answer: 'up',
-          points: 1,
-          ai_confidence: 'high',
-          ai_explanation: 'Phrasal verb "look up" means to search for information in a reference book.',
-        },
-      ],
+      ok: false,
+      questions: [],
+      error: 'مفتاح الذكاء الاصطناعي (GEMINI_API_KEY) غير مضبوط في إعدادات الخادم. يرجى تهيئة المفتاح للبدء في استخراج الأسئلة.',
     };
   }
 
@@ -187,13 +159,16 @@ export async function extractAndSolveExamFromImages(
       });
     }
 
-    // Try gemini-2.5-flash first, fallback to gemini-1.5-flash
+    // Try gemini-2.5-flash
     const model = 'gemini-2.5-flash';
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
         body: JSON.stringify({
           contents: [{ parts }],
           generationConfig: {
@@ -205,11 +180,12 @@ export async function extractAndSolveExamFromImages(
     );
 
     if (!response.ok) {
-      const errText = await response.text();
+      const errText = await response.text().catch(() => '');
+      console.error('[Gemini OCR API Error]', { status: response.status, details: errText });
       return {
         ok: false,
         questions: [],
-        error: `خطأ في خادم الذكاء الاصطناعي (${response.status}): ${errText.slice(0, 200)}`,
+        error: 'تعذر استخراج الأسئلة من الصور عبر خدمة الذكاء الاصطناعي. يرجى المحاولة لاحقاً.',
       };
     }
 
@@ -219,7 +195,12 @@ export async function extractAndSolveExamFromImages(
 
     const textOutput = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!textOutput) {
-      return { ok: false, questions: [], error: 'لم يُرجع الذكاء الاصطناعي أي استجابة صالحة' };
+      console.error('[Gemini OCR Empty Response]', data);
+      return {
+        ok: false,
+        questions: [],
+        error: 'لم يُرجع الذكاء الاصطناعي أي استجابة صالحة لتحليل صور الامتحان.',
+      };
     }
 
     const parsed = JSON.parse(textOutput) as { questions?: unknown[] };
@@ -230,10 +211,11 @@ export async function extractAndSolveExamFromImages(
       questions,
     };
   } catch (error) {
+    console.error('[Gemini OCR Exception]', error);
     return {
       ok: false,
       questions: [],
-      error: error instanceof Error ? error.message : 'فشل الاتصال بخدمة الذكاء الاصطناعي',
+      error: 'تعذر الاتصال بخدمة الذكاء الاصطناعي. يرجى التحقق من اتصال الخادم والمحاولة لاحقاً.',
     };
   }
 }

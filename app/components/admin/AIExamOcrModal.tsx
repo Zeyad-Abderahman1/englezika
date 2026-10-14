@@ -296,12 +296,28 @@ export function AIExamOcrModal({
       return;
     }
     for (let i = 0; i < questions.length; i++) {
-      if (!questions[i].prompt.trim()) {
+      const q = questions[i];
+      if (!q.prompt.trim()) {
         setSubmitError(`السؤال رقم ${i + 1} لا يحتوي على نص.`);
+        setCollapsedQuestions((prev) => ({ ...prev, [q.temp_id]: false }));
         return;
       }
-      if (questions[i].type === 'multiple_choice' && questions[i].options.length < 2) {
-        setSubmitError(`السؤال رقم ${i + 1} يحتاج إلى اختيارين على الأقل.`);
+      if (q.type === 'multiple_choice') {
+        if (q.options.length < 2) {
+          setSubmitError(`السؤال رقم ${i + 1} يحتاج إلى اختيارين على الأقل.`);
+          setCollapsedQuestions((prev) => ({ ...prev, [q.temp_id]: false }));
+          return;
+        }
+        if (!q.correct_answer || !q.options.includes(q.correct_answer)) {
+          setSubmitError(
+            `السؤال رقم ${i + 1} لم يتم تحديد إجابة صحيحة له. يرجى الضغط على أحد الخيارات لتحديده كإجابة صحيحة.`
+          );
+          setCollapsedQuestions((prev) => ({ ...prev, [q.temp_id]: false }));
+          return;
+        }
+      } else if (!q.correct_answer?.trim()) {
+        setSubmitError(`السؤال رقم ${i + 1} لا يحتوي على إجابة صحيحة.`);
+        setCollapsedQuestions((prev) => ({ ...prev, [q.temp_id]: false }));
         return;
       }
     }
@@ -327,13 +343,30 @@ export function AIExamOcrModal({
         })),
       };
 
-      const res = await fetch('/api/admin/exams', {
+      let res = await fetch('/api/admin/exams', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
+      let data = await res.json();
+      if (res.status === 409 && data.code === 'PREREQUISITE_CONFLICT') {
+        const confirmOverride = window.confirm(
+          `${data.error || 'المحاضرة المستهدفة مرتبطة بالفعل باختبار إجباري آخر.'}\n\nهل ترغب في استبداله بهذا الاختبار؟`
+        );
+        if (confirmOverride) {
+          res = await fetch('/api/admin/exams', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...payload, confirmOverride: true }),
+          });
+          data = await res.json();
+        } else {
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       if (!res.ok || !data.ok) {
         throw new Error(data.error || 'تعذر حفظ الاختبار');
       }

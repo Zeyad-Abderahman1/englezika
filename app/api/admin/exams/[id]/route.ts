@@ -78,6 +78,51 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const passingScore = safeInteger(body.passingScore ?? existing.passingScore, 50, 0, 100);
 
+  if (scopeType === 'lecture_range') {
+    if (!courseId) {
+      return jsonError('يجب اختيار كورس عند تحديد نطاق محاضرات للاختبار', 400);
+    }
+    if (!fromVideoId || !toVideoId) {
+      return jsonError('يجب تحديد المحاضرة الأولى والمحاضرة التالية لنطاق الاختبار', 400);
+    }
+    if (fromVideoId === toVideoId) {
+      return jsonError('لا يمكن أن تبدأ وتنتهي بوابة الاختبار عند نفس المحاضرة', 400);
+    }
+
+    const vFrom = await db
+      .prepare('SELECT id, course_id, created_at FROM videos WHERE id = ? AND course_id = ?')
+      .bind(fromVideoId, courseId)
+      .first<{ id: string; course_id: string; created_at: number }>();
+    if (!vFrom) return jsonError('المحاضرة الأولى غير صالحة لهذا الكورس', 400);
+
+    const vTo = await db
+      .prepare('SELECT id, course_id, created_at, prerequisite_exam_id FROM videos WHERE id = ? AND course_id = ?')
+      .bind(toVideoId, courseId)
+      .first<{ id: string; course_id: string; created_at: number; prerequisite_exam_id: string | null }>();
+    if (!vTo) return jsonError('المحاضرة التالية غير صالحة لهذا الكورس', 400);
+
+    // Validate sequential order: from lecture must precede to lecture
+    if (vFrom.created_at >= vTo.created_at) {
+      return jsonError('يجب أن تسبق المحاضرة الأولى المحاضرة التالية في الترتيب الزمني للكورس', 400);
+    }
+
+    // Check if target video already has a different prerequisite_exam_id
+    if (vTo.prerequisite_exam_id && vTo.prerequisite_exam_id !== id) {
+      const confirmOverride = Boolean(body.confirmOverride || body.overridePrerequisite);
+      if (!confirmOverride) {
+        return Response.json(
+          {
+            ok: false,
+            error: 'المحاضرة المستهدفة مرتبطة بالفعل باختبار إجباري آخر. هل ترغب في استبداله؟',
+            code: 'PREREQUISITE_CONFLICT',
+            existingPrerequisiteExamId: vTo.prerequisite_exam_id,
+          },
+          { status: 409 }
+        );
+      }
+    }
+  }
+
   const nullableTimestamp = (value: unknown, fallback: unknown) => {
     if (value === null) return null;
     const candidate = value === undefined ? fallback : value;
@@ -114,20 +159,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const statements = [updateStmt];
 
-  // If to_video_id changed or scope became all_lectures, clear old video prerequisite link
+  // If exam status is NOT published, or scope is not lecture_range, or target to_video_id changed:
+  // Clear any existing prerequisite link on videos
   const oldToVideoId = existing.toVideoId as string | null;
-  if (oldToVideoId && (oldToVideoId !== toVideoId || scopeType !== 'lecture_range')) {
+  if (status !== 'published' || scopeType !== 'lecture_range' || oldToVideoId !== toVideoId) {
     statements.push(
       db
         .prepare(
-          'UPDATE videos SET prerequisite_exam_id = NULL, minimum_score = 0 WHERE id = ? AND prerequisite_exam_id = ?'
+          'UPDATE videos SET prerequisite_exam_id = NULL, minimum_score = 0 WHERE prerequisite_exam_id = ?'
         )
-        .bind(oldToVideoId, id)
+        .bind(id)
     );
   }
 
-  // If new to_video_id is set in a lecture range, bind it
-  if (scopeType === 'lecture_range' && toVideoId && courseId) {
+  // Only bind prerequisite if status is published AND scope is lecture_range
+  if (status === 'published' && scopeType === 'lecture_range' && toVideoId && courseId) {
     statements.push(
       db
         .prepare(
@@ -170,8 +216,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         points: safeInteger(q.points, 1, 1, 100),
       };
     });
-    if (newQuestions.some((q) => !q.prompt || !q.correctAnswer)) {
-      return jsonError('كل سؤال يحتاج نص وإجابة صحيحة');
+    if (
+      newQuestions.some(
+        (q) =>
+          !q.prompt ||
+          !q.correctAnswer ||
+          (q.type === 'multiple_choice' && !JSON.parse(q.options).includes(q.correctAnswer))
+      )
+    ) {
+      return jsonError('كل سؤال يحتاج نص وإجابة صحيحة صالحة من ضمن الخيارات المتاحة');
     }
     const oldIds = await db
       .prepare('SELECT id FROM questions WHERE exam_id = ?')
@@ -240,16 +293,18 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     .bind(id)
     .first();
   if (attempt) return jsonError('لا يمكن حذف امتحان له نتائج؛ يمكنك تحويله إلى مسودة', 409);
-  const lesson = await db
-    .prepare('SELECT id FROM videos WHERE prerequisite_exam_id = ? LIMIT 1')
-    .bind(id)
-    .first();
-  if (lesson) return jsonError('لا يمكن حذف امتحان مرتبط بفتح محاضرة', 409);
+
   const questionIds = await db
     .prepare('SELECT id FROM questions WHERE exam_id = ?')
     .bind(id)
     .all<{ id: string }>();
   await db.batch([
+    // Atomically clear prerequisite gate on any linked videos upon deletion
+    db
+      .prepare(
+        'UPDATE videos SET prerequisite_exam_id = NULL, minimum_score = 0 WHERE prerequisite_exam_id = ?'
+      )
+      .bind(id),
     db
       .prepare(
         "DELETE FROM notification_reads WHERE notification_type = 'exam' AND notification_id = ?"

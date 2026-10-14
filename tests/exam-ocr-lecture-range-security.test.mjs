@@ -46,6 +46,13 @@ class MockExamPlacementDatabase {
 
       async first() {
         const normalized = sql.replace(/\s+/g, ' ').trim();
+        if (normalized.startsWith('SELECT id FROM exams WHERE id = ?')) {
+          const exam = db.exams.get(this.bindings[0]);
+          if (normalized.includes("status = 'published'")) {
+            return exam && exam.status === 'published' ? { id: exam.id } : null;
+          }
+          return exam ? { id: exam.id } : null;
+        }
         if (normalized.startsWith('SELECT id FROM courses')) {
           return { id: this.bindings[0] };
         }
@@ -176,9 +183,15 @@ test('exam-ocr normalizer parses questions verbatim, enforces choices, and handl
   assert.deepEqual(normalized[1].options, ['True', 'False']);
   assert.equal(normalized[1].correct_answer, 'True');
 
-  // Question 3 (fallback to option[0] and confidence low)
-  assert.equal(normalized[2].correct_answer, 'First');
+  // Question 3 (unmatched answer leaves correct_answer empty string and confidence low)
+  assert.equal(normalized[2].correct_answer, '');
   assert.equal(normalized[2].ai_confidence, 'low');
+
+  // Verify missing API key returns explicit error without mock fallback
+  const { extractAndSolveExamFromImages } = await import('../app/lib/exam-ocr.ts');
+  const ocrRes = await extractAndSolveExamFromImages([{ data: 'test', mimeType: 'image/jpeg' }], '');
+  assert.equal(ocrRes.ok, false);
+  assert.match(ocrRes.error, /GEMINI_API_KEY/);
 });
 
 test('inter-lecture exam placement binds prerequisite to target lecture and gates video access', async () => {
@@ -198,6 +211,20 @@ test('inter-lecture exam placement binds prerequisite to target lecture and gate
   // Initially video-2 has no prerequisite exam
   const initialAccess = await authorizeVideoAccess('student@example.test', 'video-2');
   assert.equal(initialAccess.ok, true);
+
+  // Verify that an unpublished / draft exam does NOT block video access
+  const draftId = 'exam-draft-test';
+  db.exams.set(draftId, { id: draftId, status: 'draft' });
+  db.videos.set('video-draft-gate', {
+    id: 'video-draft-gate',
+    courseId: 'course-1',
+    durationSeconds: 120,
+    title: 'Draft gated video',
+    prerequisiteExamId: draftId,
+    minimumScore: 80,
+  });
+  const draftAccess = await authorizeVideoAccess('student@example.test', 'video-draft-gate');
+  assert.equal(draftAccess.ok, true);
 
   // Now create an inter-lecture exam placed between video-1 and video-2 with 80% passing score
   const examId = 'exam-range-1';
@@ -246,3 +273,85 @@ test('inter-lecture exam placement binds prerequisite to target lecture and gate
   assert.equal(grantedAccess.ok, true);
   assert.equal(grantedAccess.video.id, 'video-2');
 });
+
+test('exam question validation validates multiple_choice against options, while true_false and short_answer save correctly', async () => {
+  const { parseQuestion, validateQuestion } = await import('../app/api/admin/exams/route.ts');
+
+  // 1. Multiple Choice: Valid choice in options passes
+  const validMcq = parseQuestion(
+    {
+      type: 'multiple_choice',
+      prompt: 'What is the capital of England?',
+      options: ['London', 'Paris', 'Berlin', 'Rome'],
+      correctAnswer: 'London',
+      points: 2,
+    },
+    1
+  );
+  assert.equal(validMcq.type, 'multiple_choice');
+  assert.equal(validateQuestion(validMcq), null);
+
+  // 2. Multiple Choice: Answer not in options fails validation
+  const invalidMcq = parseQuestion(
+    {
+      type: 'multiple_choice',
+      prompt: 'What is the capital of England?',
+      options: ['London', 'Paris', 'Berlin', 'Rome'],
+      correctAnswer: 'Madrid', // Not in options
+      points: 2,
+    },
+    2
+  );
+  assert.match(validateQuestion(invalidMcq), /اختر الإجابة الصحيحة من اختيارات السؤال/);
+
+  // 3. Multiple Choice: Fewer than 2 options fails validation
+  const mcqTooFewOptions = parseQuestion(
+    {
+      type: 'multiple_choice',
+      prompt: 'Single option test',
+      options: ['OnlyOne'],
+      correctAnswer: 'OnlyOne',
+    },
+    3
+  );
+  assert.match(validateQuestion(mcqTooFewOptions), /اختيارين على الأقل/);
+
+  // 4. True / False: Saves correctly with default True/False options
+  const validTf = parseQuestion(
+    {
+      type: 'true_false',
+      prompt: 'The Pacific is the largest ocean on Earth.',
+      correctAnswer: 'True',
+    },
+    4
+  );
+  assert.equal(validTf.type, 'true_false');
+  assert.deepEqual(validTf.options, ['True', 'False']);
+  assert.equal(validateQuestion(validTf), null);
+
+  // 5. Short Answer: Saves correctly with empty options and open-ended text answer
+  const validShortAnswer = parseQuestion(
+    {
+      type: 'short_answer',
+      prompt: 'Name the process by which green plants make food using sunlight.',
+      correctAnswer: 'Photosynthesis',
+    },
+    5
+  );
+  assert.equal(validShortAnswer.type, 'short_answer');
+  assert.deepEqual(validShortAnswer.options, []);
+  assert.equal(validShortAnswer.correctAnswer, 'Photosynthesis');
+  assert.equal(validateQuestion(validShortAnswer), null);
+
+  // 6. Short Answer: Missing prompt or answer fails validation
+  const invalidShortAnswer = parseQuestion(
+    {
+      type: 'short_answer',
+      prompt: 'Question without answer',
+      correctAnswer: '',
+    },
+    6
+  );
+  assert.match(validateQuestion(invalidShortAnswer), /مع الإجابة الصحيحة/);
+});
+
