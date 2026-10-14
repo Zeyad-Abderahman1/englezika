@@ -2,13 +2,16 @@ import { apiStaff, isStaffResponse } from '../../../lib/staff-auth';
 import { getDatabase } from '../../../lib/platform';
 import { jsonError, requireSameOrigin, safeInteger, safeText } from '../../../lib/security';
 import { invalidatePublicCourseCache } from '../../../lib/public-course-cache';
+import { recordAuditLog } from '../../../lib/audit';
 
 type RawQuestion = Record<string, unknown>;
 
 function parseQuestion(question: RawQuestion, sortOrder: number) {
-  const type = 'multiple_choice';
+  const rawType = String(question.type || 'multiple_choice').toLowerCase();
+  const type =
+    rawType === 'true_false' || rawType === 'short_answer' ? rawType : 'multiple_choice';
   const prompt = safeText(question.prompt, 2000);
-  const correctAnswer = safeText(question.correctAnswer, 1000);
+  const correctAnswer = safeText(question.correctAnswer ?? question.correct_answer, 1000);
   const rubric = safeText(question.rubric, 2000);
   const points = safeInteger(question.points, 1, 1, 100);
   const options = Array.isArray(question.options)
@@ -16,7 +19,9 @@ function parseQuestion(question: RawQuestion, sortOrder: number) {
         .map((option) => safeText(option, 300))
         .filter(Boolean)
         .slice(0, 8)
-    : [];
+    : type === 'true_false'
+      ? ['True', 'False']
+      : [];
   return { type, prompt, correctAnswer, rubric, points, options, sortOrder };
 }
 
@@ -34,11 +39,16 @@ export async function POST(request: Request) {
   const passingScore = safeInteger(body.passingScore, 50, 0, 100);
   const maxAttempts = safeInteger(body.maxAttempts, 3, 1, 10);
   const status = body.status === 'published' ? 'published' : 'draft';
+  const scopeType = body.scopeType === 'lecture_range' ? 'lecture_range' : 'all_lectures';
+  const fromVideoId = safeText(body.fromVideoId, 80) || null;
+  const toVideoId = safeText(body.toVideoId, 80) || null;
+
   const questions = Array.isArray(body.questions)
     ? body.questions
         .slice(0, 100)
         .map((question, index) => parseQuestion(question as RawQuestion, index + 1))
     : [];
+
   if (title.length < 3) return jsonError('اسم الامتحان مطلوب');
   if (
     !questions.length ||
@@ -51,23 +61,51 @@ export async function POST(request: Request) {
   ) {
     return jsonError('كل سؤال اختيار من متعدد يحتاج اختيارين على الأقل');
   }
-  if (questions.some((question) => !question.options.includes(question.correctAnswer))) {
+  if (
+    questions.some(
+      (question) =>
+        question.type === 'multiple_choice' && !question.options.includes(question.correctAnswer)
+    )
+  ) {
     return jsonError('اختر الإجابة الصحيحة من اختيارات السؤال');
   }
+
   const db = getDatabase();
   if (courseId) {
     const course = await db.prepare('SELECT id FROM courses WHERE id = ?').bind(courseId).first();
     if (!course) return jsonError('الكورس المحدد غير موجود', 404);
   }
+
+  if (scopeType === 'lecture_range') {
+    if (!courseId) {
+      return jsonError('يجب اختيار كورس عند تحديد نطاق محاضرات للاختبار', 400);
+    }
+    if (fromVideoId) {
+      const vFrom = await db
+        .prepare('SELECT id FROM videos WHERE id = ? AND course_id = ?')
+        .bind(fromVideoId, courseId)
+        .first();
+      if (!vFrom) return jsonError('المحاضرة الأولى غير صالحة لهذا الكورس', 400);
+    }
+    if (toVideoId) {
+      const vTo = await db
+        .prepare('SELECT id FROM videos WHERE id = ? AND course_id = ?')
+        .bind(toVideoId, courseId)
+        .first();
+      if (!vTo) return jsonError('المحاضرة التالية غير صالحة لهذا الكورس', 400);
+    }
+  }
+
   const id = crypto.randomUUID();
   const now = Date.now();
-  await db.batch([
+
+  const statements = [
     db
       .prepare(
         `INSERT INTO exams
        (id, course_id, title, description, instructions, duration_minutes, passing_score, max_attempts,
-        status, opens_at, closes_at, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        status, opens_at, closes_at, scope_type, from_video_id, to_video_id, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         id,
@@ -81,6 +119,9 @@ export async function POST(request: Request) {
         status,
         body.opensAt ? Number(body.opensAt) : null,
         body.closesAt ? Number(body.closesAt) : null,
+        scopeType,
+        fromVideoId,
+        toVideoId,
         admin.email.toLowerCase(),
         now,
         now
@@ -104,7 +145,38 @@ export async function POST(request: Request) {
           question.points
         )
     ),
-  ]);
+  ];
+
+  // If lecture range has a target to_video_id, bind the inter-lecture prerequisite gate atomically
+  if (scopeType === 'lecture_range' && toVideoId && courseId) {
+    statements.push(
+      db
+        .prepare(
+          `UPDATE videos SET prerequisite_exam_id = ?, minimum_score = ? WHERE id = ? AND course_id = ?`
+        )
+        .bind(id, passingScore, toVideoId, courseId)
+    );
+  }
+
+  await db.batch(statements);
+
+  await recordAuditLog({
+    userEmail: admin.email,
+    action: 'exam_create',
+    resource: 'exams',
+    resourceId: id,
+    request,
+    details: {
+      title,
+      courseId,
+      scopeType,
+      fromVideoId,
+      toVideoId,
+      passingScore,
+      questionCount: questions.length,
+    },
+  });
+
   invalidatePublicCourseCache();
   return Response.json({ ok: true, id });
 }

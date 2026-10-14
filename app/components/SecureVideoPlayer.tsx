@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import {
   CheckCircle2,
+  FileQuestion,
   LoaderCircle,
   LockKeyhole,
   Maximize2,
@@ -13,6 +14,17 @@ import {
   ShieldCheck,
   UserRound,
 } from 'lucide-react';
+
+export type InterLectureExam = {
+  id: string;
+  title: string;
+  durationMinutes: number;
+  passingScore: number;
+  fromVideoId: string;
+  toVideoId: string;
+  passed: boolean;
+  bestPercentage: number | null;
+};
 
 type Video = {
   id: string;
@@ -47,11 +59,13 @@ export default function SecureVideoPlayer({
   viewerEmail,
   initialVideoId,
   allowSequentialUnlock = true,
+  interLectureExams = [],
 }: {
   videos: Video[];
   viewerEmail: string;
   initialVideoId?: string;
   allowSequentialUnlock?: boolean;
+  interLectureExams?: InterLectureExam[];
 }) {
   const [lessons, setLessons] = useState(videos);
   const [activeId, setActiveId] = useState(
@@ -397,41 +411,83 @@ export default function SecureVideoPlayer({
       <aside className="lesson-sidebar">
         <h2>محتوى الكورس</h2>
         <div>
-          {lessons.map((video, index) => (
-            <button
-              key={video.id}
-              className={`${video.id === activeId ? 'active' : ''} ${video.unlocked ? '' : 'locked'}`}
-              onClick={() => {
-                setActiveId(video.id);
-                setCompletionMessage('');
-                setSecurityMessage('');
-                setYoutubePlaying(false);
-                setQualityLevels([]);
-                setSelectedQuality('default');
-              }}
-            >
-              <span>{index + 1}</span>
-              <div>
-                <strong>{video.title}</strong>
-                <small>
-                  {video.completed
-                    ? 'تمت المشاهدة'
-                    : video.unlocked
-                      ? video.durationSeconds
-                        ? `${Math.ceil(video.durationSeconds / 60)} دقيقة`
-                        : 'جاهزة للمشاهدة'
-                      : 'أكمل المحاضرة السابقة'}
-                </small>
-              </div>
-              {video.completed ? (
-                <CheckCircle2 />
-              ) : video.unlocked ? (
-                <PlayCircle />
-              ) : (
-                <LockKeyhole />
-              )}
-            </button>
-          ))}
+          {lessons.map((video, index) => {
+            const gateExam = interLectureExams?.find(
+              (e) =>
+                e.fromVideoId === video.id ||
+                (index + 1 < lessons.length && e.toVideoId === lessons[index + 1].id)
+            );
+            return (
+              <Fragment key={video.id}>
+                <button
+                  className={`${video.id === activeId ? 'active' : ''} ${video.unlocked ? '' : 'locked'}`}
+                  onClick={() => {
+                    setActiveId(video.id);
+                    setCompletionMessage('');
+                    setSecurityMessage('');
+                    setYoutubePlaying(false);
+                    setQualityLevels([]);
+                    setSelectedQuality('default');
+                  }}
+                >
+                  <span>{index + 1}</span>
+                  <div>
+                    <strong>{video.title}</strong>
+                    <small>
+                      {video.completed
+                        ? 'تمت المشاهدة'
+                        : video.unlocked
+                          ? video.durationSeconds
+                            ? `${Math.ceil(video.durationSeconds / 60)} دقيقة`
+                            : 'جاهزة للمشاهدة'
+                          : 'أكمل المحاضرة السابقة'}
+                    </small>
+                  </div>
+                  {video.completed ? (
+                    <CheckCircle2 />
+                  ) : video.unlocked ? (
+                    <PlayCircle />
+                  ) : (
+                    <LockKeyhole />
+                  )}
+                </button>
+                {gateExam && (
+                  <div
+                    className={`inter-lecture-gate-step ${gateExam.passed ? 'is-passed' : 'is-locked-gate'}`}
+                  >
+                    <div className="gate-step-header">
+                      <span className="gate-step-badge">
+                        {gateExam.passed ? (
+                          <CheckCircle2 size={13} style={{ color: '#10B981' }} />
+                        ) : (
+                          <LockKeyhole size={13} style={{ color: '#EF4444' }} />
+                        )}
+                        اختبار فاصل مطلوب
+                      </span>
+                      <span className="gate-pass-score">نسبة النجاح {gateExam.passingScore}%</span>
+                    </div>
+                    <div className="gate-step-title">
+                      <strong>{gateExam.title}</strong>
+                      {gateExam.bestPercentage !== null && (
+                        <small style={{ color: gateExam.passed ? '#10B981' : '#EF4444' }}>
+                          أعلى نتيجة: {Math.round(gateExam.bestPercentage)}%
+                        </small>
+                      )}
+                    </div>
+                    <a
+                      href={`/exam/${gateExam.id}`}
+                      className={`gate-step-btn ${gateExam.passed ? 'btn-gate-passed' : 'btn-gate-start'}`}
+                    >
+                      <FileQuestion size={14} />
+                      {gateExam.passed
+                        ? 'تم الاجتياز بنجاح · مراجعة الامتحان'
+                        : `اختبار إجباري لفتح المحاضرة التالية (${gateExam.passingScore}%) · ابدأ الآن ➔`}
+                    </a>
+                  </div>
+                )}
+              </Fragment>
+            );
+          })}
         </div>
       </aside>
     </div>

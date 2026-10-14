@@ -21,6 +21,7 @@ export type PlatformEnv = {
   EMAIL_TEST_MODE?: string;
   VERIFICATION_SECRET?: string;
   VIDEO_RESOLVE_SECRET?: string;
+  GEMINI_API_KEY?: string;
   INITIAL_STAFF_EMAIL?: string;
   INITIAL_STAFF_NAME?: string;
   INITIAL_STAFF_PASSWORD_HASH?: string;
@@ -48,6 +49,7 @@ export function getPlatformEnv(): PlatformEnv {
   return {
     VERIFICATION_SECRET: injected?.VERIFICATION_SECRET ?? process.env.VERIFICATION_SECRET,
     VIDEO_RESOLVE_SECRET: injected?.VIDEO_RESOLVE_SECRET ?? process.env.VIDEO_RESOLVE_SECRET,
+    GEMINI_API_KEY: injected?.GEMINI_API_KEY ?? process.env.GEMINI_API_KEY,
     GMAIL_USER: injected?.GMAIL_USER ?? process.env.GMAIL_USER,
     GMAIL_APP_PASSWORD: injected?.GMAIL_APP_PASSWORD ?? process.env.GMAIL_APP_PASSWORD,
     SERVERSMTP_CONSUMER_KEY:

@@ -14,7 +14,9 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 import {
   BarChart3,
   BookOpen,
+  Camera,
   Check,
+  ChevronDown,
   CirclePlus,
   ClipboardCheck,
   FileQuestion,
@@ -30,6 +32,7 @@ import {
   RefreshCw,
   Save,
   ShieldCheck,
+  Sparkles,
   Sun,
   Trash2,
   Upload,
@@ -42,6 +45,7 @@ import { AdminCourseList } from './admin/AdminCourseList';
 import { AdminAnnouncementsList } from './admin/AdminAnnouncementsList';
 import { AdminAssignmentList } from './admin/AdminAssignmentList';
 import { TeacherCourseWorkspace } from './admin/TeacherCourseWorkspace';
+import { AIExamOcrModal } from './admin/AIExamOcrModal';
 import {
   LectureAccessCodeManager,
   type LectureAccessCodeHistory,
@@ -295,6 +299,9 @@ export default function AdminDashboard() {
     fields: [],
     onSubmit: () => {},
   });
+  const [aiOcrModalOpen, setAiOcrModalOpen] = useState(false);
+  const [aiOcrCourseId, setAiOcrCourseId] = useState('');
+  const [aiMenuOpen, setAiMenuOpen] = useState(false);
 
   const [light, setLight] = useState(false);
 
@@ -407,6 +414,53 @@ export default function AdminDashboard() {
           </div>
         </div>
         <nav>
+          {/* ── AI & Smart Tools Accordion ───────────────────────────────────── */}
+          {can('manage_exams') && (
+            <div className="admin-nav-accordion-group">
+              <button
+                type="button"
+                className={`admin-nav-accordion-header ${aiMenuOpen ? 'is-expanded' : ''}`}
+                onClick={() => setAiMenuOpen((prev) => !prev)}
+                aria-expanded={aiMenuOpen}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <Sparkles size={18} style={{ color: '#ef4444' }} />
+                  <span>الذكاء الاصطناعي والأدوات الذكية</span>
+                </div>
+                <ChevronDown
+                  size={16}
+                  style={{
+                    transform: aiMenuOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.2s ease',
+                  }}
+                />
+              </button>
+              {aiMenuOpen && (
+                <div className="admin-nav-accordion-content">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAiOcrModalOpen(true);
+                      setSidebarOpen(false);
+                    }}
+                    className="admin-subnav-btn"
+                  >
+                    <Camera size={15} style={{ color: '#10b981' }} />
+                    منشئ الاختبارات بمسح الصور (AI OCR)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => goTab('exams')}
+                    className={`admin-subnav-btn ${tab === 'exams' ? 'active' : ''}`}
+                  >
+                    <FileQuestion size={15} />
+                    إدارة الامتحانات ونطاق المحاضرات
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {availableTabs.map(({ id, label, icon: Icon }) => (
             <button key={id} onClick={() => goTab(id)} className={tab === id ? 'active' : ''}>
               <Icon /> {label}
@@ -565,6 +619,10 @@ export default function AdminDashboard() {
                   setSelectedCourseId(courseId);
                   setQuestions([emptyQuestion()]);
                   goTab('exams');
+                }}
+                onOpenAiOcrExam={(courseId) => {
+                  setAiOcrCourseId(courseId);
+                  setAiOcrModalOpen(true);
                 }}
                 onAddAssignment={(courseId) => {
                   setSelectedCourseId(courseId);
@@ -730,12 +788,25 @@ export default function AdminDashboard() {
               }}
             />
             <section className="dashboard-panel">
-              <div className="panel-title">
-                <FileQuestion />
-                <div>
-                  <h2>الامتحانات المحفوظة</h2>
-                  <p>{data.exams.length} امتحان</p>
+              <div className="panel-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <FileQuestion />
+                  <div>
+                    <h2>الامتحانات المحفوظة</h2>
+                    <p>{data.exams.length} امتحان</p>
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => {
+                    setAiOcrCourseId(selectedCourseId);
+                    setAiOcrModalOpen(true);
+                  }}
+                  style={{ gap: '0.4rem', fontSize: '0.85rem' }}
+                >
+                  <Sparkles size={16} /> إنشاء اختبار بالذكاء الاصطناعي (AI OCR)
+                </button>
               </div>
               <div className="management-list compact">
                 {data.exams.map((exam) => (
@@ -1267,6 +1338,19 @@ export default function AdminDashboard() {
             </div>
           </form>
         </div>
+      )}
+      {data && (
+        <AIExamOcrModal
+          isOpen={aiOcrModalOpen}
+          onClose={() => setAiOcrModalOpen(false)}
+          courses={data.courses}
+          videos={data.videos}
+          initialCourseId={aiOcrCourseId || selectedCourseId}
+          onExamSaved={async () => {
+            setNotice('تم حفظ الاختبار وربطه بالمحاضرات بنجاح');
+            await load(currentPage);
+          }}
+        />
       )}
     </div>
   );

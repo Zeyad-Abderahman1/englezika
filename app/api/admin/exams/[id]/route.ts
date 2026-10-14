@@ -2,6 +2,7 @@ import { apiStaff, isStaffResponse } from '../../../../lib/staff-auth';
 import { getDatabase } from '../../../../lib/platform';
 import { jsonError, requireSameOrigin, safeInteger, safeText } from '../../../../lib/security';
 import { invalidatePublicCourseCache } from '../../../../lib/public-course-cache';
+import { recordAuditLog } from '../../../../lib/audit';
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const admin = await apiStaff(request, 'manage_exams');
@@ -12,6 +13,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     .prepare(
       `SELECT id, course_id AS courseId, title, description, instructions,
      duration_minutes AS durationMinutes, passing_score AS passingScore, max_attempts AS maxAttempts, status,
+     scope_type AS scopeType, from_video_id AS fromVideoId, to_video_id AS toVideoId,
      opens_at AS opensAt, closes_at AS closesAt FROM exams WHERE id = ?`
     )
     .bind(id)
@@ -45,13 +47,37 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const existing = await db
     .prepare(
       `SELECT course_id AS courseId, title, description, instructions, duration_minutes AS durationMinutes,
-     passing_score AS passingScore, max_attempts AS maxAttempts, status, opens_at AS opensAt, closes_at AS closesAt
+     passing_score AS passingScore, max_attempts AS maxAttempts, status, opens_at AS opensAt, closes_at AS closesAt,
+     scope_type AS scopeType, from_video_id AS fromVideoId, to_video_id AS toVideoId
      FROM exams WHERE id = ?`
     )
     .bind(id)
     .first<Record<string, unknown>>();
   if (!existing) return jsonError('الامتحان غير موجود', 404);
+
   const status = body.status === 'published' ? 'published' : 'draft';
+  const scopeType =
+    body.scopeType === 'lecture_range' || body.scopeType === 'all_lectures'
+      ? String(body.scopeType)
+      : (existing.scopeType as string) || 'all_lectures';
+
+  const courseId =
+    body.courseId === null
+      ? null
+      : safeText(body.courseId ?? existing.courseId, 80) || null;
+
+  const fromVideoId =
+    body.fromVideoId === null
+      ? null
+      : safeText(body.fromVideoId ?? existing.fromVideoId, 80) || null;
+
+  const toVideoId =
+    body.toVideoId === null
+      ? null
+      : safeText(body.toVideoId ?? existing.toVideoId, 80) || null;
+
+  const passingScore = safeInteger(body.passingScore ?? existing.passingScore, 50, 0, 100);
+
   const nullableTimestamp = (value: unknown, fallback: unknown) => {
     if (value === null) return null;
     const candidate = value === undefined ? fallback : value;
@@ -59,26 +85,57 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const number = Number(candidate);
     return Number.isFinite(number) ? number : null;
   };
+
   const updateStmt = db
     .prepare(
       `UPDATE exams SET title = ?, description = ?, instructions = ?, course_id = ?,
-     duration_minutes = ?, passing_score = ?, max_attempts = ?, status = ?, opens_at = ?, closes_at = ?, updated_at = ?
+     duration_minutes = ?, passing_score = ?, max_attempts = ?, status = ?,
+     scope_type = ?, from_video_id = ?, to_video_id = ?,
+     opens_at = ?, closes_at = ?, updated_at = ?
      WHERE id = ?`
     )
     .bind(
       safeText(body.title ?? existing.title, 150),
       safeText(body.description ?? existing.description, 1200),
       safeText(body.instructions ?? existing.instructions, 2000),
-      body.courseId === null ? null : safeText(body.courseId ?? existing.courseId, 80) || null,
+      courseId,
       safeInteger(body.durationMinutes ?? existing.durationMinutes, 30, 1, 300),
-      safeInteger(body.passingScore ?? existing.passingScore, 50, 0, 100),
+      passingScore,
       safeInteger(body.maxAttempts ?? existing.maxAttempts, 3, 1, 10),
       status,
+      scopeType,
+      fromVideoId,
+      toVideoId,
       nullableTimestamp(body.opensAt, existing.opensAt),
       nullableTimestamp(body.closesAt, existing.closesAt),
       Date.now(),
       id
     );
+
+  const statements = [updateStmt];
+
+  // If to_video_id changed or scope became all_lectures, clear old video prerequisite link
+  const oldToVideoId = existing.toVideoId as string | null;
+  if (oldToVideoId && (oldToVideoId !== toVideoId || scopeType !== 'lecture_range')) {
+    statements.push(
+      db
+        .prepare(
+          'UPDATE videos SET prerequisite_exam_id = NULL, minimum_score = 0 WHERE id = ? AND prerequisite_exam_id = ?'
+        )
+        .bind(oldToVideoId, id)
+    );
+  }
+
+  // If new to_video_id is set in a lecture range, bind it
+  if (scopeType === 'lecture_range' && toVideoId && courseId) {
+    statements.push(
+      db
+        .prepare(
+          'UPDATE videos SET prerequisite_exam_id = ?, minimum_score = ? WHERE id = ? AND course_id = ?'
+        )
+        .bind(id, passingScore, toVideoId, courseId)
+    );
+  }
 
   // Optionally replace questions if provided
   if (Array.isArray(body.questions) && body.questions.length > 0) {
@@ -99,14 +156,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
             .map((o) => safeText(o, 300))
             .filter(Boolean)
             .slice(0, 8)
-        : [];
+        : type === 'true_false'
+          ? ['True', 'False']
+          : [];
       return {
         id: crypto.randomUUID(),
         sortOrder: idx + 1,
         type,
         prompt: safeText(q.prompt, 2000),
         options: JSON.stringify(options),
-        correctAnswer: safeText(q.correctAnswer, 1000),
+        correctAnswer: safeText(q.correctAnswer ?? q.correct_answer, 1000),
         rubric: safeText(q.rubric, 2000),
         points: safeInteger(q.points, 1, 1, 100),
       };
@@ -118,8 +177,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       .prepare('SELECT id FROM questions WHERE exam_id = ?')
       .bind(id)
       .all<{ id: string }>();
-    await db.batch([
-      updateStmt,
+
+    statements.push(
       ...oldIds.results.map((q) => db.prepare('DELETE FROM questions WHERE id = ?').bind(q.id)),
       ...newQuestions.map((q) =>
         db
@@ -138,17 +197,33 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
             q.rubric,
             q.points
           )
-      ),
-    ]);
-  } else {
-    await updateStmt.run();
+      )
+    );
   }
+
+  await db.batch(statements);
+
   await db
     .prepare(
       "DELETE FROM notification_reads WHERE notification_type = 'exam' AND notification_id = ?"
     )
     .bind(id)
     .run();
+
+  await recordAuditLog({
+    userEmail: admin.email,
+    action: 'exam_update',
+    resource: 'exams',
+    resourceId: id,
+    request,
+    details: {
+      scopeType,
+      fromVideoId,
+      toVideoId,
+      passingScore,
+    },
+  });
+
   invalidatePublicCourseCache();
   return Response.json({ ok: true });
 }
