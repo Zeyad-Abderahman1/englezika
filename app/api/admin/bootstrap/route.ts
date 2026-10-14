@@ -70,10 +70,11 @@ export async function GET(request: Request) {
        x.passing_score AS passingScore, x.max_attempts AS maxAttempts, x.status, x.created_at AS createdAt,
        COALESCE(x.assessment_type, 'exam') AS assessmentType,
        COALESCE(x.mode, 'online') AS mode,
+       x.scope_type AS scopeType, x.from_video_id AS fromVideoId, x.to_video_id AS toVideoId,
        c.title AS courseTitle, COUNT(q.id) AS questionCount, COALESCE(SUM(q.points), 0) AS maxScore
        FROM exams x LEFT JOIN courses c ON c.id = x.course_id
        LEFT JOIN questions q ON q.exam_id = x.id
-       GROUP BY x.id, c.title ORDER BY x.created_at DESC LIMIT ? OFFSET ?`
+       GROUP BY x.id, c.title, x.scope_type, x.from_video_id, x.to_video_id, x.assessment_type, x.mode ORDER BY x.created_at DESC LIMIT ? OFFSET ?`
       )
       .bind(pageSize, offset)
       .all(),

@@ -8,6 +8,7 @@ import {
   PencilLine,
   PlaySquare,
   Search,
+  Sparkles,
   Users,
 } from 'lucide-react';
 
@@ -33,6 +34,7 @@ type Props = {
   canManageVideos: boolean;
   onEditCourse: (courseId: string) => void;
   onAddExam: (courseId: string) => void;
+  onOpenAiOcrExam?: (courseId: string) => void;
   onAddAssignment: (courseId: string) => void;
   onManageLessons: (courseId: string) => void;
 };
@@ -48,6 +50,7 @@ export function TeacherCourseWorkspace({
   canManageVideos,
   onEditCourse,
   onAddExam,
+  onOpenAiOcrExam,
   onAddAssignment,
   onManageLessons,
 }: Props) {
@@ -149,9 +152,20 @@ export function TeacherCourseWorkspace({
                   <PencilLine /> إدارة الكورس
                 </button>
                 {canManageExams && (
-                  <button className="btn btn-outline" onClick={() => onAddExam(course.id)}>
-                    <FileQuestion /> امتحان
-                  </button>
+                  <>
+                    <button className="btn btn-outline" onClick={() => onAddExam(course.id)}>
+                      <FileQuestion /> امتحان
+                    </button>
+                    {onOpenAiOcrExam && (
+                      <button
+                        className="btn btn-outline ai-ocr-action-btn"
+                        onClick={() => onOpenAiOcrExam(course.id)}
+                        title="استخراج امتحان من صور أوراق الأسئلة بالذكاء الاصطناعي وربطه بين المحاضرات"
+                      >
+                        <Sparkles /> اختبار ذكي (AI OCR)
+                      </button>
+                    )}
+                  </>
                 )}
                 {canManageAssignments && (
                   <button className="btn btn-outline" onClick={() => onAddAssignment(course.id)}>

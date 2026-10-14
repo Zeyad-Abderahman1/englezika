@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Award,
@@ -9,6 +9,7 @@ import {
   Download,
   Eye,
   EyeOff,
+  FileQuestion,
   LoaderCircle,
   LockKeyhole,
   PlayCircle,
@@ -39,6 +40,17 @@ export type PrerequisiteExam = {
   passed: boolean;
 };
 
+export type InterLectureExam = {
+  id: string;
+  title: string;
+  durationMinutes: number;
+  passingScore: number;
+  fromVideoId: string;
+  toVideoId: string;
+  passed: boolean;
+  bestPercentage: number | null;
+};
+
 export type Video = {
   id: string;
   title: string;
@@ -67,11 +79,13 @@ export default function SecureVideoPlayer({
   viewerEmail,
   initialVideoId,
   allowSequentialUnlock = true,
+  interLectureExams = [],
 }: {
   videos: Video[];
   viewerEmail: string;
   initialVideoId?: string;
   allowSequentialUnlock?: boolean;
+  interLectureExams?: InterLectureExam[];
 }) {
   const [lessons, setLessons] = useState(videos);
   const [activeId, setActiveId] = useState(
@@ -628,107 +642,149 @@ export default function SecureVideoPlayer({
       <aside className="lesson-sidebar">
         <h2>محتوى الكورس</h2>
         <div>
-          {lessons.map((video, index) => (
-            <div key={video.id} className="curriculum-item-group" style={{ marginBottom: '0.5rem' }}>
-              {video.prerequisiteExam && (
-                <div
-                  className="curriculum-exam-card"
-                  style={{
-                    background: video.prerequisiteExam.passed
-                      ? 'rgba(16, 185, 129, 0.08)'
-                      : 'rgba(239, 68, 68, 0.08)',
-                    border: `1px solid ${
-                      video.prerequisiteExam.passed ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'
-                    }`,
-                    borderRadius: '8px',
-                    padding: '0.65rem 0.75rem',
-                    marginBottom: '0.35rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '0.5rem',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, flex: 1 }}>
-                    <span
-                      style={{
-                        width: '26px',
-                        height: '26px',
-                        borderRadius: '50%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        background: video.prerequisiteExam.passed ? '#10b981' : '#ef4444',
-                        color: '#fff',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <ClipboardCheck size={14} />
-                    </span>
-                    <div style={{ minWidth: 0 }}>
-                      <div
+          {lessons.map((video, index) => {
+            const gateExam = interLectureExams?.find(
+              (e) =>
+                e.fromVideoId === video.id ||
+                (index + 1 < lessons.length && e.toVideoId === lessons[index + 1].id)
+            );
+            return (
+              <div key={video.id} className="curriculum-item-group" style={{ marginBottom: '0.5rem' }}>
+                {video.prerequisiteExam && (
+                  <div
+                    className="curriculum-exam-card"
+                    style={{
+                      background: video.prerequisiteExam.passed
+                        ? 'rgba(16, 185, 129, 0.08)'
+                        : 'rgba(239, 68, 68, 0.08)',
+                      border: `1px solid ${
+                        video.prerequisiteExam.passed ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'
+                      }`,
+                      borderRadius: '8px',
+                      padding: '0.65rem 0.75rem',
+                      marginBottom: '0.35rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '0.5rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, flex: 1 }}>
+                      <span
                         style={{
-                          fontSize: '0.85rem',
-                          fontWeight: 600,
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
+                          width: '26px',
+                          height: '26px',
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: video.prerequisiteExam.passed ? '#10b981' : '#ef4444',
+                          color: '#fff',
+                          flexShrink: 0,
                         }}
                       >
-                        {video.prerequisiteExam.title}
+                        <ClipboardCheck size={14} />
+                      </span>
+                      <div style={{ minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: '0.85rem',
+                            fontWeight: 600,
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {video.prerequisiteExam.title}
+                        </div>
+                        <small style={{ fontSize: '0.72rem', color: 'var(--text-dim)', display: 'block' }}>
+                          {video.prerequisiteExam.passed
+                            ? `✓ تم الاجتياز بنجاح (${video.prerequisiteExam.bestPercentage}%)`
+                            : `مطلوب ${'minimumScore' in video.prerequisiteExam ? video.prerequisiteExam.minimumScore : (video.prerequisiteExam as InterLectureExam).passingScore}% لفتح المحاضرة`}
+                        </small>
                       </div>
-                      <small style={{ fontSize: '0.72rem', color: 'var(--text-dim)', display: 'block' }}>
-                        {video.prerequisiteExam.passed
-                          ? `✓ تم الاجتياز بنجاح (${video.prerequisiteExam.bestPercentage}%)`
-                          : `مطلوب ${video.prerequisiteExam.minimumScore}% لفتح المحاضرة`}
-                      </small>
                     </div>
+                    <Link
+                      href={`/exam/${video.prerequisiteExam.id}`}
+                      className={`btn btn-sm ${video.prerequisiteExam.passed ? 'btn-outline' : 'btn-primary'}`}
+                      style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', flexShrink: 0 }}
+                    >
+                      {video.prerequisiteExam.passed ? 'مراجعة' : 'دخول الاختبار'}
+                    </Link>
                   </div>
-                  <Link
-                    href={`/exam/${video.prerequisiteExam.id}`}
-                    className={`btn btn-sm ${video.prerequisiteExam.passed ? 'btn-outline' : 'btn-primary'}`}
-                    style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', flexShrink: 0 }}
-                  >
-                    {video.prerequisiteExam.passed ? 'مراجعة' : 'دخول الاختبار'}
-                  </Link>
-                </div>
-              )}
-
-              <button
-                type="button"
-                className={`${video.id === activeId ? 'active' : ''} ${video.unlocked ? '' : 'locked'}`}
-                onClick={() => {
-                  setActiveId(video.id);
-                  setCompletionMessage('');
-                  setSecurityMessage('');
-                  setYoutubePlaying(false);
-                }}
-              >
-                <span>{index + 1}</span>
-                <div>
-                  <strong>{video.title}</strong>
-                  <small>
-                    {video.completed
-                      ? 'تمت المشاهدة'
-                      : video.unlocked
-                        ? video.durationSeconds
-                          ? `${Math.ceil(video.durationSeconds / 60)} دقيقة`
-                          : 'جاهزة للمشاهدة'
-                        : video.lockReason === 'prerequisite_exam'
-                          ? `مطلوب اجتياز: ${video.prerequisiteExam?.title}`
-                          : 'أكمل المحاضرة السابقة'}
-                  </small>
-                </div>
-                {video.completed ? (
-                  <CheckCircle2 />
-                ) : video.unlocked ? (
-                  <PlayCircle />
-                ) : (
-                  <LockKeyhole />
                 )}
-              </button>
-            </div>
-          ))}
+
+                <button
+                  type="button"
+                  className={`${video.id === activeId ? 'active' : ''} ${video.unlocked ? '' : 'locked'}`}
+                  onClick={() => {
+                    setActiveId(video.id);
+                    setCompletionMessage('');
+                    setSecurityMessage('');
+                    setYoutubePlaying(false);
+                  }}
+                >
+                  <span>{index + 1}</span>
+                  <div>
+                    <strong>{video.title}</strong>
+                    <small>
+                      {video.completed
+                        ? 'تمت المشاهدة'
+                        : video.unlocked
+                          ? video.durationSeconds
+                            ? `${Math.ceil(video.durationSeconds / 60)} دقيقة`
+                            : 'جاهزة للمشاهدة'
+                          : video.lockReason === 'prerequisite_exam'
+                            ? `مطلوب اجتياز: ${video.prerequisiteExam?.title}`
+                            : 'أكمل المحاضرة السابقة'}
+                    </small>
+                  </div>
+                  {video.completed ? (
+                    <CheckCircle2 />
+                  ) : video.unlocked ? (
+                    <PlayCircle />
+                  ) : (
+                    <LockKeyhole />
+                  )}
+                </button>
+
+                {gateExam && (
+                  <div
+                    className={`inter-lecture-gate-step ${gateExam.passed ? 'is-passed' : 'is-locked-gate'}`}
+                  >
+                    <div className="gate-step-header">
+                      <span className="gate-step-badge">
+                        {gateExam.passed ? (
+                          <CheckCircle2 size={13} style={{ color: '#10B981' }} />
+                        ) : (
+                          <LockKeyhole size={13} style={{ color: '#EF4444' }} />
+                        )}
+                        اختبار فاصل مطلوب
+                      </span>
+                      <span className="gate-pass-score">نسبة النجاح {gateExam.passingScore}%</span>
+                    </div>
+                    <div className="gate-step-title">
+                      <strong>{gateExam.title}</strong>
+                      {gateExam.bestPercentage !== null && (
+                        <small style={{ color: gateExam.passed ? '#10B981' : '#EF4444' }}>
+                          أعلى نتيجة: {Math.round(gateExam.bestPercentage)}%
+                        </small>
+                      )}
+                    </div>
+                    <a
+                      href={`/exam/${gateExam.id}`}
+                      className={`gate-step-btn ${gateExam.passed ? 'btn-gate-passed' : 'btn-gate-start'}`}
+                    >
+                      <FileQuestion size={14} />
+                      {gateExam.passed
+                        ? 'تم الاجتياز بنجاح · مراجعة الامتحان'
+                        : `اختبار إجباري لفتح المحاضرة التالية (${gateExam.passingScore}%) · ابدأ الآن ➔`}
+                    </a>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </aside>
     </div>

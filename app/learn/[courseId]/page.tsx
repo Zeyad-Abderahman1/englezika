@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getDatabase } from '../../lib/platform';
 import { isEmailVerified } from '../../lib/email-verification';
-import SecureVideoPlayer, { type Video } from '../../components/SecureVideoPlayer';
+import SecureVideoPlayer, { type Video, type InterLectureExam } from '../../components/SecureVideoPlayer';
 import CourseSequenceTree from '../../components/CourseSequenceTree';
 import { requireStudentUser } from '../../lib/student-session';
 import { hasCourseItems, getCourseSequenceUnlockState } from '../../lib/course-sequence';
@@ -167,9 +167,44 @@ export default async function LearnPage({
     .bind(normalizedEmail)
     .all<{ examId: string; bestPercentage: number }>();
 
+  // Fetch course exams for inter-lecture prerequisite gates
+  const rawExams = await db
+    .prepare(
+      `SELECT id, title, duration_minutes AS durationMinutes, passing_score AS passingScore,
+       scope_type AS scopeType, from_video_id AS fromVideoId, to_video_id AS toVideoId
+       FROM exams
+       WHERE course_id = ? AND status = 'published'`
+    )
+    .bind(courseId)
+    .all<{
+      id: string;
+      title: string;
+      durationMinutes: number;
+      passingScore: number;
+      scopeType: string;
+      fromVideoId: string | null;
+      toVideoId: string | null;
+    }>();
+
   const completedIds = new Set(completed.results.map((item) => item.videoId));
   const examScoresMap = new Map(examAttempts.results.map((r) => [r.examId, Number(r.bestPercentage)]));
   const viewCountsMap = new Map(viewSessions.results.map((r) => [r.videoId, Number(r.count)]));
+
+  const interLectureExams: InterLectureExam[] = rawExams.results
+    .filter((e) => e.scopeType === 'lecture_range' && e.fromVideoId && e.toVideoId)
+    .map((e) => {
+      const best = examScoresMap.has(e.id) ? examScoresMap.get(e.id)! : null;
+      return {
+        id: e.id,
+        title: e.title,
+        durationMinutes: e.durationMinutes,
+        passingScore: e.passingScore,
+        fromVideoId: e.fromVideoId as string,
+        toVideoId: e.toVideoId as string,
+        passed: best !== null && best >= e.passingScore,
+        bestPercentage: best,
+      };
+    });
 
   const videos: Video[] = result.results.map((video, index, allVideos) => {
     const hasGrant = grantedIds.has(video.id);
@@ -267,6 +302,7 @@ export default async function LearnPage({
           viewerEmail={user.email}
           initialVideoId={initialVideoId}
           allowSequentialUnlock={Boolean(enrollment)}
+          interLectureExams={interLectureExams}
         />
       </div>
     </main>
