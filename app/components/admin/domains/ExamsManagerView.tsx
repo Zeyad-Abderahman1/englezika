@@ -23,6 +23,7 @@ import {
   Clock,
   Award,
   ImagePlus,
+  Sparkles,
 } from 'lucide-react';
 import {
   useAdmin,
@@ -34,6 +35,7 @@ import { AdminPageHeader } from '../shell/AdminPageHeader';
 import { AdminFilterBar } from '../shell/AdminFilterBar';
 import { AdminEmptyState } from '../shell/AdminEmptyState';
 import { AdminStatusBadge } from '../shell/AdminStatusBadge';
+import { AIExamOcrModal } from '../AIExamOcrModal';
 
 const emptyQuestion = (): QuestionDraft => ({
   type: 'multiple_choice',
@@ -55,9 +57,11 @@ export function ExamsManagerView() {
   const [selectedCourseId, setSelectedCourseId] = useState(defaultCourseIdFromUrl);
   const [statusFilter, setStatusFilter] = useState('all');
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
+  const [isOcrOpen, setIsOcrOpen] = useState(false);
   const [questions, setQuestions] = useState<QuestionDraft[]>([emptyQuestion()]);
 
   const courses = useMemo(() => data?.courses || [], [data?.courses]);
+  const videos = useMemo(() => data?.videos || [], [data?.videos]);
   const exams = useMemo(() => data?.exams || [], [data?.exams]);
 
   const filteredExams = useMemo(() => {
@@ -253,13 +257,24 @@ export function ExamsManagerView() {
           </span>
         }
         actions={
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => setIsBuilderOpen(true)}
-          >
-            <CirclePlus size={16} /> إنشاء امتحان جديد
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setIsOcrOpen(true)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}
+            >
+              <Sparkles size={16} /> استخراج الأسئلة بالذكاء الاصطناعي (AI OCR)
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setIsBuilderOpen(true)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}
+            >
+              <CirclePlus size={16} /> إنشاء امتحان جديد
+            </button>
+          </div>
         }
       />
 
@@ -315,13 +330,24 @@ export function ExamsManagerView() {
               : 'لم تقم بإنشاء أي امتحان بعد. انقر على الزر أدناه لبناء أول امتحان.'
           }
           action={
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => setIsBuilderOpen(true)}
-            >
-              <CirclePlus size={16} /> إنشاء امتحان
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setIsOcrOpen(true)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}
+              >
+                <Sparkles size={16} /> استخراج بالذكاء الاصطناعي (AI OCR)
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setIsBuilderOpen(true)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}
+              >
+                <CirclePlus size={16} /> إنشاء امتحان
+              </button>
+            </div>
           }
         />
       ) : (
@@ -713,6 +739,19 @@ export function ExamsManagerView() {
           </div>
         </div>
       )}
+      {/* ── AI Exam OCR Modal ────────────────────────────────────────── */}
+      <AIExamOcrModal
+        isOpen={isOcrOpen}
+        onClose={() => setIsOcrOpen(false)}
+        courses={courses}
+        videos={videos}
+        initialCourseId={selectedCourseId || undefined}
+        onExamSaved={async () => {
+          setIsOcrOpen(false);
+          setNotice('تم حفظ ونشر امتحان الذكاء الاصطناعي بنجاح');
+          await refreshData(1);
+        }}
+      />
     </div>
   );
 }

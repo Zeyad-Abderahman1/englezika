@@ -24,6 +24,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       `SELECT id, course_id AS courseId, title, description, instructions,
      duration_minutes AS durationMinutes, passing_score AS passingScore, max_attempts AS maxAttempts, status,
      scope_type AS scopeType, from_video_id AS fromVideoId, to_video_id AS toVideoId,
+     coverage_start_lecture_id AS coverageStartLectureId, coverage_end_lecture_id AS coverageEndLectureId,
      COALESCE(assessment_type, 'exam') AS assessmentType,
      COALESCE(mode, 'online') AS mode,
      CASE WHEN teacher_file_key IS NOT NULL THEN 1 ELSE 0 END AS hasTeacherFile,
@@ -66,6 +67,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       `SELECT course_id AS courseId, title, description, instructions, duration_minutes AS durationMinutes,
      passing_score AS passingScore, max_attempts AS maxAttempts, status, opens_at AS opensAt, closes_at AS closesAt,
      scope_type AS scopeType, from_video_id AS fromVideoId, to_video_id AS toVideoId,
+     coverage_start_lecture_id AS coverageStartLectureId, coverage_end_lecture_id AS coverageEndLectureId,
      assessment_type AS assessmentType, mode
      FROM exams WHERE id = ?`
     )
@@ -93,6 +95,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     body.toVideoId === null
       ? null
       : safeText(body.toVideoId ?? existing.toVideoId, 80) || null;
+
+  const coverageStartLectureId =
+    body.coverageStartLectureId === null
+      ? null
+      : safeText(body.coverageStartLectureId ?? existing.coverageStartLectureId, 80) || null;
+
+  const coverageEndLectureId =
+    body.coverageEndLectureId === null
+      ? null
+      : safeText(body.coverageEndLectureId ?? existing.coverageEndLectureId, 80) || null;
 
   const passingScore = safeInteger(body.passingScore ?? existing.passingScore, 50, 0, 100);
 
@@ -147,6 +159,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
      title = ?, description = ?, instructions = ?, course_id = ?,
      duration_minutes = ?, passing_score = ?, max_attempts = ?, status = ?,
      scope_type = ?, from_video_id = ?, to_video_id = ?,
+     coverage_start_lecture_id = ?, coverage_end_lecture_id = ?,
      assessment_type = ?, mode = ?,
      opens_at = ?, closes_at = ?, updated_at = ?
      WHERE id = ?`
@@ -163,6 +176,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       scopeType,
       fromVideoId,
       toVideoId,
+      coverageStartLectureId,
+      coverageEndLectureId,
       body.assessmentType !== undefined ? assessmentType : String(existing.assessmentType ?? 'exam'),
       body.mode !== undefined ? mode : String(existing.mode ?? 'online'),
       nullableTimestamp(body.opensAt, existing.opensAt),
