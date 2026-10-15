@@ -14,6 +14,7 @@ import { useAdmin } from '../../../lib/admin-context';
 import { AdminSidebar } from './AdminSidebar';
 import { AdminTopbar } from './AdminTopbar';
 import { AdminMobileNav } from './AdminMobileNav';
+import { AdminBottomNav } from './AdminBottomNav';
 import { AdminPromptModal } from './AdminPromptModal';
 import { AdminConfirmDialog } from './AdminConfirmDialog';
 
@@ -86,6 +87,9 @@ export function AdminShell({ children, pageTitle }: AdminShellProps) {
         <main className="admin-content-body" id="admin-main-content">
           {children}
         </main>
+
+        {/* ── Mobile Fixed Bottom Navigation Bar ──────────────────────────────── */}
+        <AdminBottomNav />
       </div>
 
       {/* ── Global Dynamic Modals ────────────────────────────────────────────── */}
