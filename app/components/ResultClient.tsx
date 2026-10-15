@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, CheckCircle2, XCircle, LoaderCircle } from 'lucide-react';
+import { ArrowRight, CheckCircle2, XCircle, LoaderCircle, ClipboardCheck } from 'lucide-react';
+import AssessmentReview, { type ReviewQuestion } from './AssessmentReview';
 
 type AttemptDetail = {
   attempt: {
@@ -18,6 +19,7 @@ type AttemptDetail = {
     gradingMethod: string;
     startedAt: number;
     submittedAt: number;
+    showReview?: boolean;
   };
   answers: Array<{
     id: string;
@@ -32,12 +34,14 @@ type AttemptDetail = {
     points: number;
     feedback: string;
     explanation?: string | null;
+    hasImage?: boolean;
   }>;
 };
 
 export default function ResultClient({ attemptId }: { attemptId: string }) {
   const [data, setData] = useState<AttemptDetail | null>(null);
   const [error, setError] = useState('');
+  const [showReviewScreen, setShowReviewScreen] = useState(false);
 
   useEffect(() => {
     fetch(`/api/attempts/${attemptId}`, { cache: 'no-store' })
@@ -58,6 +62,36 @@ export default function ResultClient({ attemptId }: { attemptId: string }) {
     );
 
   const { attempt, answers } = data;
+  const isReviewAllowed = attempt.showReview !== false && answers.length > 0;
+
+  const reviewQuestions: ReviewQuestion[] = answers.map((ans, idx) => ({
+    id: ans.questionId || ans.id,
+    prompt: ans.prompt,
+    sortOrder: ans.sortOrder || idx + 1,
+    points: ans.points,
+    studentAnswer: ans.answer,
+    correctAnswer: ans.correctAnswer,
+    isCorrect: ans.score >= ans.points,
+    explanation: ans.explanation,
+    hasImage: ans.hasImage,
+    options: ans.options,
+    type: ans.type,
+  }));
+
+  if (showReviewScreen && isReviewAllowed) {
+    return (
+      <div className="dashboard-shell" style={{ maxWidth: '880px', margin: '0 auto', padding: '1.5rem' }}>
+        <AssessmentReview
+          title={`مراجعة إجابات: ${attempt.examTitle}`}
+          score={attempt.score}
+          maxScore={attempt.maxScore}
+          percentage={attempt.percentage}
+          questions={reviewQuestions}
+          onBack={() => setShowReviewScreen(false)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="dashboard-shell">
@@ -67,9 +101,21 @@ export default function ResultClient({ attemptId }: { attemptId: string }) {
           <h1>{attempt.examTitle}</h1>
           <p>{new Date(attempt.submittedAt).toLocaleString('ar-EG')}</p>
         </div>
-        <Link href="/account" className="btn btn-outline">
-          <ArrowRight /> العودة لحسابي
-        </Link>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          {isReviewAllowed && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setShowReviewScreen(true)}
+              style={{ minHeight: '44px', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
+            >
+              <ClipboardCheck size={18} /> مراجعة الإجابات
+            </button>
+          )}
+          <Link href="/account" className="btn btn-outline" style={{ minHeight: '44px' }}>
+            <ArrowRight /> العودة لحسابي
+          </Link>
+        </div>
       </header>
 
       <section className="stats-grid">
@@ -112,104 +158,47 @@ export default function ResultClient({ attemptId }: { attemptId: string }) {
       </section>
 
       <section className="dashboard-panel">
-        <div className="panel-title">
+        <div className="panel-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
           <div>
-            <h2>تفاصيل الأسئلة</h2>
+            <h2>تفاصيل الأسئلة والإجابات</h2>
             <p>{answers.length} سؤال</p>
           </div>
+          {isReviewAllowed && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setShowReviewScreen(true)}
+              style={{ minHeight: '44px', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
+            >
+              <ClipboardCheck size={18} /> مراجعة الإجابات والشرح
+            </button>
+          )}
         </div>
-        <div className="question-results">
-          {answers.map((ans, index) => {
-            const correct = ans.score >= ans.points;
-            const partial = ans.score > 0 && ans.score < ans.points;
-            return (
-              <article
-                key={ans.id}
-                className="question-result-card"
-                style={{
-                  borderRight: `4px solid ${correct ? '#27ae60' : partial ? '#f39c12' : '#e74c3c'}`,
-                  padding: '1rem',
-                  marginBottom: '1rem',
-                  borderRadius: '8px',
-                  background: 'var(--surface-1, rgba(0,0,0,0.03))',
-                }}
-              >
-                <header
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                    gap: '1rem',
-                  }}
-                >
-                  <strong style={{ flex: 1 }}>
-                    السؤال {index + 1}: {ans.prompt}
-                  </strong>
-                  <span
-                    className={`status-pill status-${correct ? 'approved' : partial ? 'pending' : 'rejected'}`}
-                    style={{ whiteSpace: 'nowrap' }}
-                  >
-                    {ans.score} / {ans.points}
-                  </span>
-                </header>
-                {ans.options.length > 0 && (
-                  <ul style={{ listStyle: 'none', padding: '0.5rem 0', margin: 0 }}>
-                    {ans.options.map((opt) => (
-                      <li
-                        key={opt}
-                        style={{
-                          padding: '0.25rem 0.5rem',
-                          display: 'flex',
-                          gap: '0.5rem',
-                          alignItems: 'center',
-                        }}
-                      >
-                        {opt === ans.correctAnswer ? (
-                          <CheckCircle2 size={14} color="#27ae60" />
-                        ) : opt === ans.answer && opt !== ans.correctAnswer ? (
-                          <XCircle size={14} color="#e74c3c" />
-                        ) : (
-                          <span style={{ width: 14 }} />
-                        )}
-                        {opt}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <div style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>
-                  <div>
-                    <b>إجابتك:</b> {ans.answer || '—'}
-                  </div>
-                  {ans.answer !== ans.correctAnswer && (
-                    <div style={{ color: '#27ae60' }}>
-                      <b>الإجابة الصحيحة:</b> {ans.correctAnswer}
-                    </div>
-                  )}
-                  {ans.feedback && (
-                    <div style={{ marginTop: '0.25rem', opacity: 0.75 }}>{ans.feedback}</div>
-                  )}
-                  {ans.explanation && (
-                    <div
-                      className="question-explanation-block"
-                      style={{
-                        marginTop: '0.5rem',
-                        padding: '0.6rem 0.75rem',
-                        borderRadius: '6px',
-                        background: 'rgba(56, 189, 248, 0.08)',
-                        borderRight: '3px solid #0284c7',
-                      }}
-                    >
-                      <b style={{ color: '#0284c7', display: 'block', marginBottom: '0.2rem' }}>ليه؟</b>
-                      <p style={{ margin: 0, direction: 'rtl', textAlign: 'right', lineHeight: '1.5' }}>
-                        {ans.explanation}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </article>
-            );
-          })}
-        </div>
+
+        {!isReviewAllowed ? (
+          <p style={{ padding: '1.25rem', color: 'var(--muted, #64748b)' }}>
+            مراجعة إجابات هذا الامتحان غير مفعلة من قِبل المعلم.
+          </p>
+        ) : (
+          <div style={{ padding: '1.5rem', textAlign: 'center' }}>
+            <button
+              type="button"
+              className="btn btn-primary btn-large"
+              onClick={() => setShowReviewScreen(true)}
+              style={{
+                minHeight: '48px',
+                fontSize: '1.05rem',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.75rem 2rem',
+              }}
+            >
+              <ClipboardCheck size={20} /> فتح شاشة مراجعة الإجابات والشرح
+            </button>
+          </div>
+        )}
       </section>
     </div>
   );

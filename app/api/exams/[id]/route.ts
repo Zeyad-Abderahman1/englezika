@@ -241,7 +241,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         question,
         answer,
         score: correct ? question.points : 0,
-        feedback: correct ? 'إجابة صحيحة.' : `الإجابة الصحيحة: ${question.correctAnswer}`,
+        feedback: correct
+          ? 'إجابة صحيحة.'
+          : (exam.showReview !== false ? `الإجابة الصحيحة: ${question.correctAnswer}` : 'إجابة غير صحيحة.'),
       });
     }
   }
@@ -308,13 +310,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     percentage,
     passed: percentage >= Number(exam.passingScore || 50),
     feedback,
+    showReview: exam.showReview !== false,
     gradingMethod: writtenInputs.length ? written.method : 'rules',
     answers: allAnswers.map((item) => ({
       questionId: item.question.id,
       score: item.score,
       points: item.question.points,
       feedback: item.feedback,
-      explanation: item.question.explanation || '',
+      correctAnswer: exam.showReview !== false ? item.question.correctAnswer : '',
+      explanation: exam.showReview !== false ? (item.question.explanation || '') : '',
     })),
   });
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, LoaderCircle, Send } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, ClipboardCheck, Clock3, LoaderCircle, Send } from 'lucide-react';
 import AssessmentReview, { type ReviewQuestion } from './AssessmentReview';
 import { replaceAbortController, runRecoverableLoad } from '../lib/recoverable-load';
 
@@ -25,19 +25,29 @@ type ExamPayload = {
     instructions: string;
     durationMinutes: number;
     passingScore: number;
+    showReview?: boolean;
   };
   session: { id: string; startedAt: number; expiresAt: number };
   questions: Question[];
 };
 
 type Result = {
+  attemptId?: string;
   score: number;
   maxScore: number;
   percentage: number;
   passed: boolean;
   feedback: string;
   gradingMethod: string;
-  answers: Array<{ questionId: string; score: number; points: number; feedback: string; explanation?: string }>;
+  showReview?: boolean;
+  answers: Array<{
+    questionId: string;
+    score: number;
+    points: number;
+    feedback: string;
+    correctAnswer?: string;
+    explanation?: string;
+  }>;
 };
 
 export default function QuizRunner({ examId }: { examId: string }) {
@@ -55,6 +65,7 @@ export default function QuizRunner({ examId }: { examId: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<Result | null>(null);
+  const [showReviewScreen, setShowReviewScreen] = useState(false);
   const [focusWarning, setFocusWarning] = useState(false);
   const [isTerminated, setIsTerminated] = useState(false);
 
@@ -353,6 +364,9 @@ export default function QuizRunner({ examId }: { examId: string }) {
   if (!payload) return null;
 
   if (result) {
+    const isReviewAllowed =
+      result.showReview !== false && payload.exam.showReview !== false;
+
     const reviewQuestions: ReviewQuestion[] = payload.questions.map((question) => {
       const grade = result.answers.find((item) => item.questionId === question.id);
       return {
@@ -360,26 +374,127 @@ export default function QuizRunner({ examId }: { examId: string }) {
         prompt: question.prompt,
         sortOrder: question.sortOrder,
         points: question.points,
+        options: question.options || [],
         studentAnswer: answers[question.id] || '',
-        correctAnswer: grade?.feedback?.includes(':') ? grade.feedback.split(':').slice(1).join(':').trim() : '',
+        correctAnswer:
+          grade?.correctAnswer ||
+          (grade?.feedback?.includes(':') ? grade.feedback.split(':').slice(1).join(':').trim() : '') ||
+          ((grade?.score ?? 0) > 0 ? (answers[question.id] || '') : ''),
         isCorrect: (grade?.score ?? 0) > 0,
         explanation: grade?.explanation || question.explanation,
         hasImage: question.hasImage,
       };
     });
 
+    if (showReviewScreen && isReviewAllowed) {
+      return (
+        <div className="quiz-result" style={{ padding: '1rem 0' }}>
+          <AssessmentReview
+            title={`مراجعة إجابات: ${payload.exam.title}`}
+            score={result.score}
+            maxScore={result.maxScore}
+            percentage={result.percentage}
+            questions={reviewQuestions}
+            onBack={() => setShowReviewScreen(false)}
+          />
+        </div>
+      );
+    }
+
     return (
-      <div className="quiz-result">
-        <AssessmentReview
-          title={result.passed ? 'برافو عليك!' : 'خطوة كويسة ونكمّل'}
-          score={result.score}
-          maxScore={result.maxScore}
-          percentage={result.percentage}
-          questions={reviewQuestions}
-        />
-        <Link href="/account" className="btn btn-primary btn-large">
-          العودة إلى حسابي <ArrowLeft />
-        </Link>
+      <div className="quiz-result" style={{ maxWidth: '640px', margin: '2rem auto', textAlign: 'center', padding: '1.5rem' }}>
+        <div
+          className="quiz-result-card"
+          style={{
+            background: 'var(--surface, #ffffff)',
+            border: '1px solid var(--line, #e2e8f0)',
+            borderRadius: '16px',
+            padding: '2.5rem 2rem',
+            boxShadow: '0 8px 30px rgba(0,0,0,0.06)',
+          }}
+        >
+          <div style={{ marginBottom: '1.25rem' }}>
+            {result.passed ? (
+              <CheckCircle2 size={56} style={{ color: '#16a34a', margin: '0 auto' }} />
+            ) : (
+              <AlertTriangle size={56} style={{ color: '#f59e0b', margin: '0 auto' }} />
+            )}
+          </div>
+
+          <h2 style={{ fontSize: '1.75rem', fontWeight: 800, marginBottom: '0.5rem', color: 'var(--text, #18181b)' }}>
+            {result.passed ? 'برافو عليك! تم اجتياز الامتحان بنجاح' : 'تم تسليم الامتحان'}
+          </h2>
+
+          <p style={{ fontSize: '1rem', color: 'var(--muted, #64748b)', marginBottom: '1.75rem' }}>
+            {result.feedback}
+          </p>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: '1rem',
+              background: 'var(--surface-2, rgba(0,0,0,0.02))',
+              padding: '1.25rem',
+              borderRadius: '12px',
+              border: '1px solid var(--line, #e2e8f0)',
+              marginBottom: '2rem',
+            }}
+          >
+            <div>
+              <span style={{ fontSize: '0.825rem', color: 'var(--muted, #64748b)', display: 'block', marginBottom: '0.25rem' }}>الدرجة المستحقة</span>
+              <strong style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text, #18181b)' }}>
+                {result.score} / {result.maxScore}
+              </strong>
+            </div>
+
+            <div>
+              <span style={{ fontSize: '0.825rem', color: 'var(--muted, #64748b)', display: 'block', marginBottom: '0.25rem' }}>النسبة المئوية</span>
+              <strong style={{ fontSize: '1.4rem', fontWeight: 800, color: result.passed ? '#16a34a' : '#d7193f' }}>
+                {result.percentage}%
+              </strong>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {isReviewAllowed && (
+              <button
+                type="button"
+                className="btn btn-primary btn-large"
+                style={{
+                  minHeight: '48px',
+                  fontSize: '1.05rem',
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  cursor: 'pointer',
+                  width: '100%',
+                }}
+                onClick={() => setShowReviewScreen(true)}
+              >
+                <ClipboardCheck size={20} /> مراجعة الإجابات
+              </button>
+            )}
+
+            <Link
+              href="/account"
+              className={isReviewAllowed ? 'btn btn-outline btn-large' : 'btn btn-primary btn-large'}
+              style={{
+                minHeight: '48px',
+                fontSize: '1rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
+                width: '100%',
+              }}
+            >
+              العودة إلى حسابي <ArrowLeft size={18} />
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }
