@@ -4,6 +4,7 @@ import { getCurrentStaff } from '../lib/staff-auth';
 import { AdminProvider } from '../lib/admin-context';
 import { AdminShell } from '../components/admin/shell/AdminShell';
 import '../admin.css';
+import '../components/admin/admin-mobile.css';
 
 export const metadata: Metadata = {
   title: 'لوحة الإدارة | Englizeka',
