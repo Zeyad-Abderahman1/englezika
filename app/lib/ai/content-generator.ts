@@ -231,12 +231,10 @@ EGYPTIAN SECONDARY-SCHOOL ASSESSMENT STYLE (MANDATORY):
    - "Which rule applies here?"
    Do NOT ask about grammar terminology when the learning objective can be tested through a sentence.
 4. FOUR PLAUSIBLE OPTIONS: Exactly 4 distinct, plausible answer choices with realistic distractors (tense confusion, wrong auxiliary, wrong preposition, wrong verb form). Exactly one correct choice.
-5. EXPLANATION IN SIMPLE EGYPTIAN ARABIC (شرح بالعامية المصرية):
-   Every question MUST include a concise explanation (1–3 short sentences) in friendly Egyptian Arabic explaining:
-   - The clue in the sentence (القرينة أو الدليل)
-   - The grammar/vocab reason
-   - Why the correct choice fits
-   CRITICAL: Keep English educational terms, tenses, and target words in English (e.g. Past Simple, Present Perfect, Passive Voice, P.P., was robbed, since, met) rather than translating or transliterating them into Arabic.`;
+5. EXPLANATION IN CLEAR SIMPLE ARABIC (شرح الإجابة باللغة العربية):
+   Every question MUST include a student-facing explanation ('explanation') written in clear, simple Modern Standard Arabic suitable for Egyptian secondary school students (no markdown, max about 400 characters).
+   Structure: one sentence stating the correct answer and the rule or reason, then one short sentence on why the most tempting wrong option is wrong when relevant.
+   CRITICAL: Keep English educational terms, tenses, and target words in English inside the Arabic sentence (e.g. Past Simple, Present Perfect, Passive Voice, P.P., was robbed, since, met).`;
 
   // --- PASS 1: Stratified Batch Generation ---
   for (let batchIdx = 0; batchIdx < totalBatches && accumulatedQuestions.length < requestedCount; batchIdx++) {

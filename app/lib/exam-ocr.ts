@@ -1,5 +1,7 @@
 import { getPlatformEnv } from './platform';
 import { safeText } from './security';
+import { checkExplanationConsistency } from './explanation-consistency';
+export { checkExplanationConsistency };
 
 export type ExtractedQuestion = {
   temp_id: string;
@@ -11,6 +13,8 @@ export type ExtractedQuestion = {
   points: number;
   ai_confidence: 'high' | 'medium' | 'low';
   ai_explanation: string;
+  explanation: string;
+  needs_review?: boolean;
 };
 
 export type OcrExamResult = {
@@ -31,7 +35,9 @@ Rule 1: Transcribe every question prompt and every multiple-choice option 100% V
 Rule 2: Strip leading question numbers (e.g., '1.', '2-', 'Q1:') and option letters ('a)', 'b)', 'A.', 'B.') from the text strings while keeping options in their exact original order.
 Rule 3: Ignore page headers, footers, watermarks, teacher phone numbers, decorative borders.
 Rule 4: Solve each question with 100% grammatical accuracy and select the single correct option as 'correct_answer' (must match one of the extracted 'options' strings character-for-character).
-Rule 5: Return strictly valid JSON matching the schema below without any markdown fences or preamble.
+Rule 5: For each question, provide a student-facing 'explanation' written in clear, simple Modern Standard Arabic suitable for Egyptian secondary school students (no markdown, max about 400 characters). Structure: one sentence stating the correct answer and the rule or reason, then one short sentence on why the most tempting wrong option is wrong when relevant. Grammar terms and English words/examples stay in English inside the Arabic sentence.
+Rule 6: Keep 'ai_explanation' as a separate short teacher note on model confidence.
+Rule 7: Return strictly valid JSON matching the schema below without any markdown fences or preamble.
 
 Schema:
 {
@@ -45,10 +51,13 @@ Schema:
       "correct_answer": "Exact string matching winning option",
       "points": 1,
       "ai_confidence": "high",
-      "ai_explanation": "Brief reasoning in Arabic or English for teacher"
+      "ai_explanation": "Brief reasoning in Arabic or English for teacher",
+      "explanation": "الإجابة الصحيحة هي Option A لأنها تعبر عن زمن Past Simple لوجود قرينة تدل على الماضي. أما Option B فغير صحيحة لأنها في زمن المضارع."
     }
   ]
 }`;
+
+
 
 /**
  * Strips markdown code fences (e.g. ```json ... ```) from model output.
@@ -114,12 +123,19 @@ export function normalizeExtractedQuestions(rawQuestions: unknown[]): ExtractedQ
     }
 
     const points = typeof raw.points === 'number' && raw.points > 0 ? Math.min(raw.points, 100) : 1;
-    const rawExplanation = safeText(raw.ai_explanation || '', 500);
-    const explanation =
-      rawExplanation ||
+    const rawAiExplanation = safeText(raw.ai_explanation || '', 500);
+    const aiExplanation =
+      rawAiExplanation ||
       (type === 'multiple_choice' && !correctAnswer
         ? 'لم يتم تحديد إجابة صحيحة مطابقة تلقائياً، يرجى اختيار الإجابة الصحيحة يدوياً'
         : 'تم استخراج السؤال بالذكاء الاصطناعي');
+
+    const rawStudentExp = safeText(raw.explanation || '', 1500);
+    const consistency = checkExplanationConsistency(rawStudentExp, correctAnswer, options);
+    const studentExplanation = consistency.explanation !== null ? consistency.explanation : '';
+    if (consistency.needs_review) {
+      confidence = 'low';
+    }
 
     return {
       temp_id: tempId,
@@ -130,7 +146,9 @@ export function normalizeExtractedQuestions(rawQuestions: unknown[]): ExtractedQ
       correct_answer: correctAnswer,
       points,
       ai_confidence: confidence,
-      ai_explanation: explanation,
+      ai_explanation: aiExplanation,
+      explanation: studentExplanation,
+      needs_review: consistency.needs_review || (!correctAnswer),
     };
   });
 }

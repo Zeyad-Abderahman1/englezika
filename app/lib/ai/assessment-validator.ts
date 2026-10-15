@@ -5,6 +5,8 @@
  * and user-edited assessments before preview, confirmation, or DB insertion.
  */
 
+import { checkExplanationConsistency } from '../explanation-consistency';
+
 export type QuestionValidationReason =
   | 'EMPTY_QUESTION'
   | 'WRONG_OPTION_COUNT'
@@ -329,7 +331,13 @@ export function validateGeneratedQuestion(
       if (expTrimmed.length === 0) {
         reasons.push('EMPTY_EXPLANATION');
       } else {
-        explanation = expTrimmed.slice(0, 1500);
+        const consistency = checkExplanationConsistency(expTrimmed, correctAnswer || '', cleanedOptions);
+        if (consistency.explanation === null) {
+          // Drop inconsistent explanation so students never see contradictory info
+          explanation = undefined;
+        } else {
+          explanation = consistency.explanation.slice(0, 1500);
+        }
       }
     }
   }

@@ -9,6 +9,7 @@ import type { AiProvider } from './ai-provider';
 import { getAiProvider } from './ai-provider';
 import { normalizePromptHash, normalizeBlank } from './assessment-validator';
 import { getDatabase, getPrivateStorage } from '../platform';
+import { checkExplanationConsistency } from '../explanation-consistency';
 import { parsePdfDocument } from './document-parser';
 import type {
   SchoolStage,
@@ -396,7 +397,13 @@ export function validateStageExamQuestion(
   }
 
   const marks = typeof raw.marks === 'number' && raw.marks > 0 ? raw.marks : 1;
-  const explanation = typeof raw.explanation === 'string' ? raw.explanation.trim() : undefined;
+  const rawExp = typeof raw.explanation === 'string' ? raw.explanation.trim() : undefined;
+  let explanation = rawExp;
+  const targetAnswer = typeof correctAnswer === 'string' ? correctAnswer : Array.isArray(correctAnswer) ? (correctAnswer as string[])[0] : '';
+  if (rawExp && targetAnswer) {
+    const consistency = checkExplanationConsistency(rawExp, targetAnswer, options || []);
+    explanation = consistency.explanation ? consistency.explanation : undefined;
+  }
 
   seenHashes.add(hash);
 
@@ -488,7 +495,7 @@ ANTI-PLACEHOLDER & ANTI-DUMMY RULES (STRICTLY ENFORCED):
 4. For 2-out-of-5 MCQ: provide EXACTLY 5 distinct choices. Output both "correctAnswers" (array of 2 strings matching options) AND "correctIndices" (array of 2 distinct integers 0..4).
 5. In Reading sections: write a fresh, original reading passage matching the grade's word count. All reading questions MUST be answerable from this passage.
 6. In Listening sections: write a clear Teacher's Listening Script (${stage === 'primary' ? '40-60 words' : '80-120 words'}). All listening questions MUST be answered from it.
-7. Provide a concise, educational explanation for every question.`;
+7. For each question, provide a student-facing explanation ('explanation') written in clear, simple Modern Standard Arabic suitable for Egyptian school students (one sentence stating the correct answer and the rule or reason, then one short sentence on why the most tempting wrong option is wrong when relevant. Grammar terms and English words stay in English inside the Arabic sentence. Max about 400 characters. No markdown).`;
 }
 
 /**
