@@ -95,15 +95,24 @@ export async function POST(request: Request) {
         ocrResult.error && !ocrResult.error.includes('http') && !ocrResult.error.includes('AIza')
           ? ocrResult.error
           : 'تعذر استخراج الأسئلة من الصور عبر الذكاء الاصطناعي';
-      return jsonError(safeError, 502);
+      return Response.json(
+        {
+          error: safeError,
+          code: ocrResult.code || 'AI_OCR_FAILED',
+        },
+        { status: ocrResult.code === 'AI_MODEL_UNAVAILABLE' ? 503 : 502 }
+      );
     }
 
     return Response.json({
       ok: true,
       questions: ocrResult.questions,
     });
-  } catch (err) {
-    console.error('[Admin OCR Route Error]', err);
+  } catch (err: unknown) {
+    const status = (err as { status?: number })?.status;
+    const rawMsg = err instanceof Error ? err.message : String(err);
+    const truncatedMessage = rawMsg.slice(0, 300);
+    console.error('[Admin OCR Route Error]', status ? { status, message: truncatedMessage } : { message: truncatedMessage });
     return jsonError('حدث خطأ أثناء معالجة الصور', 500);
   }
 }

@@ -17,6 +17,7 @@ export type OcrExamResult = {
   ok: boolean;
   questions: ExtractedQuestion[];
   error?: string;
+  code?: string;
 };
 
 export type ImageInput = {
@@ -48,6 +49,22 @@ Schema:
     }
   ]
 }`;
+
+/**
+ * Strips markdown code fences (e.g. ```json ... ```) from model output.
+ */
+function cleanJsonOutput(text: string): string {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (match) {
+    return match[1].trim();
+  }
+  const embeddedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (embeddedMatch) {
+    return embeddedMatch[1].trim();
+  }
+  return trimmed;
+}
 
 /**
  * Normalizes and validates extracted questions from Vision output
@@ -141,8 +158,17 @@ export async function extractAndSolveExamFromImages(
       ok: false,
       questions: [],
       error: 'مفتاح الذكاء الاصطناعي (GEMINI_API_KEY) غير مضبوط في إعدادات الخادم. يرجى تهيئة المفتاح للبدء في استخراج الأسئلة.',
+      code: 'GEMINI_KEY_MISSING',
     };
   }
+
+  const rawModel =
+    process.env.GEMINI_MODEL?.trim() ||
+    (env as Record<string, string | undefined>).GEMINI_MODEL?.trim() ||
+    'gemini-3.8-flash';
+
+  const cleanModel = rawModel.replace(/^models\//, '').trim();
+  const model = cleanModel || 'gemini-3.8-flash';
 
   try {
     const parts: Array<Record<string, unknown>> = [
@@ -159,10 +185,8 @@ export async function extractAndSolveExamFromImages(
       });
     }
 
-    // Try gemini-2.5-flash
-    const model = 'gemini-2.5-flash';
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       {
         method: 'POST',
         headers: {
@@ -181,11 +205,23 @@ export async function extractAndSolveExamFromImages(
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
-      console.error('[Gemini OCR API Error]', { status: response.status, details: errText });
+      const truncatedMessage = errText.slice(0, 300);
+      console.error('[Gemini OCR API Error]', { status: response.status, message: truncatedMessage });
+
+      if (response.status === 404) {
+        return {
+          ok: false,
+          questions: [],
+          error: 'نموذج الذكاء الاصطناعي غير متاح حالياً، يرجى التواصل مع المطور.',
+          code: 'AI_MODEL_UNAVAILABLE',
+        };
+      }
+
       return {
         ok: false,
         questions: [],
         error: 'تعذر استخراج الأسئلة من الصور عبر خدمة الذكاء الاصطناعي. يرجى المحاولة لاحقاً.',
+        code: 'AI_OCR_FAILED',
       };
     }
 
@@ -195,27 +231,58 @@ export async function extractAndSolveExamFromImages(
 
     const textOutput = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!textOutput) {
-      console.error('[Gemini OCR Empty Response]', data);
+      console.error('[Gemini OCR Empty Response]', {
+        hasCandidates: Boolean(data?.candidates?.length),
+      });
       return {
         ok: false,
         questions: [],
         error: 'لم يُرجع الذكاء الاصطناعي أي استجابة صالحة لتحليل صور الامتحان.',
+        code: 'AI_EMPTY_RESPONSE',
       };
     }
 
-    const parsed = JSON.parse(textOutput) as { questions?: unknown[] };
+    let parsed: { questions?: unknown[] };
+    try {
+      const cleaned = cleanJsonOutput(textOutput);
+      parsed = JSON.parse(cleaned) as { questions?: unknown[] };
+    } catch (parseError) {
+      const rawMsg = parseError instanceof Error ? parseError.message : String(parseError);
+      console.error('[Gemini OCR Parse Error]', { message: rawMsg.slice(0, 300) });
+      return {
+        ok: false,
+        questions: [],
+        error: 'لم نتمكن من تحليل إجابة نموذج الذكاء الاصطناعي بشكل صحيح. يرجى المحاولة مرة أخرى.',
+        code: 'AI_PARSE_ERROR',
+      };
+    }
+
     const questions = normalizeExtractedQuestions(parsed.questions || []);
 
     return {
       ok: true,
       questions,
     };
-  } catch (error) {
-    console.error('[Gemini OCR Exception]', error);
+  } catch (error: unknown) {
+    const status = (error as { status?: number })?.status;
+    const rawMsg = error instanceof Error ? error.message : String(error);
+    const truncatedMessage = rawMsg.slice(0, 300);
+    console.error('[Gemini OCR Exception]', status ? { status, message: truncatedMessage } : { message: truncatedMessage });
+
+    if (status === 404 || rawMsg.includes('404')) {
+      return {
+        ok: false,
+        questions: [],
+        error: 'نموذج الذكاء الاصطناعي غير متاح حالياً، يرجى التواصل مع المطور.',
+        code: 'AI_MODEL_UNAVAILABLE',
+      };
+    }
+
     return {
       ok: false,
       questions: [],
       error: 'تعذر الاتصال بخدمة الذكاء الاصطناعي. يرجى التحقق من اتصال الخادم والمحاولة لاحقاً.',
+      code: 'AI_CONNECTION_ERROR',
     };
   }
 }
