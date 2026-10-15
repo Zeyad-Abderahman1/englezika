@@ -136,12 +136,16 @@ export function ExamsManagerView() {
         .filter(Boolean),
     }));
 
+    const showReviewEl = form.elements.namedItem('showReview') as HTMLInputElement | null;
+    const showReview = showReviewEl ? showReviewEl.checked : true;
+
     try {
       const result = await adminApiRequest('/api/admin/exams', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           ...values,
+          showReview,
           durationMinutes: Number(values.durationMinutes) || 30,
           passingScore: Number(values.passingScore) || 50,
           maxAttempts: Number(values.maxAttempts) || 3,
@@ -224,6 +228,13 @@ export function ExamsManagerView() {
           defaultValue: String(exam.maxAttempts),
           type: 'number',
         },
+        {
+          name: 'showReview',
+          label: 'السماح للطلاب بمراجعة الإجابات بعد التسليم',
+          defaultValue: exam.showReview === false ? 'false' : 'true',
+          type: 'checkbox',
+          required: false,
+        },
       ],
       onSubmit: async (values) => {
         await mutate(
@@ -237,6 +248,7 @@ export function ExamsManagerView() {
                 durationMinutes: Number(values.durationMinutes) || exam.durationMinutes,
                 passingScore: Number(values.passingScore) || exam.passingScore,
                 maxAttempts: Number(values.maxAttempts) || exam.maxAttempts,
+                showReview: values.showReview === 'true',
               }),
             }),
           'تم تحديث بيانات الامتحان'
@@ -581,6 +593,21 @@ export function ExamsManagerView() {
                     </select>
                   </label>
                 </div>
+
+                <label className="admin-field-label" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '0.625rem', cursor: 'pointer', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--surface-raised, rgba(255,255,255,0.03))' }}>
+                  <input
+                    name="showReview"
+                    type="checkbox"
+                    defaultChecked={true}
+                    style={{ width: '18px', height: '18px', accentColor: 'var(--brand-primary, #6366f1)', cursor: 'pointer' }}
+                  />
+                  <div>
+                    <span style={{ fontWeight: 600 }}>السماح للطلاب بمراجعة الإجابات بعد التسليم</span>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      عند التفعيل، يمكن للطالب الاطلاع على الأسئلة وإجاباته والإجابات الصحيحة مع الشرح بعد إنهاء المحاولة.
+                    </p>
+                  </div>
+                </label>
               </div>
 
               {/* Question Builder */}
@@ -692,16 +719,23 @@ export function ExamsManagerView() {
                           </label>
 
                           <label className="admin-field-label">
-                            <span>تعليق المعلم على الإجابة</span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span>شرح الإجابة (يظهر للطالب بعد التسليم)</span>
+                              <span style={{ fontSize: '0.75rem', color: (q.explanation?.length || 0) > 400 ? 'var(--warning, #eab308)' : 'var(--text-muted)' }}>
+                                {(q.explanation || '').length}/400
+                              </span>
+                            </div>
                             <textarea
                               value={q.explanation}
                               onChange={(e) => updateQuestion(idx, { explanation: e.target.value })}
                               rows={2}
-                              placeholder="شرح يظهر للطالب بعد التسليم (اختياري)..."
+                              maxLength={1500}
+                              dir="auto"
+                              placeholder="اكتب شرحاً مبسطاً باللغة العربية يوضح للطالب سبب صحة الإجابة..."
                               className="admin-input"
                             />
                             <small className="admin-field-hint">
-                              يظهر هذا التعليق للطالب بعد تسليم الامتحان لتوضيح الإجابة الصحيحة.
+                              يظهر هذا الشرح للطالب بعد تسليم الامتحان لتوضيح سبب صحة الإجابة.
                             </small>
                           </label>
 

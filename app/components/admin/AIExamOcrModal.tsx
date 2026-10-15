@@ -69,6 +69,7 @@ export function AIExamOcrModal({
   const [passingScore, setPassingScore] = useState(70);
   const [title, setTitle] = useState('');
   const [durationMinutes, setDurationMinutes] = useState(30);
+  const [showReview, setShowReview] = useState(true);
 
   // Images & OCR state
   const [images, setImages] = useState<ImageFileItem[]>([]);
@@ -265,6 +266,7 @@ export function AIExamOcrModal({
       points: 1,
       ai_confidence: 'high',
       ai_explanation: 'سؤال أضيف يدوياً',
+      explanation: '',
     };
     setQuestions((prev) => [...prev, newQ]);
   };
@@ -333,12 +335,14 @@ export function AIExamOcrModal({
         scopeType,
         fromVideoId: scopeType === 'lecture_range' ? fromVideoId || null : null,
         toVideoId: scopeType === 'lecture_range' ? toVideoId || null : null,
+        showReview,
         status: 'published',
         questions: questions.map((q, idx) => ({
           type: q.type,
           prompt: q.prompt,
           options: q.options,
           correctAnswer: q.correct_answer,
+          explanation: q.explanation || '',
           points: q.points || 1,
           sortOrder: idx + 1,
         })),
@@ -575,6 +579,22 @@ export function AIExamOcrModal({
                     ))}
                   </div>
                 </div>
+              </div>
+
+              {/* Review Settings */}
+              <div className="form-group" style={{ gridColumn: '1 / -1', marginTop: '0.25rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={showReview}
+                    onChange={(e) => setShowReview(e.target.checked)}
+                    style={{ width: '18px', height: '18px', accentColor: 'var(--brand-primary, #6366f1)', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontWeight: 600 }}>السماح للطلاب بمراجعة الإجابات بعد التسليم</span>
+                </label>
+                <p className="inter-lecture-hint" style={{ marginTop: '0.25rem' }}>
+                  عند التفعيل، سيتمكن الطالب من مراجعة إجاباته ومعرفة الإجابات الصحيحة وشرحها بعد تسليم الاختبار.
+                </p>
               </div>
             </div>
           </section>
@@ -884,6 +904,33 @@ export function AIExamOcrModal({
                                 );
                               })}
                             </div>
+                          </div>
+
+                          {/* Student-facing Explanation Editor */}
+                          <div className="explanation-editor-group" style={{ marginTop: '0.875rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.375rem' }}>
+                              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                                شرح الإجابة (يظهر للطالب بعد التسليم)
+                              </label>
+                              <span style={{ fontSize: '0.75rem', color: (q.explanation?.length || 0) > 400 ? 'var(--warning, #eab308)' : 'var(--text-muted)' }}>
+                                {(q.explanation || '').length}/400
+                              </span>
+                            </div>
+                            {q.needs_review && (
+                              <div style={{ fontSize: '0.8rem', color: 'var(--warning, #eab308)', marginBottom: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                <AlertCircle size={14} /> تنبيه: الشرح بحاجة لمراجعة من المعلم للتأكد من توافقه مع الإجابة الصحيحة
+                              </div>
+                            )}
+                            <textarea
+                              dir="auto"
+                              rows={2}
+                              maxLength={1500}
+                              value={q.explanation || ''}
+                              onChange={(e) => updateQuestion(qIndex, { explanation: e.target.value, needs_review: false })}
+                              placeholder="اكتب شرحاً مبسطاً باللغة العربية يوضح للطالب سبب صحة الإجابة..."
+                              className="prompt-textarea"
+                              style={{ minHeight: '60px', fontSize: '0.875rem' }}
+                            />
                           </div>
                         </div>
                       )}
