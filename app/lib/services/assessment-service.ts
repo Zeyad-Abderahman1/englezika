@@ -34,6 +34,7 @@ export interface CreateExamInput {
   closesAt?: unknown;
   coverageStartLectureId?: unknown;
   coverageEndLectureId?: unknown;
+  showReview?: unknown;
   questions?: RawExamQuestionInput[];
 }
 
@@ -50,6 +51,7 @@ export interface UpdateExamInput {
   mode?: unknown;
   opensAt?: unknown;
   closesAt?: unknown;
+  showReview?: unknown;
   questions?: RawExamQuestionInput[];
 }
 
@@ -196,6 +198,7 @@ export class AssessmentService {
     const questionIds = questions.map(() => crypto.randomUUID());
 
     let hasCoverageColumns = false;
+    let hasShowReviewColumn = false;
     try {
       const colCheck = await db.prepare(
         "SELECT 1 FROM information_schema.columns WHERE table_name = 'exams' AND column_name = 'coverage_start_lecture_id'"
@@ -204,62 +207,133 @@ export class AssessmentService {
     } catch {
       hasCoverageColumns = false;
     }
+    try {
+      const colCheck = await db.prepare(
+        "SELECT 1 FROM information_schema.columns WHERE table_name = 'exams' AND column_name = 'show_review'"
+      ).first();
+      hasShowReviewColumn = Boolean(colCheck);
+    } catch {
+      hasShowReviewColumn = false;
+    }
 
-    const examInsertStmt = hasCoverageColumns
-      ? db
-          .prepare(
-            `INSERT INTO exams
-           (id, course_id, title, description, instructions, duration_minutes, passing_score, max_attempts,
-            status, opens_at, closes_at, created_by, created_at, updated_at,
-            assessment_type, mode, coverage_start_lecture_id, coverage_end_lecture_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .bind(
-            id,
-            courseId,
-            title,
-            description,
-            instructions,
-            durationMinutes,
-            passingScore,
-            maxAttempts,
-            status,
-            input.opensAt ? Number(input.opensAt) : null,
-            input.closesAt ? Number(input.closesAt) : null,
-            operator.email.toLowerCase(),
-            now,
-            now,
-            assessmentType,
-            mode,
-            coverageStartLectureId,
-            coverageEndLectureId
-          )
-      : db
-          .prepare(
-            `INSERT INTO exams
-           (id, course_id, title, description, instructions, duration_minutes, passing_score, max_attempts,
-            status, opens_at, closes_at, created_by, created_at, updated_at,
-            assessment_type, mode)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .bind(
-            id,
-            courseId,
-            title,
-            description,
-            instructions,
-            durationMinutes,
-            passingScore,
-            maxAttempts,
-            status,
-            input.opensAt ? Number(input.opensAt) : null,
-            input.closesAt ? Number(input.closesAt) : null,
-            operator.email.toLowerCase(),
-            now,
-            now,
-            assessmentType,
-            mode
-          );
+    const showReview = input.showReview !== false;
+
+    let examInsertStmt;
+    if (hasCoverageColumns && hasShowReviewColumn) {
+      examInsertStmt = db
+        .prepare(
+          `INSERT INTO exams
+         (id, course_id, title, description, instructions, duration_minutes, passing_score, max_attempts,
+          status, opens_at, closes_at, created_by, created_at, updated_at,
+          assessment_type, mode, coverage_start_lecture_id, coverage_end_lecture_id, show_review)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          id,
+          courseId,
+          title,
+          description,
+          instructions,
+          durationMinutes,
+          passingScore,
+          maxAttempts,
+          status,
+          input.opensAt ? Number(input.opensAt) : null,
+          input.closesAt ? Number(input.closesAt) : null,
+          operator.email.toLowerCase(),
+          now,
+          now,
+          assessmentType,
+          mode,
+          coverageStartLectureId,
+          coverageEndLectureId,
+          showReview
+        );
+    } else if (hasCoverageColumns) {
+      examInsertStmt = db
+        .prepare(
+          `INSERT INTO exams
+         (id, course_id, title, description, instructions, duration_minutes, passing_score, max_attempts,
+          status, opens_at, closes_at, created_by, created_at, updated_at,
+          assessment_type, mode, coverage_start_lecture_id, coverage_end_lecture_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          id,
+          courseId,
+          title,
+          description,
+          instructions,
+          durationMinutes,
+          passingScore,
+          maxAttempts,
+          status,
+          input.opensAt ? Number(input.opensAt) : null,
+          input.closesAt ? Number(input.closesAt) : null,
+          operator.email.toLowerCase(),
+          now,
+          now,
+          assessmentType,
+          mode,
+          coverageStartLectureId,
+          coverageEndLectureId
+        );
+    } else if (hasShowReviewColumn) {
+      examInsertStmt = db
+        .prepare(
+          `INSERT INTO exams
+         (id, course_id, title, description, instructions, duration_minutes, passing_score, max_attempts,
+          status, opens_at, closes_at, created_by, created_at, updated_at,
+          assessment_type, mode, show_review)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          id,
+          courseId,
+          title,
+          description,
+          instructions,
+          durationMinutes,
+          passingScore,
+          maxAttempts,
+          status,
+          input.opensAt ? Number(input.opensAt) : null,
+          input.closesAt ? Number(input.closesAt) : null,
+          operator.email.toLowerCase(),
+          now,
+          now,
+          assessmentType,
+          mode,
+          showReview
+        );
+    } else {
+      examInsertStmt = db
+        .prepare(
+          `INSERT INTO exams
+         (id, course_id, title, description, instructions, duration_minutes, passing_score, max_attempts,
+          status, opens_at, closes_at, created_by, created_at, updated_at,
+          assessment_type, mode)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          id,
+          courseId,
+          title,
+          description,
+          instructions,
+          durationMinutes,
+          passingScore,
+          maxAttempts,
+          status,
+          input.opensAt ? Number(input.opensAt) : null,
+          input.closesAt ? Number(input.closesAt) : null,
+          operator.email.toLowerCase(),
+          now,
+          now,
+          assessmentType,
+          mode
+        );
+    }
 
     const statements = [examInsertStmt];
 
@@ -300,6 +374,16 @@ export class AssessmentService {
     context?: ServiceContext
   ): Promise<{ exam: unknown; questions: unknown[] }> {
     const db = context?.db ?? getDatabase();
+    let hasShowReviewColumn = false;
+    try {
+      const colCheck = await db.prepare(
+        "SELECT 1 FROM information_schema.columns WHERE table_name = 'exams' AND column_name = 'show_review'"
+      ).first();
+      hasShowReviewColumn = Boolean(colCheck);
+    } catch {
+      hasShowReviewColumn = false;
+    }
+
     const exam = await db
       .prepare(
         `SELECT id, course_id AS courseId, title, description, instructions,
@@ -307,14 +391,20 @@ export class AssessmentService {
        opens_at AS opensAt, closes_at AS closesAt,
        COALESCE(assessment_type, 'exam') AS assessmentType,
        COALESCE(mode, 'online') AS mode,
-       CASE WHEN teacher_file_key IS NOT NULL THEN 1 ELSE 0 END AS hasTeacherFile
+       CASE WHEN teacher_file_key IS NOT NULL THEN 1 ELSE 0 END AS hasTeacherFile${
+         hasShowReviewColumn ? ', COALESCE(show_review, true) AS showReview' : ''
+       }
        FROM exams WHERE id = ?`
       )
       .bind(id)
-      .first();
+      .first<Record<string, unknown>>();
 
     if (!exam) {
       throw new DomainError('الامتحان غير موجود', 404);
+    }
+
+    if (!hasShowReviewColumn && exam.showReview === undefined) {
+      exam.showReview = true;
     }
 
     const questions = await db
@@ -371,6 +461,16 @@ export class AssessmentService {
       throw new DomainError('الامتحان غير موجود', 404);
     }
 
+    let hasShowReviewColumn = false;
+    try {
+      const colCheck = await db.prepare(
+        "SELECT 1 FROM information_schema.columns WHERE table_name = 'exams' AND column_name = 'show_review'"
+      ).first();
+      hasShowReviewColumn = Boolean(colCheck);
+    } catch {
+      hasShowReviewColumn = false;
+    }
+
     const status = input.status === 'published' ? 'published' : 'draft';
     const assessmentType = input.assessmentType === 'quiz' ? 'quiz' : 'exam';
     const mode = input.mode === 'file' ? 'file' : 'online';
@@ -383,29 +483,37 @@ export class AssessmentService {
       return Number.isFinite(number) ? number : null;
     };
 
-    const updateStmt = db
-      .prepare(
-        `UPDATE exams SET title = ?, description = ?, instructions = ?, course_id = ?,
+    const updateSql = hasShowReviewColumn && input.showReview !== undefined
+      ? `UPDATE exams SET title = ?, description = ?, instructions = ?, course_id = ?,
+       duration_minutes = ?, passing_score = ?, max_attempts = ?, status = ?, opens_at = ?, closes_at = ?,
+       assessment_type = ?, mode = ?, show_review = ?, updated_at = ?
+       WHERE id = ?`
+      : `UPDATE exams SET title = ?, description = ?, instructions = ?, course_id = ?,
        duration_minutes = ?, passing_score = ?, max_attempts = ?, status = ?, opens_at = ?, closes_at = ?,
        assessment_type = ?, mode = ?, updated_at = ?
-       WHERE id = ?`
-      )
-      .bind(
-        safeText(input.title ?? existing.title, 150),
-        safeText(input.description ?? existing.description, 1200),
-        safeText(input.instructions ?? existing.instructions, 2000),
-        input.courseId === null ? null : safeText(input.courseId ?? existing.courseId, 80) || null,
-        safeInteger(input.durationMinutes ?? existing.durationMinutes, 30, 1, 300),
-        safeInteger(input.passingScore ?? existing.passingScore, 50, 0, 100),
-        safeInteger(input.maxAttempts ?? existing.maxAttempts, 3, 1, 10),
-        status,
-        nullableTimestamp(input.opensAt, existing.opensAt),
-        nullableTimestamp(input.closesAt, existing.closesAt),
-        input.assessmentType ? assessmentType : (existing.assessmentType as string) || 'exam',
-        input.mode ? mode : (existing.mode as string) || 'online',
-        Date.now(),
-        id
-      );
+       WHERE id = ?`;
+
+    const updateParams: (string | number | boolean | null)[] = [
+      safeText(input.title ?? existing.title, 150),
+      safeText(input.description ?? existing.description, 1200),
+      safeText(input.instructions ?? existing.instructions, 2000),
+      input.courseId === null ? null : safeText(input.courseId ?? existing.courseId, 80) || null,
+      safeInteger(input.durationMinutes ?? existing.durationMinutes, 30, 1, 300),
+      safeInteger(input.passingScore ?? existing.passingScore, 50, 0, 100),
+      safeInteger(input.maxAttempts ?? existing.maxAttempts, 3, 1, 10),
+      status,
+      nullableTimestamp(input.opensAt, existing.opensAt),
+      nullableTimestamp(input.closesAt, existing.closesAt),
+      input.assessmentType ? assessmentType : (existing.assessmentType as string) || 'exam',
+      input.mode ? mode : (existing.mode as string) || 'online',
+    ];
+
+    if (hasShowReviewColumn && input.showReview !== undefined) {
+      updateParams.push(Boolean(input.showReview));
+    }
+    updateParams.push(Date.now(), id);
+
+    const updateStmt = db.prepare(updateSql).bind(...updateParams);
 
     if (Array.isArray(input.questions) && input.questions.length > 0) {
       const hasAttempts = await db

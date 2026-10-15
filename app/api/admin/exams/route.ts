@@ -27,6 +27,7 @@ export async function POST(request: Request) {
   const toVideoId = safeText(body.toVideoId, 80) || null;
   const coverageStartLectureId = safeText(body.coverageStartLectureId, 80) || null;
   const coverageEndLectureId = safeText(body.coverageEndLectureId, 80) || null;
+  const showReview = body.showReview !== false && body.show_review !== false;
 
   const questions =
     mode === 'online' && Array.isArray(body.questions)
@@ -108,8 +109,8 @@ export async function POST(request: Request) {
         `INSERT INTO exams
        (id, course_id, title, description, instructions, duration_minutes, passing_score, max_attempts,
         status, opens_at, closes_at, scope_type, from_video_id, to_video_id, created_by, created_at, updated_at,
-        assessment_type, mode, coverage_start_lecture_id, coverage_end_lecture_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        assessment_type, mode, coverage_start_lecture_id, coverage_end_lecture_id, show_review)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         id,
@@ -132,7 +133,8 @@ export async function POST(request: Request) {
         assessmentType,
         mode,
         coverageStartLectureId,
-        coverageEndLectureId
+        coverageEndLectureId,
+        showReview
       ),
   ];
 
@@ -142,8 +144,8 @@ export async function POST(request: Request) {
         db
           .prepare(
             `INSERT INTO questions
-         (id, exam_id, sort_order, type, prompt, options, correct_answer, rubric, points)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, exam_id, sort_order, type, prompt, options, correct_answer, rubric, points, explanation)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .bind(
             crypto.randomUUID(),
@@ -154,7 +156,8 @@ export async function POST(request: Request) {
             JSON.stringify(question.options),
             question.correctAnswer,
             question.rubric,
-            question.points
+            question.points,
+            question.explanation || null
           )
       )
     );

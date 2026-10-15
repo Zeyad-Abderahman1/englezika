@@ -7,6 +7,7 @@ export type ParsedExamQuestion = {
   prompt: string;
   correctAnswer: string;
   rubric: string;
+  explanation: string;
   points: number;
   options: string[];
   sortOrder: number;
@@ -19,6 +20,7 @@ export function parseQuestion(question: RawQuestion, sortOrder: number): ParsedE
   const prompt = safeText(question.prompt, 2000);
   const correctAnswer = safeText(question.correctAnswer ?? question.correct_answer, 1000);
   const rubric = safeText(question.rubric, 2000);
+  const explanation = safeText(question.explanation, 1500);
   const points = safeInteger(question.points, 1, 1, 100);
   const options = Array.isArray(question.options)
     ? question.options
@@ -28,7 +30,7 @@ export function parseQuestion(question: RawQuestion, sortOrder: number): ParsedE
     : type === 'true_false'
       ? ['True', 'False']
       : [];
-  return { type, prompt, correctAnswer, rubric, points, options, sortOrder };
+  return { type, prompt, correctAnswer, rubric, explanation, points, options, sortOrder };
 }
 
 export function validateQuestion(question: ParsedExamQuestion): string | null {

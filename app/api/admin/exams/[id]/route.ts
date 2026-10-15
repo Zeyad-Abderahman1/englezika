@@ -28,6 +28,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
      COALESCE(assessment_type, 'exam') AS assessmentType,
      COALESCE(mode, 'online') AS mode,
      CASE WHEN teacher_file_key IS NOT NULL THEN 1 ELSE 0 END AS hasTeacherFile,
+     COALESCE(show_review, true) AS showReview,
      opens_at AS opensAt, closes_at AS closesAt FROM exams WHERE id = ?`
     )
     .bind(id)
@@ -36,7 +37,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const questions = await db
     .prepare(
       `SELECT id, sort_order AS sortOrder, type, prompt, options,
-     correct_answer AS correctAnswer, rubric, points
+     correct_answer AS correctAnswer, rubric, points, explanation
      FROM questions WHERE exam_id = ? ORDER BY sort_order`
     )
     .bind(id)
@@ -68,7 +69,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
      passing_score AS passingScore, max_attempts AS maxAttempts, status, opens_at AS opensAt, closes_at AS closesAt,
      scope_type AS scopeType, from_video_id AS fromVideoId, to_video_id AS toVideoId,
      coverage_start_lecture_id AS coverageStartLectureId, coverage_end_lecture_id AS coverageEndLectureId,
-     assessment_type AS assessmentType, mode
+     assessment_type AS assessmentType, mode, COALESCE(show_review, true) AS showReview
      FROM exams WHERE id = ?`
     )
     .bind(id)
@@ -107,6 +108,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       : safeText(body.coverageEndLectureId ?? existing.coverageEndLectureId, 80) || null;
 
   const passingScore = safeInteger(body.passingScore ?? existing.passingScore, 50, 0, 100);
+  const showReview =
+    body.showReview !== undefined
+      ? Boolean(body.showReview)
+      : body.show_review !== undefined
+      ? Boolean(body.show_review)
+      : Boolean(existing.showReview ?? true);
 
   if (scopeType === 'lecture_range') {
     if (!courseId) {
@@ -160,7 +167,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
      duration_minutes = ?, passing_score = ?, max_attempts = ?, status = ?,
      scope_type = ?, from_video_id = ?, to_video_id = ?,
      coverage_start_lecture_id = ?, coverage_end_lecture_id = ?,
-     assessment_type = ?, mode = ?,
+     assessment_type = ?, mode = ?, show_review = ?,
      opens_at = ?, closes_at = ?, updated_at = ?
      WHERE id = ?`
     )
@@ -180,6 +187,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       coverageEndLectureId,
       body.assessmentType !== undefined ? assessmentType : String(existing.assessmentType ?? 'exam'),
       body.mode !== undefined ? mode : String(existing.mode ?? 'online'),
+      showReview,
       nullableTimestamp(body.opensAt, existing.opensAt),
       nullableTimestamp(body.closesAt, existing.closesAt),
       Date.now(),
@@ -240,8 +248,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       ...newQuestions.map((q) =>
         db
           .prepare(
-            `INSERT INTO questions (id, exam_id, sort_order, type, prompt, options, correct_answer, rubric, points)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO questions (id, exam_id, sort_order, type, prompt, options, correct_answer, rubric, points, explanation)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .bind(
             crypto.randomUUID(),
@@ -252,7 +260,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
             JSON.stringify(q.options),
             q.correctAnswer,
             q.rubric,
-            q.points
+            q.points,
+            q.explanation || null
           )
       )
     );

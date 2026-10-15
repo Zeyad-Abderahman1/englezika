@@ -47,6 +47,7 @@ export type Exam = {
   status: string;
   questionCount: number;
   maxScore: number;
+  showReview?: boolean;
 };
 
 export type Enrollment = {
