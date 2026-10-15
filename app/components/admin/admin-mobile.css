@@ -1122,4 +1122,461 @@
     font-size: 14px !important;
     width: 100% !important;
   }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     6. AI TOOLS, WORKSPACES & OCR MODAL
+     ══════════════════════════════════════════════════════════════════════════ */
+
+  /* ── AI Tools Hub (/admin/ai) ──────────────────────────────────────────── */
+  .ai-hub {
+    gap: 14px !important;
+    padding: 0 !important;
+  }
+
+  .ai-page-heading {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    padding: 14px !important;
+    gap: 10px !important;
+    border-radius: 14px !important;
+  }
+
+  .ai-page-heading h1 {
+    font-size: 1.25rem !important;
+    line-height: 1.35 !important;
+  }
+
+  .ai-page-heading p {
+    font-size: 13px !important;
+    line-height: 1.6 !important;
+  }
+
+  .ai-tools-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  .ai-tool-card {
+    padding: 14px !important;
+    border-radius: 14px !important;
+    gap: 12px !important;
+  }
+
+  .ai-tool-card-action {
+    width: 100% !important;
+    min-height: 44px !important;
+    height: 48px !important;
+    font-size: 14px !important;
+    font-weight: 800 !important;
+    justify-content: center !important;
+  }
+
+  .ai-tool-card-features {
+    gap: 6px !important;
+  }
+
+  .ai-tool-card li {
+    padding: 5px 10px !important;
+    font-size: 12px !important;
+    line-height: 1.3 !important;
+  }
+
+  /* ── AI Assistant Workspace (/admin/ai/assistant) ──────────────────────── */
+  .ai-workspace-card {
+    min-height: calc(100dvh - 70px) !important;
+    border-radius: 12px !important;
+  }
+
+  .ai-workspace-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    padding: 12px !important;
+    gap: 8px !important;
+  }
+
+  .ai-workspace-tabs {
+    padding: 4px !important;
+    gap: 6px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior-x: contain !important;
+    scrollbar-width: none !important;
+  }
+
+  .ai-workspace-tabs::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .ai-workspace-tab {
+    min-height: 44px !important;
+    padding: 8px 14px !important;
+    font-size: 13px !important;
+    flex: 0 0 auto !important;
+  }
+
+  .ai-workspace-messages-container {
+    padding: 12px 10px !important;
+    gap: 12px !important;
+  }
+
+  .ai-message-row {
+    gap: 8px !important;
+  }
+
+  .ai-message-bubble {
+    max-width: 88% !important;
+    font-size: 14px !important;
+    line-height: 1.6 !important;
+    padding: 10px 13px !important;
+  }
+
+  .ai-workspace-footer {
+    padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .ai-workspace-quick-prompts {
+    gap: 6px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior-x: contain !important;
+    scrollbar-width: none !important;
+    padding-bottom: 4px !important;
+  }
+
+  .ai-workspace-quick-prompts::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .ai-quick-chip,
+  .ai-workspace-quick-prompt-btn {
+    min-height: 40px !important;
+    padding: 6px 12px !important;
+    font-size: 12.5px !important;
+    flex: 0 0 auto !important;
+    white-space: nowrap !important;
+  }
+
+  .ai-input-form {
+    gap: 8px !important;
+  }
+
+  .ai-input-textarea {
+    font-size: 16px !important;
+    min-height: 48px !important;
+    line-height: 1.4 !important;
+  }
+
+  .ai-submit-btn,
+  .ai-send-btn {
+    min-width: 44px !important;
+    min-height: 44px !important;
+    width: 44px !important;
+    height: 44px !important;
+    flex: 0 0 44px !important;
+  }
+
+  /* ── Dedicated PDF Assessment Workspace (/admin/ai/pdf-exam) ───────────── */
+  .ai-pdf-page {
+    gap: 14px !important;
+    padding: 0 !important;
+  }
+
+  .ai-pdf-tool-card {
+    grid-template-columns: 1fr !important;
+    padding: 14px !important;
+    gap: 14px !important;
+    border-radius: 14px !important;
+  }
+
+  .ai-pdf-dropzone {
+    min-height: 180px !important;
+    padding: 16px 12px !important;
+  }
+
+  .ai-selected-file {
+    grid-template-columns: 1fr !important;
+    text-align: center !important;
+    gap: 10px !important;
+  }
+
+  .ai-selected-file div {
+    text-align: center !important;
+  }
+
+  .ai-selected-file button {
+    width: 100% !important;
+    min-height: 44px !important;
+    justify-content: center !important;
+  }
+
+  .ai-segments button,
+  .ai-segment-btn {
+    min-height: 44px !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+  }
+
+  .ai-count-control button {
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+
+  .ai-count-control input {
+    min-height: 44px !important;
+    font-size: 16px !important;
+  }
+
+  .ai-generate-button {
+    min-height: 48px !important;
+    font-size: 15px !important;
+    border-radius: 10px !important;
+    width: 100% !important;
+  }
+
+  .ai-generation-progress {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+
+  /* ── Egyptian School Exam Generator (/admin/ai/school-exam) ─────────────── */
+  .school-exam-workspace {
+    padding: 10px !important;
+    gap: 14px !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+
+  .school-exam-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+    padding-bottom: 12px !important;
+  }
+
+  .school-exam-header h1 {
+    font-size: 1.25rem !important;
+    line-height: 1.35 !important;
+  }
+
+  .school-exam-header .action-btns-group {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .school-exam-header .action-btns-group button,
+  .school-exam-header .stage-tab-btn {
+    min-height: 44px !important;
+    width: 100% !important;
+    justify-content: center !important;
+    font-size: 13.5px !important;
+  }
+
+  .school-exam-controls {
+    padding: 12px !important;
+    border-radius: 12px !important;
+    gap: 12px !important;
+  }
+
+  .school-exam-controls select,
+  .school-exam-controls input:not([type='file']):not([type='checkbox']):not([type='radio']),
+  .school-exam-controls textarea {
+    font-size: 16px !important;
+    min-height: 44px !important;
+  }
+
+  .stage-tabs-list {
+    grid-template-columns: 1fr !important;
+    gap: 6px !important;
+  }
+
+  .stage-tabs-list .stage-tab-btn {
+    min-height: 44px !important;
+    font-size: 13px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .preset-card {
+    min-height: 44px !important;
+    padding: 10px 12px !important;
+  }
+
+  .school-exam-paper {
+    padding: 14px !important;
+    border-radius: 8px !important;
+    border-width: 1.5px !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .exam-title-center h1 {
+    font-size: 1.15rem !important;
+    line-height: 1.35 !important;
+  }
+
+  .student-info-grid {
+    grid-template-columns: 1fr !important;
+    gap: 6px !important;
+    padding: 8px !important;
+    font-size: 12px !important;
+  }
+
+  .options-grid {
+    grid-template-columns: 1fr !important;
+    gap: 6px !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  .paper-section {
+    margin-bottom: 16px !important;
+  }
+
+  .paper-passage-box {
+    padding: 10px !important;
+    font-size: 13.5px !important;
+    line-height: 1.6 !important;
+  }
+
+  .question-prompt {
+    font-size: 13px !important;
+    line-height: 1.45 !important;
+  }
+
+  /* ── AI OCR Exam Modal & Assessment Preview Modal ───────────────────────── */
+  .ai-exam-modal-overlay,
+  .ai-modal-overlay {
+    padding: 0 !important;
+    align-items: flex-start !important;
+  }
+
+  .ai-exam-modal-container,
+  .ai-modal-card {
+    width: 100% !important;
+    max-width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+    border: none !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  .ai-exam-modal-header,
+  .ai-modal-header {
+    padding: 12px 14px !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 10 !important;
+    background: var(--surface) !important;
+    border-bottom: 1px solid var(--line) !important;
+  }
+
+  .ai-exam-modal-body,
+  .ai-modal-body {
+    padding: 12px !important;
+    gap: 12px !important;
+    flex: 1 1 auto !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .ai-exam-modal-footer,
+  .ai-modal-footer {
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+    position: sticky !important;
+    bottom: 0 !important;
+    z-index: 10 !important;
+    background: var(--surface) !important;
+    border-top: 1px solid var(--line) !important;
+  }
+
+  .range-dropdown-row {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+
+  .range-separator {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 4px 8px !important;
+    font-size: 12px !important;
+    text-align: center !important;
+    direction: rtl !important;
+  }
+
+  .meta-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .placement-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .ai-exam-modal-body input:not([type='radio']):not([type='checkbox']),
+  .ai-exam-modal-body select,
+  .ai-exam-modal-body textarea,
+  .ai-modal-body input:not([type='radio']):not([type='checkbox']),
+  .ai-modal-body select,
+  .ai-modal-body textarea,
+  .ai-question-prompt-input,
+  .ai-option-input {
+    font-size: 16px !important;
+    min-height: 44px !important;
+  }
+
+  .correct-radio-btn {
+    min-width: 44px !important;
+    min-height: 44px !important;
+    width: 44px !important;
+    height: 44px !important;
+    display: grid !important;
+    place-items: center !important;
+    border-radius: 50% !important;
+  }
+
+  .ai-option-row input[type='radio'] {
+    min-width: 44px !important;
+    min-height: 44px !important;
+    width: 44px !important;
+    height: 44px !important;
+    cursor: pointer !important;
+    accent-color: var(--red) !important;
+  }
+
+  .ai-question-card .btn-ghost,
+  .question-card .btn-icon-danger,
+  .card-controls .btn-icon {
+    min-width: 44px !important;
+    min-height: 44px !important;
+    width: 44px !important;
+    height: 44px !important;
+    display: grid !important;
+    place-items: center !important;
+  }
+
+  .ai-exam-modal-footer .footer-btns,
+  .ai-modal-footer {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .ai-exam-modal-footer .btn-sticky-primary,
+  .ai-exam-modal-footer .btn-sticky-ocr,
+  .ai-modal-footer .btn {
+    width: 100% !important;
+    min-height: 46px !important;
+    justify-content: center !important;
+    font-size: 14px !important;
+    font-weight: 800 !important;
+  }
 }
