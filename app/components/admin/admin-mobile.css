@@ -415,4 +415,230 @@
     line-height: 1.5 !important;
     min-height: 28px !important;
   }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     2. DASHBOARD & TEACHER COURSE WORKSPACE
+     ══════════════════════════════════════════════════════════════════════════ */
+
+  /* ── Quick Actions Bar ─────────────────────────────────────────────────── */
+  .admin-quick-actions-bar {
+    padding: 12px 14px !important;
+    border-radius: 14px !important;
+    margin-bottom: 20px !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+
+  .admin-quick-actions-title {
+    font-size: 13px !important;
+    font-weight: 800 !important;
+  }
+
+  .admin-quick-actions-list {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .admin-quick-btn {
+    min-height: 44px !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    padding: 10px 12px !important;
+    justify-content: center !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  /* ── KPI Metric Cards (2-Column Grid on Mobile) ────────────────────────── */
+  .admin-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    margin-bottom: 22px !important;
+  }
+
+  .admin-stat-card {
+    padding: 12px 14px !important;
+    border-radius: 14px !important;
+    gap: 10px !important;
+    min-height: 72px !important;
+  }
+
+  .admin-stat-icon {
+    width: 38px !important;
+    height: 38px !important;
+    border-radius: 10px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .admin-stat-icon svg {
+    width: 18px !important;
+    height: 18px !important;
+  }
+
+  .admin-stat-label {
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    line-height: 1.35 !important;
+  }
+
+  .admin-stat-value {
+    font-size: 20px !important;
+    font-weight: 900 !important;
+    line-height: 1.2 !important;
+  }
+
+  /* ── Attention / Priority Section ──────────────────────────────────────── */
+  .admin-attention-section {
+    padding: 14px 16px !important;
+    border-radius: 16px !important;
+    margin-bottom: 22px !important;
+  }
+
+  .admin-attention-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .admin-attention-card {
+    padding: 12px 14px !important;
+    border-radius: 12px !important;
+    gap: 12px !important;
+    min-height: 52px !important;
+  }
+
+  .admin-attention-card-action {
+    font-size: 13px !important;
+    font-weight: 800 !important;
+  }
+
+  /* ── Teacher Course Workspace ──────────────────────────────────────────── */
+  .teacher-course-workspace {
+    padding: 14px 12px !important;
+    border-radius: 16px !important;
+    margin-bottom: 22px !important;
+  }
+
+  .workspace-heading {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+  }
+
+  .workspace-filters {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .workspace-search {
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 46px !important;
+    border-radius: 10px !important;
+    box-sizing: border-box !important;
+  }
+
+  .workspace-search input {
+    font-size: 16px !important;
+    min-height: 44px !important;
+  }
+
+  .workspace-filters select {
+    width: 100% !important;
+    min-height: 46px !important;
+    font-size: 16px !important;
+    border-radius: 10px !important;
+    box-sizing: border-box !important;
+  }
+
+  .teacher-course-grid {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+
+  .teacher-course-card {
+    padding: 14px !important;
+    border-radius: 14px !important;
+  }
+
+  .teacher-course-copy h3 {
+    font-size: 16px !important;
+    line-height: 1.4 !important;
+  }
+
+  .teacher-course-copy p {
+    font-size: 13px !important;
+    line-height: 1.5 !important;
+  }
+
+  .teacher-course-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    margin-bottom: 12px !important;
+  }
+
+  .teacher-course-metrics span {
+    min-height: 38px !important;
+    padding: 6px 10px !important;
+    font-size: 12.5px !important;
+  }
+
+  /* Responsive Action Buttons: Proportional, Accessible & No Tiny 10px Text */
+  .teacher-course-actions {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+
+  .teacher-course-actions .btn {
+    min-height: 44px !important;
+    font-size: 13.5px !important;
+    font-weight: 700 !important;
+    padding: 10px 14px !important;
+    border-radius: 10px !important;
+    justify-content: center !important;
+    line-height: 1.35 !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .teacher-course-actions .btn-primary {
+    min-height: 46px !important;
+    font-size: 14px !important;
+    font-weight: 800 !important;
+  }
+
+  .teacher-course-actions .ai-ocr-action-btn {
+    border-color: rgba(207, 11, 39, 0.4) !important;
+    background: rgba(207, 11, 39, 0.08) !important;
+    color: var(--red-bright) !important;
+  }
+
+  /* ── Dashboard Announcements Section ───────────────────────────────────── */
+  .admin-overview-announcements-grid {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+
+  .admin-announcement-composer {
+    padding: 14px !important;
+    border-radius: 14px !important;
+  }
+
+  .admin-announcement-composer textarea {
+    font-size: 16px !important;
+    min-height: 88px !important;
+    border-radius: 10px !important;
+  }
+
+  .admin-announcement-composer .btn-primary {
+    min-height: 46px !important;
+    font-size: 14px !important;
+    width: 100% !important;
+    justify-content: center !important;
+  }
 }
