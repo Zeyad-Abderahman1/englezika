@@ -10,7 +10,7 @@
  * - Delete exam with relational dependency guard
  */
 
-import { useState, useMemo, type FormEvent } from 'react';
+import { useState, useMemo, useEffect, type FormEvent } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   FileQuestion,
@@ -51,14 +51,32 @@ const emptyQuestion = (): QuestionDraft => ({
 export function ExamsManagerView() {
   const searchParams = useSearchParams();
   const defaultCourseIdFromUrl = searchParams.get('courseId') || '';
+  const ocrRequested = searchParams.get('action') === 'ocr' || searchParams.get('ocr') === '1' || searchParams.get('modal') === 'ocr';
 
   const { data, busy, mutate, openConfirm, openPrompt, refreshData, setNotice, setError } = useAdmin();
   const [search, setSearch] = useState('');
   const [selectedCourseId, setSelectedCourseId] = useState(defaultCourseIdFromUrl);
   const [statusFilter, setStatusFilter] = useState('all');
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
-  const [isOcrOpen, setIsOcrOpen] = useState(false);
+  const [isOcrOpen, setIsOcrOpen] = useState(ocrRequested);
   const [questions, setQuestions] = useState<QuestionDraft[]>([emptyQuestion()]);
+
+  useEffect(() => {
+    if (searchParams.get('action') === 'ocr' || searchParams.get('ocr') === '1' || searchParams.get('modal') === 'ocr') {
+      setIsOcrOpen(true);
+    }
+  }, [searchParams]);
+
+  const handleCloseOcr = () => {
+    setIsOcrOpen(false);
+    if (typeof window !== 'undefined' && (window.location.search.includes('action=ocr') || window.location.search.includes('ocr='))) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('action');
+      url.searchParams.delete('ocr');
+      url.searchParams.delete('modal');
+      window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+    }
+  };
 
   const courses = useMemo(() => data?.courses || [], [data?.courses]);
   const videos = useMemo(() => data?.videos || [], [data?.videos]);
@@ -264,7 +282,7 @@ export function ExamsManagerView() {
               onClick={() => setIsOcrOpen(true)}
               style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}
             >
-              <Sparkles size={16} /> استخراج الأسئلة بالذكاء الاصطناعي (AI OCR)
+              <Sparkles size={16} /> اختبار ذكي من الصور (AI OCR)
             </button>
             <button
               type="button"
@@ -337,7 +355,7 @@ export function ExamsManagerView() {
                 onClick={() => setIsOcrOpen(true)}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}
               >
-                <Sparkles size={16} /> استخراج بالذكاء الاصطناعي (AI OCR)
+                <Sparkles size={16} /> اختبار ذكي من الصور (AI OCR)
               </button>
               <button
                 type="button"
@@ -742,12 +760,12 @@ export function ExamsManagerView() {
       {/* ── AI Exam OCR Modal ────────────────────────────────────────── */}
       <AIExamOcrModal
         isOpen={isOcrOpen}
-        onClose={() => setIsOcrOpen(false)}
+        onClose={handleCloseOcr}
         courses={courses}
         videos={videos}
         initialCourseId={selectedCourseId || undefined}
         onExamSaved={async () => {
-          setIsOcrOpen(false);
+          handleCloseOcr();
           setNotice('تم حفظ ونشر امتحان الذكاء الاصطناعي بنجاح');
           await refreshData(1);
         }}

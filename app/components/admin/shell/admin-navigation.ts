@@ -10,6 +10,7 @@ import {
   BarChart3,
   BellRing,
   BookOpen,
+  Camera,
   ClipboardCheck,
   FileQuestion,
   GraduationCap,
@@ -84,6 +85,7 @@ export const ADMIN_NAV_GROUPS: NavGroup[] = [
         children: [
           { label: 'المساعد الذكي', href: '/admin/ai/assistant', icon: Sparkles, permission: 'manage_courses' },
           { label: 'مولد الاختبارات من PDF', href: '/admin/ai/pdf-exam', icon: FileQuestion, permission: 'manage_courses' },
+          { label: 'مولد الاختبارات من الصور', href: '/admin/exams?action=ocr', icon: Camera, permission: 'manage_courses' },
         ],
       },
     ],
