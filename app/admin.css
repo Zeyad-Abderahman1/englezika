@@ -2405,3 +2405,8 @@
 .btn-icon { padding: 6px !important; }
 .btn-block { width: 100%; justify-content: center; }
 .mt-3 { margin-top: 12px; }
+
+/* ── Mobile-Only Elements Hidden on Desktop ───────────────────────────────── */
+.admin-bottom-nav {
+  display: none;
+}

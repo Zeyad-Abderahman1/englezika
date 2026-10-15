@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChevronDown, LogOut, X, ShieldCheck } from 'lucide-react';
+import { BookOpen, ChevronDown, LogOut, X, ShieldCheck } from 'lucide-react';
 import { useAdmin } from '../../../lib/admin-context';
 import { ADMIN_NAV_GROUPS, isAdminNavItemActive } from './admin-navigation';
 
@@ -121,7 +121,15 @@ export function AdminMobileNav() {
         className={`admin-mobile-drawer ${state.closing ? 'is-closing' : ''}`}
       >
         <header className="admin-mobile-drawer-header">
-          <span className="admin-mobile-drawer-title">قائمة الإدارة</span>
+          <div className="admin-mobile-drawer-brand">
+            <div className="admin-mobile-brand-icon" aria-hidden="true">
+              <BookOpen size={18} />
+            </div>
+            <div className="admin-mobile-brand-meta">
+              <span className="admin-mobile-brand-title">Englizeka</span>
+              <span className="admin-mobile-brand-sub">لوحة الإدارة والمتابعة</span>
+            </div>
+          </div>
           <button
             type="button"
             className="admin-mobile-close-btn"
@@ -131,6 +139,20 @@ export function AdminMobileNav() {
             <X size={20} />
           </button>
         </header>
+
+        {/* Teacher / Staff Profile Card */}
+        <div className="admin-mobile-profile-card">
+          <div className="admin-mobile-avatar" aria-hidden="true">
+            {(admin?.name || 'A')[0].toUpperCase()}
+          </div>
+          <div className="admin-mobile-profile-info">
+            <strong className="admin-mobile-profile-name">{admin?.name || 'Mr Ahmed Hassan'}</strong>
+            <span className="admin-mobile-profile-role">
+              <ShieldCheck size={12} />
+              {isTeacher ? 'مدرس — صلاحية كاملة' : 'فريق العمل'}
+            </span>
+          </div>
+        </div>
 
         <nav className="admin-mobile-nav-body" aria-label="أقسام الإدارة">
           {ADMIN_NAV_GROUPS.map((group, groupIdx) => {
@@ -184,20 +206,14 @@ export function AdminMobileNav() {
         </nav>
 
         <footer className="admin-mobile-drawer-footer">
-          <div className="admin-mobile-user-info">
-            <span className="admin-mobile-user-icon">
-              <ShieldCheck size={14} />
-            </span>
-            <span className="admin-mobile-user-name">{admin?.name || 'المستخدم'}</span>
-          </div>
           <button
             type="button"
             className="admin-mobile-logout-btn"
             onClick={handleLogout}
-            aria-label="تسجيل الخروج"
+            aria-label="تسجيل الخروج من المنصة"
           >
-            <LogOut size={16} />
-            <span>تسجيل الخروج</span>
+            <LogOut size={16} className="admin-logout-icon" />
+            <span>تسجيل الخروج من النظام</span>
           </button>
         </footer>
       </div>

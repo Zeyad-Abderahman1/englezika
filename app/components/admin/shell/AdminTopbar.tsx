@@ -8,7 +8,7 @@
  * On mobile, the topbar is compact: [hamburger] [title] [theme toggle] [refresh]
  */
 
-import { Menu, MoonStar, RefreshCw, Sun } from 'lucide-react';
+import { BookOpen, Menu, MoonStar, RefreshCw, Sun } from 'lucide-react';
 import { useAdmin } from '../../../lib/admin-context';
 
 interface AdminTopbarProps {
@@ -30,10 +30,20 @@ export function AdminTopbar({ title }: AdminTopbarProps) {
           <Menu size={20} />
         </button>
 
-        {title && (
+        {title ? (
           <div className="admin-topbar-page-identity">
             <span className="admin-topbar-subtitle">لوحة إدارة المنصة</span>
             <h2 className="admin-topbar-title">{title}</h2>
+          </div>
+        ) : (
+          <div className="admin-topbar-brand">
+            <div className="admin-topbar-brand-icon" aria-hidden="true">
+              <BookOpen size={17} />
+            </div>
+            <div className="admin-topbar-brand-text">
+              <span className="admin-topbar-brand-name">Englizeka</span>
+              <span className="admin-topbar-brand-badge">لوحة الإدارة</span>
+            </div>
           </div>
         )}
       </div>

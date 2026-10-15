@@ -41,7 +41,6 @@ export function AdminBottomNav() {
   return (
     <nav
       className="admin-bottom-nav"
-      style={{ display: 'none' }}
       aria-label="شريط التنقل السفلي للهاتف"
       dir="rtl"
     >
