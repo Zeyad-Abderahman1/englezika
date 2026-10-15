@@ -11,6 +11,7 @@ import {
   ArrowUp,
   ArrowDown,
   Plus,
+  Minus,
   Save,
   LoaderCircle,
   Layers,
@@ -430,18 +431,20 @@ export function AIExamOcrModal({
                 <label>
                   <ArrowLeftRight size={16} /> نطاق الاختبار:
                 </label>
-                <div className="scope-pill-group">
+                <div className="ai-segments" role="group" aria-label="نطاق الاختبار">
                   <button
                     type="button"
-                    className={`scope-pill ${scopeType === 'all_lectures' ? 'active' : ''}`}
+                    className={`ai-segment-btn ${scopeType === 'all_lectures' ? 'active' : ''}`}
                     onClick={() => setScopeType('all_lectures')}
+                    aria-pressed={scopeType === 'all_lectures'}
                   >
-                    جميع محاضرات
+                    جميع المحاضرات
                   </button>
                   <button
                     type="button"
-                    className={`scope-pill ruby-accent ${scopeType === 'lecture_range' ? 'active' : ''}`}
+                    className={`ai-segment-btn ${scopeType === 'lecture_range' ? 'active' : ''}`}
                     onClick={() => setScopeType('lecture_range')}
+                    aria-pressed={scopeType === 'lecture_range'}
                   >
                     نطاق محاضرات
                   </button>
@@ -528,15 +531,50 @@ export function AIExamOcrModal({
                 <label>
                   نسبة النجاح المطلوبة: <span className="passing-badge">{passingScore}%</span>
                 </label>
-                <input
-                  type="range"
-                  min={30}
-                  max={100}
-                  step={5}
-                  value={passingScore}
-                  onChange={(e) => setPassingScore(Number(e.target.value))}
-                  className="custom-range"
-                />
+                <div className="ai-pass-stepper-wrap">
+                  <div className="ai-count-control">
+                    <button
+                      type="button"
+                      onClick={() => setPassingScore((prev) => Math.max(10, prev - 5))}
+                      disabled={passingScore <= 10}
+                      aria-label="تقليل نسبة النجاح"
+                    >
+                      <Minus size={16} />
+                    </button>
+                    <input
+                      type="number"
+                      min={10}
+                      max={100}
+                      step={5}
+                      value={passingScore}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (!isNaN(val)) setPassingScore(Math.max(10, Math.min(100, val)));
+                      }}
+                      aria-label="نسبة النجاح"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setPassingScore((prev) => Math.min(100, prev + 5))}
+                      disabled={passingScore >= 100}
+                      aria-label="زيادة نسبة النجاح"
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </div>
+                  <div className="ai-quick-pills" role="group" aria-label="خيارات نسبة النجاح السريعة">
+                    {[50, 60, 70, 80].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        className={`ai-quick-pill ${passingScore === preset ? 'active' : ''}`}
+                        onClick={() => setPassingScore(preset)}
+                      >
+                        {preset}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           </section>

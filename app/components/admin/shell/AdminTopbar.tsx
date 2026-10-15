@@ -8,7 +8,7 @@
  * On mobile, the topbar is compact: [hamburger] [title] [theme toggle] [refresh]
  */
 
-import { Menu, MoonStar, RefreshCw, Sun, ShieldCheck } from 'lucide-react';
+import { Menu, MoonStar, RefreshCw, Sun } from 'lucide-react';
 import { useAdmin } from '../../../lib/admin-context';
 
 interface AdminTopbarProps {
@@ -16,9 +16,7 @@ interface AdminTopbarProps {
 }
 
 export function AdminTopbar({ title }: AdminTopbarProps) {
-  const { admin, isTeacher, light, toggleTheme, refreshData, busy, setSidebarOpen } = useAdmin();
-
-  const roleLabel = isTeacher ? 'مدرس — صلاحية كاملة' : 'مساعد';
+  const { light, toggleTheme, refreshData, busy, setSidebarOpen } = useAdmin();
 
   return (
     <header className="admin-topbar">
@@ -41,15 +39,6 @@ export function AdminTopbar({ title }: AdminTopbarProps) {
       </div>
 
       <div className="admin-topbar-end">
-        <div className="admin-topbar-user">
-          <span className="admin-topbar-user-icon">
-            <ShieldCheck size={16} />
-          </span>
-          <div className="admin-topbar-user-text">
-            <strong className="admin-topbar-user-name">{admin?.name || 'المستخدم'}</strong>
-            <small className="admin-topbar-user-role">{roleLabel}</small>
-          </div>
-        </div>
 
         <button
           type="button"
