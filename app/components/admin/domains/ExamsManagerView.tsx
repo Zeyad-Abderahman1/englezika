@@ -36,6 +36,7 @@ import { AdminFilterBar } from '../shell/AdminFilterBar';
 import { AdminEmptyState } from '../shell/AdminEmptyState';
 import { AdminStatusBadge } from '../shell/AdminStatusBadge';
 import { AIExamOcrModal } from '../AIExamOcrModal';
+import { ADMIN_OPEN_OCR_EVENT } from '../shell/admin-navigation';
 
 const emptyQuestion = (): QuestionDraft => ({
   type: 'multiple_choice',
@@ -59,13 +60,24 @@ export function ExamsManagerView() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const [isOcrOpen, setIsOcrOpen] = useState(ocrRequested);
+  const [handledOcrRequest, setHandledOcrRequest] = useState(ocrRequested);
   const [questions, setQuestions] = useState<QuestionDraft[]>([emptyQuestion()]);
 
+  // Keep the OCR modal in sync with `?action=ocr` navigations without an
+  // effect-driven cascading render. React allows guarded state adjustment
+  // during render when a derived input changes.
+  if (ocrRequested !== handledOcrRequest) {
+    setHandledOcrRequest(ocrRequested);
+    if (ocrRequested) setIsOcrOpen(true);
+  }
+
+  // The mobile dock's primary action dispatches this event when the user is
+  // already on /admin/exams so the modal can reopen without a URL change.
   useEffect(() => {
-    if (searchParams.get('action') === 'ocr' || searchParams.get('ocr') === '1' || searchParams.get('modal') === 'ocr') {
-      setIsOcrOpen(true);
-    }
-  }, [searchParams]);
+    const openOcrFromDock = () => setIsOcrOpen(true);
+    window.addEventListener(ADMIN_OPEN_OCR_EVENT, openOcrFromDock);
+    return () => window.removeEventListener(ADMIN_OPEN_OCR_EVENT, openOcrFromDock);
+  }, []);
 
   const handleCloseOcr = () => {
     setIsOcrOpen(false);
@@ -287,12 +299,11 @@ export function ExamsManagerView() {
           </span>
         }
         actions={
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <div className="admin-exams-header-actions">
             <button
               type="button"
               className="btn btn-secondary"
               onClick={() => setIsOcrOpen(true)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}
             >
               <Sparkles size={16} /> اختبار ذكي من الصور (AI OCR)
             </button>
@@ -300,7 +311,6 @@ export function ExamsManagerView() {
               type="button"
               className="btn btn-primary"
               onClick={() => setIsBuilderOpen(true)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}
             >
               <CirclePlus size={16} /> إنشاء امتحان جديد
             </button>
@@ -360,12 +370,11 @@ export function ExamsManagerView() {
               : 'لم تقم بإنشاء أي امتحان بعد. انقر على الزر أدناه لبناء أول امتحان.'
           }
           action={
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <div className="admin-exams-empty-actions">
               <button
                 type="button"
                 className="btn btn-secondary"
                 onClick={() => setIsOcrOpen(true)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}
               >
                 <Sparkles size={16} /> اختبار ذكي من الصور (AI OCR)
               </button>
@@ -373,7 +382,6 @@ export function ExamsManagerView() {
                 type="button"
                 className="btn btn-primary"
                 onClick={() => setIsBuilderOpen(true)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}
               >
                 <CirclePlus size={16} /> إنشاء امتحان
               </button>

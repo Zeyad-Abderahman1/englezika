@@ -8821,6 +8821,308 @@ html[data-theme='light'] .option-input {
   color: #0f172a;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════════
+   AI EXAM OCR MODAL — MOBILE BOTTOM SHEET, STICKY CHROME & TOUCH DENSITY
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.ai-exam-modal-container {
+  min-height: 0;
+}
+
+.ai-exam-modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  flex-shrink: 0;
+  gap: 0.75rem;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.header-badge-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.header-badge-title h2 {
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.ai-badge {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-badge svg {
+  flex: 0 0 auto;
+}
+
+.ai-exam-modal-header .close-btn {
+  flex: 0 0 auto;
+  min-width: 40px;
+  min-height: 40px;
+  margin-inline-start: auto;
+}
+
+.ai-exam-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.section-title {
+  flex-wrap: wrap;
+  line-height: 1.45;
+}
+
+.section-title svg {
+  flex: 0 0 auto;
+}
+
+.form-group {
+  min-width: 0;
+}
+
+.form-group label {
+  justify-content: flex-start;
+  text-align: right;
+  line-height: 1.4;
+}
+
+.custom-select,
+.custom-input {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ai-exam-modal-footer {
+  position: sticky;
+  bottom: 0;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.75rem 0.875rem;
+  background: rgba(9, 9, 11, 0.95);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.ai-exam-modal-footer .submit-error-msg {
+  flex: 1 0 100%;
+  padding: 0.4rem 0.6rem;
+  border-radius: 8px;
+  background: rgba(207, 11, 39, 0.12);
+  border: 1px solid rgba(207, 11, 39, 0.35);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.footer-btns {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  gap: 0.5rem;
+}
+
+.ai-exam-modal-footer .ai-exam-footer-cancel,
+.ai-exam-modal-footer .btn-sticky-primary,
+.ai-exam-modal-footer .btn-sticky-ocr {
+  height: 42px;
+  min-height: 42px;
+  padding: 0.625rem 1rem;
+  border-radius: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.ai-exam-modal-footer .ai-exam-footer-cancel {
+  min-width: 4.5rem;
+}
+
+.ai-exam-modal-footer .btn-sticky-primary,
+.ai-exam-modal-footer .btn-sticky-ocr {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  justify-content: center;
+}
+
+@media (max-width: 640px) {
+  .ai-exam-modal-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .ai-exam-modal-container {
+    width: 100%;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border: none;
+    border-radius: 24px 24px 0 0;
+  }
+
+  .ai-exam-modal-header {
+    padding: 0.75rem 0.875rem;
+    padding-top: calc(0.75rem + env(safe-area-inset-top, 0px));
+  }
+
+  .header-badge-title h2 {
+    font-size: 0.95rem;
+    line-height: 1.4;
+  }
+
+  .ai-badge {
+    padding: 0.15rem 0.55rem;
+    font-size: 0.7rem;
+  }
+
+  .ai-exam-modal-body {
+    padding: 1rem 0.875rem;
+    gap: 0.875rem;
+  }
+
+  .config-section,
+  .upload-section,
+  .preview-studio-section {
+    padding: 0.875rem 0.75rem;
+    border-radius: 12px;
+  }
+
+  .section-title {
+    margin-bottom: 0.7rem;
+    padding-bottom: 0.45rem;
+    font-size: 0.92rem;
+    gap: 0.4rem;
+  }
+
+  .placement-grid,
+  .meta-grid,
+  .range-dropdown-row,
+  .options-list-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+
+  .lecture-range-container {
+    padding: 0.75rem;
+  }
+
+  .range-separator {
+    white-space: normal;
+  }
+
+  .mobile-upload-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+
+  .btn-touch-upload {
+    padding: 0.65rem 0.5rem;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    min-height: 44px;
+    white-space: nowrap;
+  }
+
+  .studio-header {
+    gap: 0.65rem;
+  }
+
+  .studio-subtitle {
+    font-size: 0.78rem;
+    line-height: 1.5;
+  }
+
+  .studio-quick-tools {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .studio-quick-tools .btn-quick-tool,
+  .studio-quick-tools .btn-outline-sm {
+    justify-content: center;
+    width: 100%;
+    white-space: nowrap;
+  }
+
+  .studio-quick-tools .btn-outline-sm {
+    grid-column: 1 / -1;
+  }
+
+  .questions-card-list {
+    gap: 0.7rem;
+  }
+
+  .question-card {
+    padding: 0.85rem;
+  }
+
+  .question-card.is-collapsed {
+    padding: 0.7rem 0.8rem;
+  }
+
+  .collapsed-answer-chip {
+    max-width: 100%;
+  }
+
+  .empty-questions-state {
+    padding: 1.75rem 0.5rem;
+  }
+
+  .ai-exam-modal-footer {
+    padding: 0.65rem 0.875rem;
+    padding-bottom: calc(0.65rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .footer-btns {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .ai-exam-modal-footer .ai-exam-footer-cancel,
+  .ai-exam-modal-footer .btn-sticky-primary,
+  .ai-exam-modal-footer .btn-sticky-ocr {
+    height: 42px;
+    min-height: 42px;
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+  }
+}
+
+@media (max-width: 359px) {
+  .mobile-upload-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 340px) {
+  .ai-exam-modal-footer .ai-exam-footer-cancel,
+  .ai-exam-modal-footer .btn-sticky-primary,
+  .ai-exam-modal-footer .btn-sticky-ocr {
+    font-size: 0.75rem;
+    padding-inline: 0.625rem;
+  }
+}
+
+html[data-theme='light'] .ai-exam-modal-footer {
+  background: rgba(255, 255, 255, 0.96);
+}
+
 /* Inter-lecture prerequisite gate step in student playlist sidebar */
 .inter-lecture-gate-step {
   margin: 0.65rem 0;

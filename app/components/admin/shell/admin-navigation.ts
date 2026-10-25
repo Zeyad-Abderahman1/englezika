@@ -148,6 +148,12 @@ export const ADMIN_NAV_GROUPS: NavGroup[] = [
 
 export const BRAND_ICON = ShieldCheck;
 
+/**
+ * Fired by the mobile floating dock when the primary OCR action is pressed
+ * while the exams page is already mounted (the query string may not change).
+ */
+export const ADMIN_OPEN_OCR_EVENT = 'admin:open-exam-ocr';
+
 export function isAdminNavItemActive(pathname: string, href: string) {
   if (href === '/admin') return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);

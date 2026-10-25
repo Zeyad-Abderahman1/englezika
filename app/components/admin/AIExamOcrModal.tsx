@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useMemo, ChangeEvent, DragEvent } from 'react';
+import { useState, useRef, useMemo, useEffect, ChangeEvent, DragEvent } from 'react';
 import {
   X,
   Upload,
@@ -86,6 +86,29 @@ export function AIExamOcrModal({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Lock background scrolling and support keyboard dismissal while open.
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCloseRef.current();
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
 
   // Filter lectures belonging to selected course
   const courseVideos = useMemo(() => {
@@ -401,7 +424,13 @@ export function AIExamOcrModal({
   if (!isOpen) return null;
 
   return (
-    <div className="ai-exam-modal-overlay" dir="rtl">
+    <div
+      className="ai-exam-modal-overlay"
+      dir="rtl"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="ai-exam-ocr-title"
+    >
       <div className="ai-exam-modal-container">
         {/* Modal Header */}
         <header className="ai-exam-modal-header">
@@ -409,7 +438,7 @@ export function AIExamOcrModal({
             <span className="ai-badge">
               <Sparkles size={16} /> استخراج ذكي (Vision OCR)
             </span>
-            <h2>إنشاء اختبار تفاعلي بالذكاء الاصطناعي وبوابة المحاضرات</h2>
+            <h2 id="ai-exam-ocr-title">إنشاء اختبار تفاعلي بالذكاء الاصطناعي وبوابة المحاضرات</h2>
           </div>
           <button type="button" className="close-btn" onClick={onClose} aria-label="إغلاق النافذة">
             <X size={20} />
@@ -958,14 +987,14 @@ export function AIExamOcrModal({
         {/* Modal Sticky Bottom Action Bar (One-Thumb Operation) */}
         <footer className="ai-exam-modal-footer">
           {submitError && (
-            <div className="submit-error-msg">
+            <div className="submit-error-msg" role="alert">
               <AlertCircle size={16} /> {submitError}
             </div>
           )}
           <div className="footer-btns">
             <button
               type="button"
-              className="btn btn-secondary"
+              className="btn btn-secondary ai-exam-footer-cancel"
               onClick={onClose}
               disabled={isSubmitting}
             >
@@ -1003,7 +1032,7 @@ export function AIExamOcrModal({
                     </>
                   ) : (
                     <>
-                      <Sparkles size={18} /> استخراج الأسئلة بالذكاء الاصطناعي
+                      <Sparkles size={18} /> استخراج الأسئلة
                     </>
                   )}
                 </button>

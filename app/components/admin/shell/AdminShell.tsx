@@ -14,6 +14,7 @@ import { useAdmin } from '../../../lib/admin-context';
 import { AdminSidebar } from './AdminSidebar';
 import { AdminTopbar } from './AdminTopbar';
 import { AdminMobileNav } from './AdminMobileNav';
+import { AdminMobileDock } from './AdminMobileDock';
 import { AdminPromptModal } from './AdminPromptModal';
 import { AdminConfirmDialog } from './AdminConfirmDialog';
 
@@ -45,6 +46,9 @@ export function AdminShell({ children, pageTitle }: AdminShellProps) {
 
       {/* ── Mobile Navigation Drawer ────────────────────────────────────────── */}
       <AdminMobileNav />
+
+      {/* ── Mobile Floating Pill Dock ───────────────────────────────────────── */}
+      <AdminMobileDock />
 
       {/* ── Main Content Area ───────────────────────────────────────────────── */}
       <div className="admin-main-container">

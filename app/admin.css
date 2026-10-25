@@ -1386,7 +1386,7 @@
 .admin-assignments-grid,
 .admin-messages-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
   gap: 18px;
 }
 
@@ -2189,7 +2189,7 @@
 
 .admin-skeleton-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
   gap: 16px;
 }
 
@@ -2405,3 +2405,381 @@
 .btn-icon { padding: 6px !important; }
 .btn-block { width: 100%; justify-content: center; }
 .mt-3 { margin-top: 12px; }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   MOBILE FLOATING PILL DOCK & COMPACT ADMIN DENSITY
+   Design tokens mirror the requested utilities:
+   fixed bottom-4 / inset-x-4 / max-w-md / mx-auto / z-50 / rounded-full
+   bg-zinc-950/85 / backdrop-blur-xl / border-white/10
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.admin-mobile-dock {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .admin-mobile-dock {
+    position: fixed;
+    inset-inline: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    z-index: 50;
+    display: block;
+    width: auto;
+    max-width: 28rem;
+    margin-inline: auto;
+    padding: 8px 12px;
+    border-radius: 9999px;
+    background: rgba(9, 9, 11, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.75);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    backdrop-filter: blur(20px) saturate(140%);
+    animation: adminDockEnter 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .admin-mobile-dock-list {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .admin-mobile-dock-list > li {
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .admin-mobile-dock-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    width: 100%;
+    min-width: 0;
+    padding: 6px 2px;
+    border: 1px solid transparent;
+    border-radius: 9999px;
+    color: var(--muted);
+    text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 180ms ease, color 180ms ease, border-color 180ms ease,
+      transform 150ms ease, box-shadow 180ms ease;
+  }
+
+  .admin-mobile-dock-item:active {
+    transform: scale(0.95);
+  }
+
+  .admin-mobile-dock-item.is-active {
+    background: rgba(220, 38, 38, 0.2);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #f87171;
+  }
+
+  .admin-mobile-dock-item.is-primary {
+    background: linear-gradient(to top right, #dc2626 0%, #f43f5e 100%);
+    border-color: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+    box-shadow: 0 10px 24px rgba(220, 38, 38, 0.4);
+    transform: translateY(-6px);
+  }
+
+  .admin-mobile-dock-item.is-primary:active {
+    transform: translateY(-6px) scale(0.95);
+  }
+
+  .admin-mobile-dock-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+
+  .admin-mobile-dock-label {
+    max-width: 100%;
+    margin-top: 2px;
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.15;
+    white-space: nowrap;
+    text-align: center;
+  }
+
+  .admin-mobile-dock-item:focus-visible {
+    outline: 3px solid rgba(239, 68, 68, 0.55);
+    outline-offset: 2px;
+  }
+
+  /* Keep page content clear of the floating dock (pb-28). */
+  .admin-content-body {
+    padding: 12px;
+    padding-bottom: calc(112px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .admin-page-header {
+    margin-bottom: 14px;
+  }
+
+  .admin-page-title-row {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .admin-page-title-group {
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .admin-page-title {
+    font-size: 20px;
+    line-height: 1.35;
+  }
+
+  .admin-page-description {
+    margin-top: 4px;
+    font-size: 12.5px;
+    line-height: 1.55;
+  }
+
+  .admin-page-actions {
+    width: 100%;
+    gap: 8px;
+  }
+
+  .admin-page-actions > .btn,
+  .admin-page-actions > div > .btn {
+    max-width: 100%;
+    min-height: 42px;
+    padding: 8px 12px;
+    font-size: 12.5px;
+    line-height: 1.2;
+  }
+
+  .admin-page-actions > div {
+    gap: 8px;
+    width: 100%;
+  }
+
+  .admin-header-pill {
+    max-width: 100%;
+    padding: 3px 8px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .admin-filter-bar {
+    padding: 10px;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .admin-filter-inputs {
+    gap: 8px;
+  }
+
+  .admin-search-wrapper {
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+    flex: 1 1 100%;
+  }
+
+  .admin-filter-inputs > .admin-select {
+    flex: 1 1 132px;
+    min-width: 0;
+  }
+
+  .admin-filter-meta {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .admin-exams-grid,
+  .admin-courses-grid,
+  .admin-assignments-grid,
+  .admin-messages-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .admin-exam-card,
+  .admin-course-card,
+  .admin-assignment-card,
+  .admin-message-card {
+    padding: 14px;
+    border-radius: 14px;
+  }
+
+  .admin-exam-card-footer,
+  .admin-course-card-footer,
+  .admin-assignment-card-footer {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .admin-exam-actions-group {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .admin-exams-view .admin-empty-state {
+    padding: 28px 14px;
+  }
+
+  /* Lift toasts above the floating dock. */
+  .admin-toast {
+    left: 16px;
+    right: 16px;
+    bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+    justify-content: space-between;
+  }
+
+  html[data-theme='light'] .admin-mobile-dock {
+    background: rgba(255, 255, 255, 0.94);
+    border-color: rgba(15, 23, 42, 0.1);
+    box-shadow: 0 12px 40px rgba(15, 23, 42, 0.18);
+  }
+
+  html[data-theme='light'] .admin-mobile-dock-item {
+    color: #52525b;
+  }
+
+  html[data-theme='light'] .admin-mobile-dock-item.is-active {
+    background: rgba(220, 38, 38, 0.1);
+    border-color: rgba(220, 38, 38, 0.25);
+    color: #b91c1c;
+  }
+}
+
+@media (max-width: 360px) {
+  .admin-mobile-dock {
+    padding: 7px 8px;
+  }
+
+  .admin-mobile-dock-label {
+    font-size: 9.5px;
+  }
+}
+
+@keyframes adminDockEnter {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-mobile-dock {
+    animation: none;
+  }
+
+  .admin-mobile-dock-item {
+    transition: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .admin-content-body {
+    padding-bottom: 32px;
+  }
+}
+
+/* Shared page-header action layout (used by AdminPageHeader consumers). */
+.admin-page-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.admin-page-badge {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* Exams page header / empty-state action clusters */
+.admin-exams-header-actions,
+.admin-exams-empty-actions,
+.admin-exam-actions-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.admin-exams-empty-actions {
+  justify-content: center;
+}
+
+@media (max-width: 767px) {
+  .admin-exams-header-actions,
+  .admin-exams-empty-actions {
+    width: 100%;
+  }
+
+  .admin-exams-header-actions > .btn,
+  .admin-exams-empty-actions > .btn {
+    flex: 1 1 100%;
+    white-space: normal;
+    text-align: center;
+  }
+}
+
+/* Compact exam builder sheet on phones */
+@media (max-width: 640px) {
+  .admin-modal-card.wide-modal {
+    width: 100%;
+    max-height: calc(100dvh - 16px);
+    padding: 16px 14px;
+    border-radius: 18px;
+  }
+
+  .admin-modal-card.wide-modal .admin-modal-header {
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    gap: 8px;
+  }
+
+  .admin-modal-card.wide-modal .admin-form-section {
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+
+  .admin-modal-card.wide-modal .admin-form-row,
+  .admin-modal-card.wide-modal .admin-form-row.three {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .admin-modal-card.wide-modal .admin-section-header-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .admin-modal-card.wide-modal .admin-modal-footer {
+    position: sticky;
+    bottom: 0;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 12px;
+    background: var(--surface);
+  }
+
+  .admin-modal-card.wide-modal .admin-modal-footer .btn {
+    flex: 1 1 auto;
+  }
+}
+
