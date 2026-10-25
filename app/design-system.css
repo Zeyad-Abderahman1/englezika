@@ -265,7 +265,7 @@ html[data-theme='light'] .portal-page {
   .hero-promise, .hero-copy > p, .course-card h3, .auth-heading h1, .page-hero h1 { overflow-wrap: anywhere; }
   .feature-grid, .course-grid, .testimonial-grid, .stats-grid, .admin-stats, .enrolled-course-grid { grid-template-columns: minmax(0, 1fr); }
   .form-row, .form-row.three, .auth-grid-2 { grid-template-columns: minmax(0, 1fr); }
-  .quiz-header, .admin-topbar, .student-page-heading, .student-section-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .quiz-header, .student-page-heading, .student-section-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
   .quiz-timer { min-width: 0; width: 100%; }
   .quiz-options { grid-template-columns: minmax(0, 1fr); }
   .quiz-options label, .answer-option { min-height: 52px; width: 100%; }

@@ -36,9 +36,9 @@ export function AdminPageHeader({
             <h1 className="admin-page-title">{title}</h1>
             {badge && <div className="admin-page-badge">{badge}</div>}
           </div>
-          {actions && <div className="admin-page-actions">{actions}</div>}
         </div>
         {description && <p className="admin-page-description">{description}</p>}
+        {actions && <div className="admin-page-actions">{actions}</div>}
       </div>
     </header>
   );

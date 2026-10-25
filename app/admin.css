@@ -2420,14 +2420,14 @@
 @media (max-width: 767px) {
   .admin-mobile-dock {
     position: fixed;
-    inset-inline: 16px;
-    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    inset-inline: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     z-index: 50;
     display: block;
     width: auto;
     max-width: 28rem;
     margin-inline: auto;
-    padding: 8px 12px;
+    padding: 6px 8px;
     border-radius: 9999px;
     background: rgba(9, 9, 11, 0.88);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -2515,10 +2515,10 @@
     outline-offset: 2px;
   }
 
-  /* Keep page content clear of the floating dock (pb-28). */
+  /* Keep page content clear of the floating dock (pb-32). */
   .admin-content-body {
     padding: 12px;
-    padding-bottom: calc(112px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(128px + env(safe-area-inset-bottom, 0px));
   }
 
   .admin-page-header {
@@ -2658,7 +2658,8 @@
 
 @media (max-width: 360px) {
   .admin-mobile-dock {
-    padding: 7px 8px;
+    inset-inline: 10px;
+    padding: 6px;
   }
 
   .admin-mobile-dock-label {
@@ -2689,7 +2690,7 @@
 
 @media (min-width: 768px) {
   .admin-content-body {
-    padding-bottom: 32px;
+    padding-bottom: 40px;
   }
 }
 
@@ -2723,17 +2724,29 @@
   justify-content: center;
 }
 
-@media (max-width: 767px) {
+@media (max-width: 639px) {
   .admin-exams-header-actions,
   .admin-exams-empty-actions {
     width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding-top: 4px;
   }
 
   .admin-exams-header-actions > .btn,
   .admin-exams-empty-actions > .btn {
-    flex: 1 1 100%;
-    white-space: normal;
+    width: 100%;
+    white-space: nowrap;
     text-align: center;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 767px) {
+  .admin-exams-header-actions > .btn,
+  .admin-exams-empty-actions > .btn {
+    flex: 1 1 auto;
+    white-space: nowrap;
   }
 }
 
@@ -2783,3 +2796,269 @@
   }
 }
 
+
+/* MOBILE TOPBAR / PAGE HEADER / EXAM CARD ACTION REPAIRS */
+
+/* Legacy globals/design-system rules render .admin-topbar as a bordered card and
+   stack it into a column below 480px. Force the admin bar back to a flush sticky
+   row at every breakpoint. */
+.admin-app-layout .admin-topbar {
+  margin-bottom: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+  background-color: var(--surface);
+}
+
+html[data-theme='light'] .admin-app-layout .admin-topbar {
+  border: 0 !important;
+  border-bottom: 1px solid var(--line) !important;
+  border-radius: 0 !important;
+}
+
+.admin-topbar-page-identity {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.admin-topbar-brand-mark {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  color: #fff;
+  background: linear-gradient(145deg, var(--red-bright), var(--red-dark));
+  box-shadow: 0 6px 16px rgba(207, 11, 39, 0.28);
+}
+
+.admin-topbar-heading {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.admin-topbar-title {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-topbar-user-initial {
+  display: none;
+}
+
+/* Desktop header grid: actions sit to the inline-end of the title/description,
+   while the DOM order stays eyebrow → title → description → actions. */
+.admin-page-header-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'breadcrumbs breadcrumbs'
+    'title actions'
+    'description actions';
+  align-items: start;
+  column-gap: 18px;
+}
+
+.admin-page-header-main > .admin-breadcrumbs { grid-area: breadcrumbs; }
+.admin-page-header-main > .admin-page-title-row { grid-area: title; }
+.admin-page-header-main > .admin-page-description { grid-area: description; }
+.admin-page-header-main > .admin-page-actions { grid-area: actions; align-self: start; }
+
+/* Exam card footer: two equal action buttons + compact delete control. */
+.admin-exams-view .admin-exam-card-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.admin-exams-view .admin-exam-actions-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.admin-exams-view .admin-exam-actions-group .btn {
+  width: 100%;
+  min-width: 0;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .admin-app-layout .admin-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    height: calc(56px + env(safe-area-inset-top, 0px));
+    min-height: calc(56px + env(safe-area-inset-top, 0px));
+    padding: env(safe-area-inset-top, 0px) 12px 0;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+    margin: 0;
+    background: rgba(9, 9, 11, 0.9);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+  }
+
+  .admin-topbar-start {
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .admin-topbar-page-identity {
+    display: flex;
+    gap: 8px;
+  }
+
+  .admin-topbar-brand-mark {
+    width: 28px;
+    height: 28px;
+    flex-basis: 28px;
+    border-radius: 8px;
+  }
+
+  .admin-topbar-subtitle {
+    display: none;
+  }
+
+  .admin-topbar-title {
+    font-size: 13.5px;
+    font-weight: 800;
+    line-height: 1.2;
+  }
+
+  .admin-hamburger-btn {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #e4e4e7;
+    background: transparent;
+  }
+
+  .admin-hamburger-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  /* Refresh + theme controls are desktop-only; mobile uses the account badge. */
+  .admin-app-layout .admin-topbar-end > .admin-topbar-action-btn,
+  .admin-app-layout .admin-topbar-end > .theme-toggle {
+    display: none;
+  }
+
+  .admin-app-layout .admin-topbar-user {
+    display: flex;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+    padding: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .admin-app-layout .admin-topbar-user-icon,
+  .admin-app-layout .admin-topbar-user-text {
+    display: none;
+  }
+
+  .admin-app-layout .admin-topbar-user-initial {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 800;
+    color: #f87171;
+  }
+
+  /* Page header hierarchy: eyebrow → title/badge → description → actions. */
+  .admin-page-header-main {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .admin-page-header-main > .admin-breadcrumbs {
+    margin-bottom: 0;
+    font-size: 11.5px;
+  }
+
+  .admin-page-header-main > .admin-breadcrumbs .breadcrumb-current {
+    color: #f87171;
+    font-weight: 700;
+  }
+
+  .admin-page-title-row {
+    align-items: center;
+    gap: 8px;
+  }
+
+  .admin-page-description {
+    margin-top: 0;
+  }
+
+  .admin-page-actions {
+    margin-top: 2px;
+  }
+
+  .admin-exams-view .admin-exam-card-footer {
+    grid-template-columns: minmax(0, 1fr) 40px;
+    padding-top: 12px;
+  }
+
+  .admin-exams-view .admin-exam-actions-group .btn {
+    min-height: 42px;
+    padding: 10px 6px;
+    border-radius: 12px;
+    font-size: 11.5px;
+    gap: 4px;
+  }
+
+  .admin-exams-view .admin-exam-card-footer > .btn-icon {
+    width: 40px;
+    height: 40px;
+    min-height: 40px;
+    padding: 0 !important;
+    border-radius: 12px;
+  }
+
+  html[data-theme='light'] .admin-app-layout .admin-topbar {
+    background: rgba(255, 255, 255, 0.92);
+  }
+
+  html[data-theme='light'] .admin-hamburger-btn {
+    color: var(--text);
+    border-color: var(--line);
+  }
+
+  html[data-theme='light'] .admin-app-layout .admin-topbar-user {
+    background: var(--surface-2);
+    border-color: var(--line);
+  }
+
+  html[data-theme='light'] .admin-app-layout .admin-topbar-user-initial {
+    color: #b91c1c;
+  }
+}

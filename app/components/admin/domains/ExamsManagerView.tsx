@@ -302,17 +302,17 @@ export function ExamsManagerView() {
           <div className="admin-exams-header-actions">
             <button
               type="button"
-              className="btn btn-secondary"
-              onClick={() => setIsOcrOpen(true)}
-            >
-              <Sparkles size={16} /> اختبار ذكي من الصور (AI OCR)
-            </button>
-            <button
-              type="button"
               className="btn btn-primary"
               onClick={() => setIsBuilderOpen(true)}
             >
               <CirclePlus size={16} /> إنشاء امتحان جديد
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setIsOcrOpen(true)}
+            >
+              <Sparkles size={16} /> اختبار ذكي من الصور (AI OCR)
             </button>
           </div>
         }
@@ -373,17 +373,17 @@ export function ExamsManagerView() {
             <div className="admin-exams-empty-actions">
               <button
                 type="button"
-                className="btn btn-secondary"
-                onClick={() => setIsOcrOpen(true)}
-              >
-                <Sparkles size={16} /> اختبار ذكي من الصور (AI OCR)
-              </button>
-              <button
-                type="button"
                 className="btn btn-primary"
                 onClick={() => setIsBuilderOpen(true)}
               >
                 <CirclePlus size={16} /> إنشاء امتحان
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setIsOcrOpen(true)}
+              >
+                <Sparkles size={16} /> اختبار ذكي من الصور (AI OCR)
               </button>
             </div>
           }
