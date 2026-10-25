@@ -17,10 +17,11 @@ export async function POST(request: Request) {
   }
   const email = safeText(body.email, 254).toLowerCase();
   const password = typeof body.password === 'string' ? body.password : '';
+  const rememberMe = typeof body.rememberMe === 'boolean' ? body.rememberMe : true;
   if (!email || !password) return jsonError('البريد الإلكتروني وكلمة المرور مطلوبان');
   const staff = await verifyStaffCredentials(email, password);
   if (!staff) return jsonError('بيانات الدخول غير صحيحة أو الحساب مقفل مؤقتاً', 401);
-  const session = await createStaffSession(staff);
+  const session = await createStaffSession(staff, rememberMe);
   const secure = isSecureRequest(request);
   return Response.json(
     { ok: true, staff: { email: staff.email, name: staff.name, role: staff.role } },

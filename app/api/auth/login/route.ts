@@ -1,6 +1,11 @@
 import { verifyStudentPassword } from '../../../lib/native-auth';
 import { isSecureRequest, jsonError, readBoundedJson, requireSameOrigin, safeText } from '../../../lib/security';
-import { createStudentSession, studentSessionCookie } from '../../../lib/student-session';
+import {
+  STUDENT_SESSION_REMEMBER_MS,
+  STUDENT_SESSION_SHORT_MS,
+  createStudentSession,
+  studentSessionCookie,
+} from '../../../lib/student-session';
 import { checkRateLimit, getClientIp, rateLimitResponse } from '../../../lib/rate-limit';
 import { isEmailVerified } from '../../../lib/email-verification';
 
@@ -19,7 +24,8 @@ export async function POST(request: Request) {
   }
   const email = safeText(body.email, 200).toLowerCase();
   const password = typeof body.password === 'string' ? body.password : '';
-  const staySignedIn = body.staySignedIn === true;
+  const rememberMe =
+    typeof body.rememberMe === 'boolean' ? body.rememberMe : body.staySignedIn === true;
 
   if (!email || !password) return jsonError('البريد الإلكتروني وكلمة السر مطلوبان');
 
@@ -36,14 +42,17 @@ export async function POST(request: Request) {
     );
   }
 
-  const session = await createStudentSession(email);
+  const session = await createStudentSession(
+    email,
+    rememberMe ? STUDENT_SESSION_REMEMBER_MS : STUDENT_SESSION_SHORT_MS
+  );
   const secure = isSecureRequest(request);
 
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,
     headers: {
       'content-type': 'application/json',
-      'set-cookie': studentSessionCookie(session.token, secure, staySignedIn),
+      'set-cookie': studentSessionCookie(session.token, secure, rememberMe),
       'cache-control': 'no-store',
     },
   });

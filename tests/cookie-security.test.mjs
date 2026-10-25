@@ -48,7 +48,7 @@ test('student and staff session cookies include Secure flag when isSecure is tru
   const staff = staffCookie('test-staff-token-12345', Date.now() + 3600_000, true);
   assert.ok(staff.includes('; Secure'), 'Staff cookie must include Secure attribute');
   assert.ok(staff.includes('HttpOnly'), 'Staff cookie must include HttpOnly');
-  assert.ok(staff.includes('SameSite=Strict'), 'Staff cookie must include SameSite=Strict');
+  assert.ok(staff.includes('SameSite=Lax'), 'Staff cookie must include SameSite=Lax');
 });
 
 test('requireSameOrigin accepts production APP_URL behind reverse proxy', () => {

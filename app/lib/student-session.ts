@@ -3,7 +3,9 @@ import { redirect } from 'next/navigation';
 import { getPlatformEnv, getDatabase } from './platform';
 
 export const STUDENT_SESSION_COOKIE = 'englizeka_student';
-export const STUDENT_SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+export const STUDENT_SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days (default/register)
+export const STUDENT_SESSION_REMEMBER_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+export const STUDENT_SESSION_SHORT_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 function normalizedEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -36,7 +38,8 @@ async function sha256(value: string): Promise<string> {
  * in native_sessions DB. (SEC-01 & SEC-03)
  */
 export async function createStudentSession(
-  email: string
+  email: string,
+  maxAgeMs = STUDENT_SESSION_MAX_AGE_MS
 ): Promise<{ token: string; expiresAt: number }> {
   // Validate secret exists
   sessionSecret();
@@ -44,7 +47,7 @@ export async function createStudentSession(
   const token = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
   const tokenHash = await sha256(token);
   const now = Date.now();
-  const expiresAt = now + STUDENT_SESSION_MAX_AGE_MS;
+  const expiresAt = now + Math.max(1, maxAgeMs);
   const targetEmail = normalizedEmail(email);
 
   const db = getDatabase();
@@ -117,9 +120,9 @@ export async function requireStudentUser(returnTo = '/account'): Promise<{ email
   }
 }
 
-export function studentSessionCookie(token: string, secure: boolean, staySignedIn = false): string {
-  const persistence = staySignedIn
-    ? `; Max-Age=${Math.floor(STUDENT_SESSION_MAX_AGE_MS / 1000)}`
+export function studentSessionCookie(token: string, secure: boolean, rememberMe = false): string {
+  const persistence = rememberMe
+    ? `; Max-Age=${Math.floor(STUDENT_SESSION_REMEMBER_MS / 1000)}; Expires=${new Date(Date.now() + STUDENT_SESSION_REMEMBER_MS).toUTCString()}`
     : '';
   return `${STUDENT_SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax${persistence}${secure ? '; Secure' : ''}`;
 }

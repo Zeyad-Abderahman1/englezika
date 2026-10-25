@@ -3,89 +3,64 @@
 /**
  * app/components/admin/shell/AdminMobileNav.tsx
  *
- * Responsive mobile navigation drawer / sheet with backdrop overlay.
+ * Responsive RTL mobile navigation drawer / sheet with backdrop overlay.
  * Renders navigation items directly from the shared ADMIN_NAV_GROUPS config
  * (same source as the desktop AdminSidebar).
- * Closes after navigation, supports keyboard Escape, touch interactions,
- * and preserves permission filtering.
  *
- * Supports smooth enter/exit animations via CSS transitions.
- * The component stays mounted during the closing animation and unmounts
- * after the CSS transition completes.
+ * The drawer is always mounted so CSS can animate both opening and closing.
+ * It slides in from the right edge (RTL start), locks body scrolling while
+ * open, closes on Escape/backdrop/route change, and restores scrolling.
  */
 
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ChevronDown, LogOut, X, ShieldCheck } from 'lucide-react';
 import { useAdmin } from '../../../lib/admin-context';
 import { ADMIN_NAV_GROUPS, isAdminNavItemActive } from './admin-navigation';
 
-type DrawerState = { mounted: boolean; closing: boolean };
-type DrawerAction =
-  | { type: 'OPEN' }
-  | { type: 'CLOSE' }
-  | { type: 'ANIMATION_END' };
-
-function drawerReducer(state: DrawerState, action: DrawerAction): DrawerState {
-  switch (action.type) {
-    case 'OPEN':
-      return { mounted: true, closing: false };
-    case 'CLOSE':
-      return state.closing ? state : { ...state, closing: true };
-    case 'ANIMATION_END':
-      return { mounted: false, closing: false };
-    default:
-      return state;
-  }
-}
-
 export function AdminMobileNav() {
   const pathname = usePathname();
   const { sidebarOpen, setSidebarOpen, admin, counts, can, isTeacher } = useAdmin();
-  const drawerRef = useRef<HTMLDivElement>(null);
-  const backdropRef = useRef<HTMLDivElement>(null);
+  const [collapsedGroups, toggleGroup] = useReducer(
+    (state: Record<string, boolean>, href: string) => ({ ...state, [href]: !state[href] }),
+    {}
+  );
 
-  const [state, dispatch] = useReducer(drawerReducer, {
-    mounted: false,
-    closing: false,
-  });
-
-  const isAnimatingOut = useRef(false);
-  const [collapsedGroups, toggleGroup] = useReducer((state: Record<string, boolean>, href: string) => ({ ...state, [href]: !state[href] }), {});
-
+  // Close the drawer whenever navigation changes the current route.
   useEffect(() => {
-    if (sidebarOpen) {
-      isAnimatingOut.current = false;
-      dispatch({ type: 'OPEN' });
-    } else if (state.mounted) {
-      isAnimatingOut.current = true;
-      dispatch({ type: 'CLOSE' });
-    }
-  }, [sidebarOpen, state.mounted]);
+    setSidebarOpen(false);
+  }, [pathname, setSidebarOpen]);
 
+  // Lock page scrolling while the drawer is open and restore it on close/unmount.
   useEffect(() => {
-    if (!sidebarOpen || !state.mounted) return;
+    if (!sidebarOpen) return;
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSidebarOpen(false);
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSidebarOpen(false);
     };
 
-    document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      document.body.style.overflow = '';
+      document.body.style.overflow = previousBodyOverflow;
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [sidebarOpen, state.mounted, setSidebarOpen]);
+  }, [sidebarOpen, setSidebarOpen]);
 
-  const handleBackdropTransitionEnd = useCallback(() => {
-    if (isAnimatingOut.current) {
-      isAnimatingOut.current = false;
-      dispatch({ type: 'ANIMATION_END' });
-    }
-  }, []);
+  // Never leave a stale scroll lock if the viewport becomes desktop-sized.
+  useEffect(() => {
+    const desktopQuery = window.matchMedia('(min-width: 1024px)');
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      if (event.matches) setSidebarOpen(false);
+    };
+
+    desktopQuery.addEventListener('change', handleViewportChange);
+    return () => desktopQuery.removeEventListener('change', handleViewportChange);
+  }, [setSidebarOpen]);
 
   const handleClose = useCallback(() => {
     setSidebarOpen(false);
@@ -99,26 +74,22 @@ export function AdminMobileNav() {
     }
   };
 
-  if (!state.mounted) return null;
-
   return (
     <div
-      className={`admin-mobile-nav-container ${state.closing ? 'is-closing' : ''}`}
-      role="dialog"
-      aria-modal="true"
-      aria-label="قائمة التنقل للموبايل"
+      className={`admin-mobile-nav-container ${sidebarOpen ? 'is-open' : ''}`}
+      aria-hidden={!sidebarOpen}
     >
       <div
-        ref={backdropRef}
-        className={`admin-mobile-backdrop ${state.closing ? 'is-closing' : ''}`}
+        className={`admin-mobile-backdrop ${sidebarOpen ? 'is-open' : ''}`}
         onClick={handleClose}
-        onTransitionEnd={handleBackdropTransitionEnd}
         aria-hidden="true"
       />
 
       <div
-        ref={drawerRef}
-        className={`admin-mobile-drawer ${state.closing ? 'is-closing' : ''}`}
+        className={`admin-mobile-drawer ${sidebarOpen ? 'is-open' : ''}`}
+        role="dialog"
+        aria-modal={sidebarOpen}
+        aria-label="قائمة التنقل للموبايل"
       >
         <header className="admin-mobile-drawer-header">
           <span className="admin-mobile-drawer-title">قائمة الإدارة</span>
@@ -149,31 +120,84 @@ export function AdminMobileNav() {
                   {visibleItems.map((item, itemIdx) => {
                     const Icon = item.icon;
                     const isActive = isAdminNavItemActive(pathname, item.href);
-                    const visibleChildren = item.children?.filter((child) => !child.permission || can(child.permission));
-                    const expanded = Boolean(visibleChildren?.length) && (isActive || !collapsedGroups[item.href]);
+                    const visibleChildren = item.children?.filter(
+                      (child) => !child.permission || can(child.permission)
+                    );
+                    const expanded =
+                      Boolean(visibleChildren?.length) &&
+                      (isActive || !collapsedGroups[item.href]);
                     const count = item.badgeCount ? item.badgeCount(counts) : 0;
                     const staggerDelay = groupIdx * 30 + itemIdx * 25;
 
                     return (
-                      <li key={item.href} className={visibleChildren?.length ? 'admin-mobile-nav-parent' : undefined}>
-                        <div className="admin-mobile-nav-parent-row"><Link
-                          href={item.href}
-                          className={`admin-mobile-nav-item ${isActive ? 'active' : ''}`}
-                          onClick={() => setSidebarOpen(false)}
-                          aria-current={pathname === item.href ? 'page' : undefined}
-                          style={{ '--stagger-delay': `${staggerDelay}ms` } as React.CSSProperties}
-                        >
-                          <span className="admin-mobile-nav-icon">
-                            <Icon size={18} />
-                          </span>
-                          <span className="admin-mobile-nav-label">{item.label}</span>
-                          {count > 0 && (
-                            <span className="admin-mobile-nav-badge" aria-label={`${count} عناصر معلقة`}>
-                              {count}
+                      <li
+                        key={item.href}
+                        className={visibleChildren?.length ? 'admin-mobile-nav-parent' : undefined}
+                      >
+                        <div className="admin-mobile-nav-parent-row">
+                          <Link
+                            href={item.href}
+                            className={`admin-mobile-nav-item ${isActive ? 'active' : ''}`}
+                            onClick={handleClose}
+                            aria-current={pathname === item.href ? 'page' : undefined}
+                            style={{ '--stagger-delay': `${staggerDelay}ms` } as React.CSSProperties}
+                          >
+                            <span className="admin-mobile-nav-icon">
+                              <Icon size={18} />
                             </span>
-                          )}
-                        </Link>{visibleChildren?.length ? <button type="button" className="admin-mobile-nav-expand" onClick={() => toggleGroup(item.href)} aria-expanded={expanded} aria-label={isActive ? `قسم ${item.label} موسع للمسار الحالي` : `${expanded ? 'طي' : 'توسيع'} قسم ${item.label}`} disabled={isActive}><ChevronDown size={16} /></button> : null}</div>
-                        {visibleChildren?.length && expanded ? <ul className="admin-mobile-nav-children">{visibleChildren.map((child) => { const ChildIcon = child.icon; const childActive = isAdminNavItemActive(pathname, child.href); return <li key={child.href}><Link href={child.href} className={`admin-mobile-nav-child ${childActive ? 'active' : ''}`} onClick={handleClose} aria-current={childActive ? 'page' : undefined} style={{ '--stagger-delay': `${staggerDelay + 20}ms` } as React.CSSProperties}><ChildIcon size={16} /><span>{child.label}</span></Link></li>; })}</ul> : null}
+                            <span className="admin-mobile-nav-label">{item.label}</span>
+                            {count > 0 && (
+                              <span
+                                className="admin-mobile-nav-badge"
+                                aria-label={`${count} عناصر معلقة`}
+                              >
+                                {count}
+                              </span>
+                            )}
+                          </Link>
+                          {visibleChildren?.length ? (
+                            <button
+                              type="button"
+                              className="admin-mobile-nav-expand"
+                              onClick={() => toggleGroup(item.href)}
+                              aria-expanded={expanded}
+                              aria-label={
+                                isActive
+                                  ? `قسم ${item.label} موسع للمسار الحالي`
+                                  : `${expanded ? 'طي' : 'توسيع'} قسم ${item.label}`
+                              }
+                              disabled={isActive}
+                            >
+                              <ChevronDown size={16} />
+                            </button>
+                          ) : null}
+                        </div>
+                        {visibleChildren?.length && expanded ? (
+                          <ul className="admin-mobile-nav-children">
+                            {visibleChildren.map((child) => {
+                              const ChildIcon = child.icon;
+                              const childActive = isAdminNavItemActive(pathname, child.href);
+                              return (
+                                <li key={child.href}>
+                                  <Link
+                                    href={child.href}
+                                    className={`admin-mobile-nav-child ${childActive ? 'active' : ''}`}
+                                    onClick={handleClose}
+                                    aria-current={childActive ? 'page' : undefined}
+                                    style={
+                                      {
+                                        '--stagger-delay': `${staggerDelay + 20}ms`,
+                                      } as React.CSSProperties
+                                    }
+                                  >
+                                    <ChildIcon size={16} />
+                                    <span>{child.label}</span>
+                                  </Link>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : null}
                       </li>
                     );
                   })}

@@ -426,7 +426,7 @@ function LoginForm() {
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
   const [showForgotModal, setShowForgotModal] = useState(false);
-  const [staySignedIn, setStaySignedIn] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -437,7 +437,7 @@ function LoginForm() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, password, staySignedIn }),
+        body: JSON.stringify({ email, password, rememberMe }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
@@ -551,11 +551,11 @@ function LoginForm() {
         <label className="auth-stay-signed-in">
           <input
             type="checkbox"
-            checked={staySignedIn}
-            onChange={(event) => setStaySignedIn(event.target.checked)}
+            checked={rememberMe}
+            onChange={(event) => setRememberMe(event.target.checked)}
           />
           <span>
-            <strong>البقاء مسجلاً للدخول</strong>
+            <strong>تذكرني (البقاء متصلاً على هذا الجهاز)</strong>
             <small>عند إلغاء الاختيار، ينتهي تسجيل الدخول عند إغلاق المتصفح.</small>
           </span>
         </label>
@@ -646,6 +646,7 @@ export function RegisterForm() {
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
 
   // Restore non-sensitive draft on mount (survives mobile browser eviction, camera open, or reload)
+  /* eslint-disable react-hooks/set-state-in-effect -- One-time hydration from sessionStorage. */
   useEffect(() => {
     const draft = loadRegistrationDraft();
     if (draft) {
@@ -678,6 +679,7 @@ export function RegisterForm() {
     }
     setDraftLoaded(true);
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Save non-sensitive draft on changes after initial mount
   useEffect(() => {

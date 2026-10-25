@@ -440,57 +440,73 @@
   border-color: rgba(207, 11, 39, 0.35);
 }
 
-/* ── Mobile Navigation Drawer ──────────────────────────────────────────────── */
+/* ── Mobile Navigation Drawer (RTL: anchored to the right edge) ───────────── */
 
 .admin-mobile-nav-container {
   position: fixed;
   inset: 0;
-  z-index: 1000;
-  display: flex;
-  justify-content: flex-end;
+  z-index: 60;
+  pointer-events: none;
 }
 
 .admin-mobile-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  z-index: 55;
+  background: rgba(0, 0, 0, 0.65);
+  -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
-  opacity: 1;
-  transition: opacity 280ms cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 250ms ease, visibility 250ms ease;
 }
 
-.admin-mobile-backdrop.is-closing {
-  opacity: 0;
+.admin-mobile-backdrop.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .admin-mobile-drawer {
-  position: relative;
-  width: min(86vw, 340px);
-  height: 100dvh;
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  z-index: 60;
+  width: min(84vw, 320px);
   height: 100vh;
-  background: var(--surface);
-  border-inline-end: 1px solid var(--line);
+  height: 100dvh;
   display: flex;
   flex-direction: column;
-  z-index: 1001;
+  background: var(--surface);
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: none;
   box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
   overflow: hidden;
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  transform: translateX(0);
-  opacity: 1;
-  transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1),
-              opacity 240ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.admin-mobile-drawer.is-closing {
-  transform: translateX(100%);
+  transform: translate3d(100%, 0, 0);
   opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  will-change: transform, opacity;
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
+              opacity 220ms ease,
+              visibility 320ms;
 }
 
-@supports (height: 100dvh) {
-  .admin-mobile-drawer {
-    height: 100dvh;
+.admin-mobile-drawer.is-open {
+  transform: translate3d(0, 0, 0);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+@media (min-width: 1024px) {
+  .admin-mobile-nav-container {
+    display: none;
   }
 }
 
@@ -583,6 +599,9 @@
   text-decoration: none;
   border-radius: 10px;
   transition: background 160ms ease, color 160ms ease, transform 120ms ease;
+}
+
+.admin-mobile-nav-container.is-open .admin-mobile-nav-item {
   animation: adminNavItemEnter 300ms cubic-bezier(0.32, 0.72, 0, 1) both;
   animation-delay: var(--stagger-delay, 0ms);
 }
@@ -725,12 +744,12 @@
   }
 
   .admin-mobile-drawer {
-    transition: opacity 120ms ease;
+    transition: opacity 120ms ease, visibility 120ms ease;
   }
 
-  .admin-mobile-drawer.is-closing {
-    transform: none;
-    opacity: 0;
+  .admin-mobile-drawer.is-open {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
   }
 
   .admin-mobile-nav-item {
@@ -2515,9 +2534,10 @@
     outline-offset: 2px;
   }
 
-  /* Keep page content clear of the floating dock (pb-32). */
+  /* Keep the breadcrumb clear of the sticky 56px topbar and page content
+     clear of the floating dock (pb-32). */
   .admin-content-body {
-    padding: 12px;
+    padding: 14px 12px;
     padding-bottom: calc(128px + env(safe-area-inset-bottom, 0px));
   }
 

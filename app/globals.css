@@ -2191,6 +2191,77 @@ select:focus {
   border-color: var(--red-bright);
   box-shadow: 0 0 0 3px rgba(207, 11, 39, 0.1);
 }
+.teacher-login-form .teacher-login-remember {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  color: #e4e4e7;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 11px;
+  cursor: pointer;
+  text-align: right;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+.teacher-login-form .teacher-login-remember:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.055);
+}
+.teacher-login-form .teacher-login-remember input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  flex: 0 0 20px;
+  margin: 1px 0 0;
+  padding: 0;
+  background: #191a20;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+.teacher-login-form .teacher-login-remember input:checked {
+  background: linear-gradient(145deg, var(--red-bright), var(--red-dark));
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 12px rgba(207, 11, 39, 0.3);
+}
+.teacher-login-form .teacher-login-remember input:checked::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  width: 5px;
+  height: 10px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.teacher-login-form .teacher-login-remember input:focus-visible {
+  outline: 3px solid rgba(239, 35, 60, 0.35);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+.teacher-login-form .teacher-login-remember-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.teacher-login-form .teacher-login-remember-copy strong {
+  color: #e4e4e7;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+.teacher-login-form .teacher-login-remember-copy small {
+  color: #8b8d95;
+  font-size: 8.5px;
+  line-height: 1.55;
+}
 .teacher-login-form .btn {
   width: 100%;
   min-height: 49px;

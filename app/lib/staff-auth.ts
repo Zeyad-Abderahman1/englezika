@@ -13,7 +13,10 @@ export { STAFF_PERMISSIONS, STAFF_PRESETS, normalizeStaffPreset };
 export type { StaffPermission, StaffPreset };
 
 export const STAFF_COOKIE = 'englizeka_staff';
-export const STAFF_SESSION_MS = 12 * 60 * 60 * 1000;
+/** Temporary staff session when "Remember me" is explicitly unchecked. */
+export const STAFF_SESSION_MS = 24 * 60 * 60 * 1000;
+/** Persistent staff session for "Remember me" (90 days). */
+export const STAFF_SESSION_REMEMBER_MS = 90 * 24 * 60 * 60 * 1000;
 export const PASSWORD_ITERATIONS = 100_000;
 
 export type StaffSession = {
@@ -156,12 +159,13 @@ export async function verifyStaffCredentials(
 }
 
 export async function createStaffSession(
-  staff: StaffSession
+  staff: StaffSession,
+  rememberMe = true
 ): Promise<{ token: string; expiresAt: number }> {
   const token = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
   const tokenHash = await sha256(token);
   const now = Date.now();
-  const expiresAt = now + STAFF_SESSION_MS;
+  const expiresAt = now + (rememberMe ? STAFF_SESSION_REMEMBER_MS : STAFF_SESSION_MS);
   const db = getDatabase();
   await db.batch([
     db.prepare('DELETE FROM staff_sessions WHERE expires_at <= ?').bind(now),
@@ -176,11 +180,13 @@ export async function createStaffSession(
 }
 
 export function staffCookie(token: string, expiresAt: number, secure: boolean): string {
-  return `${STAFF_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor((expiresAt - Date.now()) / 1000)}${secure ? '; Secure' : ''}`;
+  const maxAge = Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000));
+  const expires = new Date(expiresAt).toUTCString();
+  return `${STAFF_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}; Expires=${expires}${secure ? '; Secure' : ''}`;
 }
 
 export function clearStaffCookie(secure: boolean): string {
-  return `${STAFF_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure ? '; Secure' : ''}`;
+  return `${STAFF_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT${secure ? '; Secure' : ''}`;
 }
 
 export async function getCurrentStaff(request?: Request): Promise<StaffSession | null> {
