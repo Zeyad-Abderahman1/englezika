@@ -87,12 +87,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       ? null
       : safeText(body.courseId ?? existing.courseId, 80) || null;
 
-  const fromVideoId =
+  let fromVideoId =
     body.fromVideoId === null
       ? null
       : safeText(body.fromVideoId ?? existing.fromVideoId, 80) || null;
 
-  const toVideoId =
+  let toVideoId =
     body.toVideoId === null
       ? null
       : safeText(body.toVideoId ?? existing.toVideoId, 80) || null;
@@ -127,9 +127,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
 
     const vFrom = await db
-      .prepare('SELECT id, course_id, created_at FROM videos WHERE id = ? AND course_id = ?')
+      .prepare(
+        'SELECT id, course_id, created_at, prerequisite_exam_id FROM videos WHERE id = ? AND course_id = ?'
+      )
       .bind(fromVideoId, courseId)
-      .first<{ id: string; course_id: string; created_at: number }>();
+      .first<{
+        id: string;
+        course_id: string;
+        created_at: number;
+        prerequisite_exam_id: string | null;
+      }>();
     if (!vFrom) return jsonError('المحاضرة الأولى غير صالحة لهذا الكورس', 400);
 
     const vTo = await db
@@ -138,13 +145,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       .first<{ id: string; course_id: string; created_at: number; prerequisite_exam_id: string | null }>();
     if (!vTo) return jsonError('المحاضرة التالية غير صالحة لهذا الكورس', 400);
 
-    // Validate sequential order: from lecture must precede to lecture
-    if (vFrom.created_at >= vTo.created_at) {
-      return jsonError('يجب أن تسبق المحاضرة الأولى المحاضرة التالية في الترتيب الزمني للكورس', 400);
+    // Lecture gates can be selected in any order. Normalize the range chronologically
+    // instead of blocking the save: the earlier lecture starts the range and the later
+    // lecture is the one locked by the exam.
+    const chronological = vFrom.created_at <= vTo.created_at;
+    const rangeEndVideo = chronological ? vTo : vFrom;
+    if (!chronological) {
+      const originalFromVideoId = fromVideoId;
+      fromVideoId = toVideoId;
+      toVideoId = originalFromVideoId;
     }
 
     // Check if target video already has a different prerequisite_exam_id
-    if (vTo.prerequisite_exam_id && vTo.prerequisite_exam_id !== id) {
+    if (rangeEndVideo.prerequisite_exam_id && rangeEndVideo.prerequisite_exam_id !== id) {
       const confirmOverride = Boolean(body.confirmOverride || body.overridePrerequisite);
       if (!confirmOverride) {
         return Response.json(
@@ -152,7 +165,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
             ok: false,
             error: 'المحاضرة المستهدفة مرتبطة بالفعل باختبار إجباري آخر. هل ترغب في استبداله؟',
             code: 'PREREQUISITE_CONFLICT',
-            existingPrerequisiteExamId: vTo.prerequisite_exam_id,
+            existingPrerequisiteExamId: rangeEndVideo.prerequisite_exam_id,
           },
           { status: 409 }
         );

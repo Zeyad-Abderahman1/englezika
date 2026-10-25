@@ -327,14 +327,27 @@ export function AIExamOcrModal({
 
     setIsSubmitting(true);
     try {
+      // Lecture gates may be selected in any order. Normalize them into a chronological
+      // range (earlier lecture first, later lecture last) instead of blocking submission.
+      let rangeStartVideoId = fromVideoId;
+      let rangeEndVideoId = toVideoId;
+      if (scopeType === 'lecture_range') {
+        const fromIndex = courseVideos.findIndex((v) => v.id === fromVideoId);
+        const toIndex = courseVideos.findIndex((v) => v.id === toVideoId);
+        if (fromIndex >= 0 && toIndex >= 0) {
+          rangeStartVideoId = courseVideos[Math.min(fromIndex, toIndex)].id;
+          rangeEndVideoId = courseVideos[Math.max(fromIndex, toIndex)].id;
+        }
+      }
+
       const payload = {
         title: title.trim(),
         courseId: selectedCourseId || null,
         durationMinutes: Number(durationMinutes) || 30,
         passingScore: Number(passingScore) || 50,
         scopeType,
-        fromVideoId: scopeType === 'lecture_range' ? fromVideoId || null : null,
-        toVideoId: scopeType === 'lecture_range' ? toVideoId || null : null,
+        fromVideoId: scopeType === 'lecture_range' ? rangeStartVideoId || null : null,
+        toVideoId: scopeType === 'lecture_range' ? rangeEndVideoId || null : null,
         showReview,
         status: 'published',
         questions: questions.map((q, idx) => ({

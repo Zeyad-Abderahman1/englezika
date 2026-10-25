@@ -23,8 +23,8 @@ export async function POST(request: Request) {
   const assessmentType = body.assessmentType === 'quiz' ? 'quiz' : 'exam';
   const mode = body.mode === 'file' ? 'file' : 'online';
   const scopeType = body.scopeType === 'lecture_range' ? 'lecture_range' : 'all_lectures';
-  const fromVideoId = safeText(body.fromVideoId, 80) || null;
-  const toVideoId = safeText(body.toVideoId, 80) || null;
+  let fromVideoId = safeText(body.fromVideoId, 80) || null;
+  let toVideoId = safeText(body.toVideoId, 80) || null;
   const coverageStartLectureId = safeText(body.coverageStartLectureId, 80) || null;
   const coverageEndLectureId = safeText(body.coverageEndLectureId, 80) || null;
   const showReview = body.showReview !== false && body.show_review !== false;
@@ -67,9 +67,16 @@ export async function POST(request: Request) {
     }
 
     const vFrom = await db
-      .prepare('SELECT id, course_id, created_at FROM videos WHERE id = ? AND course_id = ?')
+      .prepare(
+        'SELECT id, course_id, created_at, prerequisite_exam_id FROM videos WHERE id = ? AND course_id = ?'
+      )
       .bind(fromVideoId, courseId)
-      .first<{ id: string; course_id: string; created_at: number }>();
+      .first<{
+        id: string;
+        course_id: string;
+        created_at: number;
+        prerequisite_exam_id: string | null;
+      }>();
     if (!vFrom) return jsonError('المحاضرة الأولى غير صالحة لهذا الكورس', 400);
 
     const vTo = await db
@@ -78,13 +85,19 @@ export async function POST(request: Request) {
       .first<{ id: string; course_id: string; created_at: number; prerequisite_exam_id: string | null }>();
     if (!vTo) return jsonError('المحاضرة التالية غير صالحة لهذا الكورس', 400);
 
-    // Validate sequential order: from lecture must precede to lecture
-    if (vFrom.created_at >= vTo.created_at) {
-      return jsonError('يجب أن تسبق المحاضرة الأولى المحاضرة التالية في الترتيب الزمني للكورس', 400);
+    // Lecture gates can be selected in any order. Normalize the range chronologically
+    // instead of blocking the save: the earlier lecture starts the range and the later
+    // lecture is the one locked by the exam.
+    const chronological = vFrom.created_at <= vTo.created_at;
+    const rangeEndVideo = chronological ? vTo : vFrom;
+    if (!chronological) {
+      const originalFromVideoId = fromVideoId;
+      fromVideoId = toVideoId;
+      toVideoId = originalFromVideoId;
     }
 
     // Check if target video already has a different prerequisite_exam_id
-    if (vTo.prerequisite_exam_id) {
+    if (rangeEndVideo.prerequisite_exam_id) {
       const confirmOverride = Boolean(body.confirmOverride || body.overridePrerequisite);
       if (!confirmOverride) {
         return Response.json(
@@ -92,7 +105,7 @@ export async function POST(request: Request) {
             ok: false,
             error: 'المحاضرة المستهدفة مرتبطة بالفعل باختبار إجباري آخر. هل ترغب في استبداله؟',
             code: 'PREREQUISITE_CONFLICT',
-            existingPrerequisiteExamId: vTo.prerequisite_exam_id,
+            existingPrerequisiteExamId: rangeEndVideo.prerequisite_exam_id,
           },
           { status: 409 }
         );
