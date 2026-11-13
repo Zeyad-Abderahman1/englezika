@@ -30,7 +30,7 @@ export type ImageInput = {
 };
 
 const VISION_SYSTEM_PROMPT = `You are a precision OCR engine and expert Egyptian Secondary School English examiner.
-Read all questions from the provided image(s).
+Read ALL questions from the provided image(s). Never stop early, never limit the count, and never skip or merge questions: output every single question visible, however many there are.
 Rule 1: Transcribe every question prompt and every multiple-choice option 100% VERBATIM without changing a single character or word. Do NOT paraphrase, summarize, fix grammar, translate, or alter wording or fill-in-the-blank formatting (e.g. "......").
 Rule 2: Strip leading question numbers (e.g., '1.', '2-', 'Q1:') and option letters ('a)', 'b)', 'A.', 'B.') from the text strings while keeping options in their exact original order.
 Rule 3: Ignore page headers, footers, watermarks, teacher phone numbers, decorative borders.
@@ -160,6 +160,22 @@ export async function extractAndSolveExamFromImages(
   images: ImageInput[],
   injectedApiKey?: string
 ): Promise<OcrExamResult> {
+  // Process in small batches so no single Gemini response can be truncated, then merge in order.
+  const BATCH_SIZE = 3;
+  if (images.length <= BATCH_SIZE) return extractBatch(images, injectedApiKey);
+  const all: ExtractedQuestion[] = [];
+  for (let i = 0; i < images.length; i += BATCH_SIZE) {
+    const res = await extractBatch(images.slice(i, i + BATCH_SIZE), injectedApiKey);
+    if (!res.ok) return res;
+    all.push(...res.questions);
+  }
+  return { ok: true, questions: all.map((q, idx) => ({ ...q, sort_order: idx + 1 })) };
+}
+
+async function extractBatch(
+  images: ImageInput[],
+  injectedApiKey?: string
+): Promise<OcrExamResult> {
   if (!images.length) {
     return { ok: false, questions: [], error: 'لم يتم توفير أي صور للاستخراج' };
   }
@@ -216,6 +232,7 @@ export async function extractAndSolveExamFromImages(
           generationConfig: {
             temperature: 0.1,
             responseMimeType: 'application/json',
+            maxOutputTokens: 65536,
           },
         }),
       }
@@ -244,10 +261,16 @@ export async function extractAndSolveExamFromImages(
     }
 
     const data = (await response.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: string }> } }>;
     };
 
-    const textOutput = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (data?.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+      console.error('[Gemini OCR] output truncated (MAX_TOKENS) for', images.length, 'image(s)');
+    }
+
+    const textOutput = (data?.candidates?.[0]?.content?.parts || [])
+      .map((p) => p?.text || '')
+      .join('');
     if (!textOutput) {
       console.error('[Gemini OCR Empty Response]', {
         hasCandidates: Boolean(data?.candidates?.length),
