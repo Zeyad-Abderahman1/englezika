@@ -90,10 +90,13 @@ describe('mode — online vs file enforcement', () => {
     const content = await readFile('app/api/admin/exams/route.ts', 'utf-8');
 
     // Questions should only be inserted for online mode
-    const onlineBlock = content.indexOf("if (mode === 'online')");
-    const insertBlock = content.indexOf('INSERT INTO questions');
+    // (inserts are built by the shared multi-row helper, which owns the INSERT INTO questions SQL)
+    const onlineBlock = content.indexOf("if (mode === 'online')", content.indexOf('const statements'));
+    const insertBlock = content.indexOf('buildQuestionInsertStatements(db');
     assert.ok(onlineBlock > -1, 'Must have mode check');
-    assert.ok(insertBlock > onlineBlock, 'INSERT INTO questions must be inside online mode block');
+    assert.ok(insertBlock > onlineBlock, 'question inserts must be inside online mode block');
+    const helper = await readFile('app/lib/exam-questions-insert.ts', 'utf-8');
+    assert.ok(helper.includes('INSERT INTO questions'), 'helper owns the INSERT INTO questions SQL');
   });
 
   test('admin PATCH stores mode from field', async () => {

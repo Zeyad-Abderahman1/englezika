@@ -1,11 +1,19 @@
 import { apiStaff, isStaffResponse } from '../../../../lib/staff-auth';
 import { jsonError, requireSameOrigin } from '../../../../lib/security';
-import { extractAndSolveExamFromImages, type ImageInput } from '../../../../lib/exam-ocr';
+import { OcrError, extractExamUnit, type ImageInput } from '../../../../lib/exam-ocr';
 import { checkRateLimit, getClientIp, rateLimitResponse } from '../../../../lib/rate-limit';
 
+export const runtime = 'nodejs';
+// Headroom for retries inside one request. Each request only handles ONE small batch
+// of pages (the browser sends a long exam as many batches), so it stays well below
+// typical reverse-proxy timeouts. There is NO limit on the number of questions or on
+// the total number of pages of an exam, only on the size of a single batch request.
+export const maxDuration = 120;
+
 const ALLOWED_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
-const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
-const MAX_IMAGE_COUNT = 10;
+const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB per image
+const MAX_IMAGE_COUNT = 4; // pages per batch request (the client sends 3)
+const MAX_BATCH_BYTES = 20 * 1024 * 1024; // keeps one request under a 25MB proxy body limit
 
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
@@ -16,18 +24,19 @@ export async function POST(request: Request) {
 
   // Rate limiting backed by rate_limits table (SEC-05)
   const clientIp = getClientIp(request);
-  const accountRate = await checkRateLimit('admin-exam-ocr-account', admin.email.toLowerCase(), 10, 300);
+  const accountRate = await checkRateLimit('admin-exam-ocr-account', admin.email.toLowerCase(), 240, 300);
   if (!accountRate.allowed) {
     return rateLimitResponse(accountRate.resetAfterSeconds, 'تم تجاوز الحد المسموح به لطلبات استخراج الأسئلة. يرجى الانتظار قليلاً.');
   }
 
-  const ipRate = await checkRateLimit('admin-exam-ocr-ip', clientIp, 30, 300);
+  const ipRate = await checkRateLimit('admin-exam-ocr-ip', clientIp, 480, 300);
   if (!ipRate.allowed) {
     return rateLimitResponse(ipRate.resetAfterSeconds, 'تم تجاوز الحد المسموح به لطلبات استخراج الأسئلة من هذا العنوان.');
   }
 
   const contentType = request.headers.get('content-type') || '';
   const imageInputs: ImageInput[] = [];
+  let totalBytes = 0;
 
   try {
     if (contentType.includes('multipart/form-data')) {
@@ -38,7 +47,7 @@ export async function POST(request: Request) {
         return jsonError('يرجى رفع صورة واحدة على الأقل لأسئلة الامتحان', 400);
       }
       if (files.length > MAX_IMAGE_COUNT) {
-        return jsonError(`الحد الأقصى المسموح به هو ${MAX_IMAGE_COUNT} صور في المرة الواحدة`, 400);
+        return jsonError(`الحد الأقصى لكل دفعة هو ${MAX_IMAGE_COUNT} صور. الواجهة ترسل الصفحات تلقائياً على دفعات.`, 400);
       }
 
       for (const file of files) {
@@ -49,6 +58,10 @@ export async function POST(request: Request) {
           return jsonError(`حجم الصورة ${file.name} يتجاوز 10 ميجابايت`, 400);
         }
 
+        totalBytes += file.size;
+        if (totalBytes > MAX_BATCH_BYTES) {
+          return jsonError('حجم الدفعة الواحدة كبير جداً، قلّل عدد الصور في الدفعة', 413);
+        }
         const buffer = await file.arrayBuffer();
         const base64 = Buffer.from(buffer).toString('base64');
         imageInputs.push({
@@ -65,7 +78,7 @@ export async function POST(request: Request) {
         return jsonError('يرجى رفع صورة واحدة على الأقل لأسئلة الامتحان', 400);
       }
       if (rawImages.length > MAX_IMAGE_COUNT) {
-        return jsonError(`الحد الأقصى المسموح به هو ${MAX_IMAGE_COUNT} صور في المرة الواحدة`, 400);
+        return jsonError(`الحد الأقصى لكل دفعة هو ${MAX_IMAGE_COUNT} صور.`, 400);
       }
 
       for (const raw of rawImages) {
@@ -89,25 +102,28 @@ export async function POST(request: Request) {
       }
     }
 
-    const ocrResult = await extractAndSolveExamFromImages(imageInputs);
-    if (!ocrResult.ok) {
-      const safeError =
-        ocrResult.error && !ocrResult.error.includes('http') && !ocrResult.error.includes('AIza')
-          ? ocrResult.error
+    try {
+      const unit = await extractExamUnit(imageInputs);
+      return Response.json({
+        ok: true,
+        questions: unit.questions,
+        recovered: unit.recovered,
+      });
+    } catch (error) {
+      const ocr = error instanceof OcrError ? error : null;
+      const message =
+        ocr?.message && !ocr.message.includes('http') && !ocr.message.includes('AIza')
+          ? ocr.message
           : 'تعذر استخراج الأسئلة من الصور عبر الذكاء الاصطناعي';
       return Response.json(
         {
-          error: safeError,
-          code: ocrResult.code || 'AI_OCR_FAILED',
+          error: message,
+          code: ocr?.code || 'AI_OCR_FAILED',
+          retryable: ocr?.retryable ?? true,
         },
-        { status: ocrResult.code === 'AI_MODEL_UNAVAILABLE' ? 503 : 502 }
+        { status: ocr?.code === 'AI_MODEL_UNAVAILABLE' ? 503 : 502 }
       );
     }
-
-    return Response.json({
-      ok: true,
-      questions: ocrResult.questions,
-    });
   } catch (err: unknown) {
     const status = (err as { status?: number })?.status;
     const rawMsg = err instanceof Error ? err.message : String(err);

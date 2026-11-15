@@ -25,6 +25,13 @@ import {
   Maximize2,
 } from 'lucide-react';
 import type { ExtractedQuestion } from '../../lib/exam-ocr';
+import {
+  mergeBatches,
+  planBatches,
+  type BatchResult,
+  type BatchWindow,
+  type OcrWarning,
+} from '../../lib/exam-ocr-merge';
 
 type Course = {
   id: string;
@@ -53,6 +60,98 @@ type ImageFileItem = {
   previewUrl: string;
 };
 
+type BatchView = {
+  window: BatchWindow;
+  status: 'pending' | 'running' | 'done' | 'failed';
+  error?: string;
+};
+
+class BatchError extends Error {
+  readonly retryable: boolean;
+  readonly status: number;
+  constructor(message: string, retryable: boolean, status = 0) {
+    super(message);
+    this.retryable = retryable;
+    this.status = status;
+  }
+}
+
+/** Questions rendered per step in the review studio (all questions are kept and saved). */
+const REVIEW_PAGE_SIZE = 40;
+/** Batches processed at the same time. */
+const OCR_CONCURRENCY = 2;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Downscales large photos (long edge 2200px, JPEG) so each batch request stays small and fast. */
+async function prepareImage(file: File): Promise<File> {
+  try {
+    if (file.size <= 1_200_000 || typeof createImageBitmap !== 'function') return file;
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 2200 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext('2d');
+    if (!context) return file;
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.88));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch {
+    return file;
+  }
+}
+
+async function postBatch(files: File[]): Promise<ExtractedQuestion[]> {
+  const formData = new FormData();
+  for (const file of files) formData.append('images', file);
+
+  let res: Response;
+  try {
+    res = await fetch('/api/admin/exams/ocr', { method: 'POST', body: formData });
+  } catch {
+    throw new BatchError('تعذر الاتصال بالخادم. تحقق من الإنترنت.', true);
+  }
+  const data = await res.json().catch(() => null);
+  if (res.ok && data?.ok) return (data.questions || []) as ExtractedQuestion[];
+
+  const retryable =
+    typeof data?.retryable === 'boolean' ? data.retryable : res.status >= 500 || res.status === 429 || res.status === 408;
+  throw new BatchError(data?.error || 'تعذر استخراج الأسئلة من الصور', retryable, res.status);
+}
+
+/**
+ * Extracts one window of pages. Retries transient failures with backoff; later
+ * attempts send the pages one by one (smaller request, smaller answer).
+ */
+async function extractWindow(files: File[], window: BatchWindow): Promise<ExtractedQuestion[]> {
+  let lastError: BatchError | null = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      if (attempt === 1 || files.length === 1) return await postBatch(files);
+      const parts: BatchResult[] = [];
+      for (let index = 0; index < files.length; index++) {
+        parts.push({
+          window: { start: window.start + index, end: window.start + index + 1 },
+          questions: await postBatch([files[index]]),
+        });
+      }
+      return mergeBatches(parts).questions;
+    } catch (error) {
+      lastError = error instanceof BatchError ? error : new BatchError('تعذر استخراج الأسئلة من الصور', true);
+      if (!lastError.retryable && lastError.status !== 413) break;
+      await sleep(1000 * attempt);
+    }
+  }
+  throw lastError ?? new BatchError('تعذر استخراج الأسئلة من الصور', true);
+}
+
+function pagesLabel(window: BatchWindow): string {
+  return window.end - window.start <= 1 ? String(window.start + 1) : window.start + 1 + '–' + window.end;
+}
+
 export function AIExamOcrModal({
   isOpen,
   onClose,
@@ -75,6 +174,14 @@ export function AIExamOcrModal({
   const [images, setImages] = useState<ImageFileItem[]>([]);
   const [isOcrLoading, setIsOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState('');
+  const [batches, setBatches] = useState<BatchView[]>([]);
+  const [ocrWarnings, setOcrWarnings] = useState<OcrWarning[]>([]);
+  const [ocrSummary, setOcrSummary] = useState('');
+  const [questionsSoFar, setQuestionsSoFar] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(REVIEW_PAGE_SIZE);
+  const batchResultsRef = useRef<Map<number, BatchResult>>(new Map());
+  const preparedRef = useRef<Map<string, File>>(new Map());
+  const editedRef = useRef(false);
 
   // Questions Edit Studio state
   const [questions, setQuestions] = useState<ExtractedQuestion[]>([]);
@@ -177,7 +284,7 @@ export function AIExamOcrModal({
       file,
       previewUrl: URL.createObjectURL(file),
     }));
-    setImages((prev) => [...prev, ...mapped].slice(0, 10));
+    setImages((prev) => [...prev, ...mapped]);
     setOcrError('');
   };
 
@@ -189,7 +296,69 @@ export function AIExamOcrModal({
     });
   };
 
-  // Run AI OCR
+  const preparedFor = async (item: ImageFileItem): Promise<File> => {
+    const cached = preparedRef.current.get(item.id);
+    if (cached) return cached;
+    const prepared = await prepareImage(item.file);
+    preparedRef.current.set(item.id, prepared);
+    return prepared;
+  };
+
+  const applyMerged = (results: Map<number, BatchResult>, allWindows: BatchWindow[]) => {
+    const merged = mergeBatches([...results.values()]);
+    setQuestions(merged.questions);
+    setOcrWarnings(merged.warnings);
+    const failed = allWindows.length - results.size;
+    setOcrSummary(
+      failed > 0
+        ? 'تم استخراج ' + merged.questions.length + ' سؤال حتى الآن — فشلت ' + failed + ' دفعة. أعد محاولة الدفعات الفاشلة.'
+        : 'تم استخراج ' + merged.questions.length + ' سؤال'
+    );
+    setVisibleCount(REVIEW_PAGE_SIZE);
+    editedRef.current = false;
+  };
+
+  // Runs the given windows with limited concurrency and live progress.
+  const runWindows = async (allWindows: BatchWindow[], indices: number[]) => {
+    const items = images;
+    let cursor = 0;
+
+    const worker = async () => {
+      while (cursor < indices.length) {
+        const index = indices[cursor++];
+        const window = allWindows[index];
+        setBatches((prev) => prev.map((b, i) => (i === index ? { ...b, status: 'running', error: undefined } : b)));
+        try {
+          const files = await Promise.all(items.slice(window.start, window.end).map(preparedFor));
+          const extracted = await extractWindow(files, window);
+          batchResultsRef.current.set(index, { window, questions: extracted });
+          setBatches((prev) => prev.map((b, i) => (i === index ? { ...b, status: 'done' } : b)));
+          setQuestionsSoFar(mergeBatches([...batchResultsRef.current.values()]).questions.length);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'تعذر استخراج الأسئلة من الصور';
+          setBatches((prev) => prev.map((b, i) => (i === index ? { ...b, status: 'failed', error: message } : b)));
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(OCR_CONCURRENCY, indices.length) }, worker));
+  };
+
+  const autoTitle = () => {
+    if (title.trim()) return;
+    const c = courses.find((x) => x.id === selectedCourseId);
+    const fromV = videos.find((v) => v.id === fromVideoId);
+    const toV = videos.find((v) => v.id === toVideoId);
+    if (scopeType === 'lecture_range' && fromV && toV) {
+      setTitle('اختبار فاصل بين (' + fromV.title + ') و (' + toV.title + ')');
+    } else if (c) {
+      setTitle('اختبار شامل - ' + c.title);
+    } else {
+      setTitle('اختبار جديد');
+    }
+  };
+
+  // Run AI OCR: pages are sent in small overlapping batches, so any number of
+  // pages / questions works and each request stays short.
   const runAiOcr = async () => {
     if (!images.length) {
       setOcrError('يرجى إضافة صورة واحدة على الأقل للاستخراج.');
@@ -197,38 +366,24 @@ export function AIExamOcrModal({
     }
     setIsOcrLoading(true);
     setOcrError('');
+    setOcrWarnings([]);
+    setOcrSummary('');
+    setQuestionsSoFar(0);
+
+    const windows = planBatches(images.length);
+    batchResultsRef.current = new Map();
+    setBatches(windows.map((window) => ({ window, status: 'pending' as const })));
+
     try {
-      const formData = new FormData();
-      for (const item of images) {
-        formData.append('images', item.file);
+      await runWindows(
+        windows,
+        windows.map((_, index) => index)
+      );
+      if (batchResultsRef.current.size === 0) {
+        throw new Error('تعذر استخراج الأسئلة من الصور. أعد المحاولة.');
       }
-
-      const res = await fetch('/api/admin/exams/ocr', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || 'تعذر استخراج الأسئلة من الصور');
-      }
-
-      const extracted: ExtractedQuestion[] = data.questions || [];
-      setQuestions(extracted);
-
-      // Auto-generate title if currently empty
-      if (!title.trim()) {
-        const c = courses.find((x) => x.id === selectedCourseId);
-        const fromV = videos.find((v) => v.id === fromVideoId);
-        const toV = videos.find((v) => v.id === toVideoId);
-        if (scopeType === 'lecture_range' && fromV && toV) {
-          setTitle(`اختبار فاصل بين (${fromV.title}) و (${toV.title})`);
-        } else if (c) {
-          setTitle(`اختبار شامل - ${c.title}`);
-        } else {
-          setTitle('اختبار جديد');
-        }
-      }
+      applyMerged(batchResultsRef.current, windows);
+      autoTitle();
     } catch (err) {
       setOcrError(err instanceof Error ? err.message : 'حدث خطأ أثناء الاتصال بالذكاء الاصطناعي');
     } finally {
@@ -236,8 +391,30 @@ export function AIExamOcrModal({
     }
   };
 
+  // Retry ONLY the batches that failed.
+  const retryFailedBatches = async () => {
+    const windows = batches.map((b) => b.window);
+    const failedIndices = batches.flatMap((b, index) => (b.status === 'failed' ? [index] : []));
+    if (!failedIndices.length) return;
+    if (
+      editedRef.current &&
+      !window.confirm('إعادة دمج الصفحات الفاشلة ستستبدل تعديلاتك الحالية على الأسئلة. هل تريد المتابعة؟')
+    ) {
+      return;
+    }
+    setIsOcrLoading(true);
+    setOcrError('');
+    try {
+      await runWindows(windows, failedIndices);
+      applyMerged(batchResultsRef.current, windows);
+    } finally {
+      setIsOcrLoading(false);
+    }
+  };
+
   // Question editing actions
   const updateQuestion = (index: number, patch: Partial<ExtractedQuestion>) => {
+    editedRef.current = true;
     setQuestions((prev) =>
       prev.map((q, i) => (i === index ? { ...q, ...patch } : q))
     );
@@ -263,6 +440,7 @@ export function AIExamOcrModal({
   };
 
   const deleteQuestion = (index: number) => {
+    editedRef.current = true;
     setQuestions((prev) => prev.filter((_, i) => i !== index));
   };
 
@@ -279,6 +457,7 @@ export function AIExamOcrModal({
   };
 
   const addNewQuestion = () => {
+    editedRef.current = true;
     const newQ: ExtractedQuestion = {
       temp_id: crypto.randomUUID(),
       sort_order: questions.length + 1,
@@ -326,12 +505,14 @@ export function AIExamOcrModal({
       if (!q.prompt.trim()) {
         setSubmitError(`السؤال رقم ${i + 1} لا يحتوي على نص.`);
         setCollapsedQuestions((prev) => ({ ...prev, [q.temp_id]: false }));
+        setVisibleCount((count) => Math.max(count, i + 1));
         return;
       }
       if (q.type === 'multiple_choice') {
         if (q.options.length < 2) {
           setSubmitError(`السؤال رقم ${i + 1} يحتاج إلى اختيارين على الأقل.`);
           setCollapsedQuestions((prev) => ({ ...prev, [q.temp_id]: false }));
+        setVisibleCount((count) => Math.max(count, i + 1));
           return;
         }
         if (!q.correct_answer || !q.options.includes(q.correct_answer)) {
@@ -339,11 +520,13 @@ export function AIExamOcrModal({
             `السؤال رقم ${i + 1} لم يتم تحديد إجابة صحيحة له. يرجى الضغط على أحد الخيارات لتحديده كإجابة صحيحة.`
           );
           setCollapsedQuestions((prev) => ({ ...prev, [q.temp_id]: false }));
+        setVisibleCount((count) => Math.max(count, i + 1));
           return;
         }
       } else if (!q.correct_answer?.trim()) {
         setSubmitError(`السؤال رقم ${i + 1} لا يحتوي على إجابة صحيحة.`);
         setCollapsedQuestions((prev) => ({ ...prev, [q.temp_id]: false }));
+        setVisibleCount((count) => Math.max(count, i + 1));
         return;
       }
     }
@@ -674,7 +857,7 @@ export function AIExamOcrModal({
             >
               <Upload size={32} className="dropzone-icon" />
               <h4>اسحب وأفلت صور أوراق الأسئلة هنا أو اضغط للاختيار</h4>
-              <p>يدعم حتى 10 صور بدقة عالية (PNG, JPEG, WEBP - بحد أقصى 10MB لكل صورة)</p>
+              <p>يدعم أي عدد من الصور بدقة عالية (PNG, JPEG, WEBP - بحد أقصى 10MB لكل صورة)</p>
             </div>
 
             {/* Touch Action Buttons for Mobile / Tablet */}
@@ -745,6 +928,65 @@ export function AIExamOcrModal({
                 )}
               </button>
               {ocrError && <div className="error-banner">{ocrError}</div>}
+
+              {batches.length > 0 && (isOcrLoading || batches.some((b) => b.status === 'failed')) && (
+                <div className="ocr-progress" role="status" aria-live="polite">
+                  {(() => {
+                    const settled = batches.filter((b) => b.status === 'done' || b.status === 'failed');
+                    const covered = new Set<number>();
+                    for (const b of settled) for (let p = b.window.start; p < b.window.end; p++) covered.add(p);
+                    const percent = Math.round((covered.size / Math.max(1, images.length)) * 100);
+                    return (
+                      <>
+                        <div
+                          className="ocr-progress-bar"
+                          role="progressbar"
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={percent}
+                          aria-label="تقدم استخراج الأسئلة"
+                        >
+                          <span style={{ width: percent + '%' }} />
+                        </div>
+                        <p className="ocr-progress-text">
+                          {isOcrLoading
+                            ? 'جاري معالجة الصفحات: ' + covered.size + ' من ' + images.length + ' — تم العثور على ' + questionsSoFar + ' سؤال حتى الآن'
+                            : 'تمت معالجة ' + covered.size + ' من ' + images.length + ' صفحة'}
+                        </p>
+                      </>
+                    );
+                  })()}
+                  {batches.some((b) => b.status === 'failed') && (
+                    <div className="ocr-failed-batches">
+                      {batches.map((b, index) =>
+                        b.status === 'failed' ? (
+                          <p key={index} className="ocr-failed-line">
+                            <AlertCircle size={14} /> فشلت الصفحات {pagesLabel(b.window)}: {b.error}
+                          </p>
+                        ) : null
+                      )}
+                      <button type="button" className="btn-quick-tool" onClick={retryFailedBatches} disabled={isOcrLoading}>
+                        إعادة محاولة الدفعات الفاشلة فقط
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!isOcrLoading && ocrSummary && (
+                <div className="ocr-summary" role="status">
+                  <CheckCircle2 size={16} /> {ocrSummary}
+                </div>
+              )}
+              {ocrWarnings.length > 0 && (
+                <ul className="ocr-warning-list" role="alert">
+                  {ocrWarnings.map((warning, index) => (
+                    <li key={index}>
+                      <AlertCircle size={14} /> {warning.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </section>
 
@@ -797,7 +1039,7 @@ export function AIExamOcrModal({
               </div>
             ) : (
               <div className="questions-card-list">
-                {questions.map((q, qIndex) => {
+                {questions.slice(0, visibleCount).map((q, qIndex) => {
                   const collapsed = isQuestionCollapsed(q.temp_id);
                   return (
                     <article
@@ -979,6 +1221,20 @@ export function AIExamOcrModal({
                     </article>
                   );
                 })}
+                {questions.length > visibleCount && (
+                  <div className="ocr-show-more">
+                    <button
+                      type="button"
+                      className="btn btn-outline-sm"
+                      onClick={() => setVisibleCount((count) => count + REVIEW_PAGE_SIZE)}
+                    >
+                      عرض المزيد ({questions.length - visibleCount} سؤال متبقٍ)
+                    </button>
+                    <button type="button" className="btn btn-outline-sm" onClick={() => setVisibleCount(questions.length)}>
+                      عرض الكل
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </section>

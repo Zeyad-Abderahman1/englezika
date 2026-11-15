@@ -8224,6 +8224,105 @@ html[data-theme='light'] .admin-hamburger {
   font-weight: 600;
 }
 
+/* OCR extraction progress, warnings and review pagination */
+.ocr-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0.9rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.ocr-progress-bar {
+  height: 8px;
+  overflow: hidden;
+  background: var(--line);
+  border-radius: 999px;
+}
+
+.ocr-progress-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--red);
+  border-radius: inherit;
+  transition: width 0.25s ease;
+}
+
+.ocr-progress-text,
+.ocr-failed-line {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.7;
+}
+
+.ocr-failed-batches {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.ocr-failed-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  color: var(--red-bright);
+}
+
+.ocr-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.7;
+  color: #10b981;
+}
+
+.ocr-warning-list {
+  margin: 0;
+  padding: 0.65rem 0.85rem;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  background: rgba(234, 179, 8, 0.1);
+  border: 1px solid rgba(234, 179, 8, 0.45);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.85rem;
+  line-height: 1.7;
+}
+
+.ocr-warning-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.ocr-warning-list svg {
+  flex-shrink: 0;
+  margin-top: 0.3rem;
+  color: #eab308;
+}
+
+.ocr-show-more {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ocr-progress-bar > span {
+    transition: none;
+  }
+}
+
 /* Section 3: Interactive Preview Studio */
 .preview-studio-section {
   background: var(--surface);

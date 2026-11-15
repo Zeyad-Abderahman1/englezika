@@ -4,6 +4,7 @@ import { jsonError, requireSameOrigin, safeInteger, safeText } from '../../../li
 import { invalidatePublicCourseCache } from '../../../lib/public-course-cache';
 import { recordAuditLog } from '../../../lib/audit';
 import { parseQuestion, validateQuestion, type RawQuestion } from '../../../lib/exam-validation';
+import { buildQuestionInsertStatements } from '../../../lib/exam-questions-insert';
 
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
@@ -32,7 +33,6 @@ export async function POST(request: Request) {
   const questions =
     mode === 'online' && Array.isArray(body.questions)
       ? body.questions
-          .slice(0, 100)
           .map((question, index) => parseQuestion(question as RawQuestion, index + 1))
       : [];
 
@@ -152,28 +152,8 @@ export async function POST(request: Request) {
   ];
 
   if (mode === 'online') {
-    statements.push(
-      ...questions.map((question) =>
-        db
-          .prepare(
-            `INSERT INTO questions
-         (id, exam_id, sort_order, type, prompt, options, correct_answer, rubric, points, explanation)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .bind(
-            crypto.randomUUID(),
-            id,
-            question.sortOrder,
-            question.type,
-            question.prompt,
-            JSON.stringify(question.options),
-            question.correctAnswer,
-            question.rubric,
-            question.points,
-            question.explanation || null
-          )
-      )
-    );
+    // Multi-row inserts, executed in the same transaction as the exam row.
+    statements.push(...buildQuestionInsertStatements(db, id, questions));
   }
 
   // Only bind prerequisite gate when exam status is published

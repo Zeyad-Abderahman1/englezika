@@ -5,6 +5,7 @@ import { invalidatePublicCourseCache } from '../../../../lib/public-course-cache
 import { recordAuditLog } from '../../../../lib/audit';
 import { assessmentService } from '../../../../lib/services/assessment-service';
 import { parseQuestion, validateQuestion, type RawQuestion } from '../../../../lib/exam-validation';
+import { buildQuestionInsertStatements } from '../../../../lib/exam-questions-insert';
 
 function nullableTimestamp(val: unknown, fallback: unknown) {
   if (val === null) return null;
@@ -243,7 +244,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       return jsonError('لا يمكن تعديل أسئلة امتحان له نتائج محفوظة. يمكنك إنشاء امتحان جديد.', 409);
     }
     const newQuestions = (body.questions as RawQuestion[])
-      .slice(0, 100)
       .map((q, idx) => parseQuestion(q, idx + 1));
     for (const q of newQuestions) {
       const qErr = validateQuestion(q);
@@ -251,32 +251,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         return jsonError(qErr, 400);
       }
     }
-    const oldIds = await db
-      .prepare('SELECT id FROM questions WHERE exam_id = ?')
-      .bind(id)
-      .all<{ id: string }>();
-
     statements.push(
-      ...oldIds.results.map((q) => db.prepare('DELETE FROM questions WHERE id = ?').bind(q.id)),
-      ...newQuestions.map((q) =>
-        db
-          .prepare(
-            `INSERT INTO questions (id, exam_id, sort_order, type, prompt, options, correct_answer, rubric, points, explanation)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .bind(
-            crypto.randomUUID(),
-            id,
-            q.sortOrder,
-            q.type,
-            q.prompt,
-            JSON.stringify(q.options),
-            q.correctAnswer,
-            q.rubric,
-            q.points,
-            q.explanation || null
-          )
-      )
+      db.prepare('DELETE FROM questions WHERE exam_id = ?').bind(id),
+      ...buildQuestionInsertStatements(db, id, newQuestions)
     );
   }
 
