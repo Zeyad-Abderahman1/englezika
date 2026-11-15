@@ -71,6 +71,10 @@ export async function GET(request: Request) {
        COALESCE(x.assessment_type, 'exam') AS assessmentType,
        COALESCE(x.mode, 'online') AS mode,
        x.scope_type AS scopeType, x.from_video_id AS fromVideoId, x.to_video_id AS toVideoId,
+       x.thumbnail_key AS thumbnailKey, x.published_as_course AS publishedAsCourse,
+       x.listing_course_id AS listingCourseId, x.public_slug AS publicSlug,
+       x.is_public AS isPublic, x.show_leaderboard AS showLeaderboard,
+       (SELECT COALESCE(lc.price, 0) FROM courses lc WHERE lc.id = x.listing_course_id) AS listingPrice,
        c.title AS courseTitle, COUNT(q.id) AS questionCount, COALESCE(SUM(q.points), 0) AS maxScore
        FROM exams x LEFT JOIN courses c ON c.id = x.course_id
        LEFT JOIN questions q ON q.exam_id = x.id

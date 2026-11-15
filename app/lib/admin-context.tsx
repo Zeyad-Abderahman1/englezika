@@ -48,6 +48,13 @@ export type Exam = {
   questionCount: number;
   maxScore: number;
   showReview?: boolean;
+  thumbnailKey?: string | null;
+  publishedAsCourse?: boolean;
+  listingCourseId?: string | null;
+  publicSlug?: string | null;
+  isPublic?: boolean;
+  showLeaderboard?: boolean;
+  listingPrice?: number;
 };
 
 export type Enrollment = {

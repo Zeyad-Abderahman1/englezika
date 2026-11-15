@@ -7,6 +7,7 @@ import { assessmentService } from '../services/assessment-service';
 import { announcementService } from '../services/announcement-service';
 import { getDatabase } from '../platform';
 import { COURSE_GRADE_OPTIONS } from '../course-grades';
+import { examListingService } from '../services/exam-listing-service';
 import { DomainError } from '../services/types';
 import { deleteStagedImage, isValidUploadId, loadStagedImage } from './agent/image-staging';
 
@@ -205,6 +206,60 @@ async function attachStagedThumbnail(
   }
   await deleteStagedImage(actor.email, uploadId, serviceContext.storage as never);
   return { attached: true };
+}
+
+/**
+ * Applies the optional "thumbnail" and "publish as an all-classes course" arguments of
+ * create_exam / create_quiz through the SAME shared service the admin forms use.
+ */
+async function applyExamListingArgs(
+  examId: string,
+  args: Record<string, unknown>,
+  actor: StaffActor,
+  serviceContext: ServiceContext
+): Promise<Record<string, unknown> | undefined> {
+  const extra: Record<string, unknown> = {};
+
+  if (typeof args.thumbnailUploadId === 'string' && args.thumbnailUploadId) {
+    if (!isValidUploadId(args.thumbnailUploadId)) {
+      extra.thumbnail = { attached: false, error: 'مرجع الصورة غير صالح' };
+    } else {
+      const staged = await loadStagedImage(actor.email, args.thumbnailUploadId, serviceContext.storage as never);
+      if (!staged) {
+        extra.thumbnail = { attached: false, error: 'لم أجد الصورة المرفوعة (ربما انتهت صلاحيتها). ارفعها مرة أخرى.' };
+      } else {
+        try {
+          await examListingService.setThumbnail(examId, staged.bytes, staged.mime, actor, serviceContext);
+          await deleteStagedImage(actor.email, args.thumbnailUploadId, serviceContext.storage as never);
+          extra.thumbnail = { attached: true };
+        } catch (error) {
+          if (!(error instanceof DomainError)) throw error;
+          extra.thumbnail = { attached: false, error: error.message };
+        }
+      }
+    }
+  }
+
+  if (args.publishAsCourse === true) {
+    const listing = await examListingService.publishAsCourse(
+      examId,
+      {
+        price: args.listingPrice,
+        description: args.listingDescription,
+        isPublic: args.isPublic,
+        showLeaderboard: args.showLeaderboard,
+      },
+      actor,
+      serviceContext
+    );
+    extra.listing = {
+      listingCourseId: listing.listingCourseId,
+      publicSlug: listing.publicSlug,
+      isPublic: listing.isPublic,
+    };
+  }
+
+  return Object.keys(extra).length ? extra : undefined;
 }
 
 export async function executeTool(params: ExecuteToolParams): Promise<ToolExecutionSuccessResult> {
@@ -662,7 +717,8 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
           actor,
           serviceContext
         );
-        resultPayload = { exam };
+        const examExtra = await applyExamListingArgs(String(exam.id), args, actor, serviceContext);
+        resultPayload = { exam, ...(examExtra ?? {}) };
         break;
       }
 
@@ -684,7 +740,8 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
           actor,
           serviceContext
         );
-        resultPayload = { quiz };
+        const quizExtra = await applyExamListingArgs(String(quiz.id), args, actor, serviceContext);
+        resultPayload = { quiz, ...(quizExtra ?? {}) };
         break;
       }
 

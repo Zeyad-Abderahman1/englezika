@@ -27,9 +27,10 @@ export async function loadStudentExam(id: string, email: string): Promise<Studen
        COALESCE(x.mode, 'online') AS mode,
        COALESCE(x.show_review, true) AS showReview
        FROM exams x LEFT JOIN enrollments e
-       ON e.course_id = x.course_id AND e.user_email = ? AND e.status = 'approved'
+       ON e.user_email = ? AND e.status = 'approved'
+             AND (e.course_id = x.course_id OR (x.published_as_course = true AND e.course_id = x.listing_course_id))
        WHERE x.id = ? AND x.status = 'published'
-         AND (x.course_id IS NULL OR e.id IS NOT NULL)`
+         AND ((x.published_as_course = false AND x.course_id IS NULL) OR e.id IS NOT NULL)`
     )
     .bind(email, id)
     .first<StudentExam>();

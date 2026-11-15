@@ -1,6 +1,7 @@
 import { getDatabase, getPrivateStorage } from '../platform';
 import { safeInteger, safeText } from '../security';
 import { invalidatePublicCourseCache } from '../public-course-cache';
+import { invalidatePublicExamCache } from '../public-exam';
 import { recordAuditLog } from '../audit';
 import { captureException } from '../observability';
 import {
@@ -602,9 +603,18 @@ export class AssessmentService {
     const db = context?.db ?? getDatabase();
 
     const exam = await db
-      .prepare('SELECT id, title, teacher_file_key AS teacherFileKey FROM exams WHERE id = ?')
+      .prepare(
+        `SELECT id, title, teacher_file_key AS teacherFileKey, thumbnail_key AS thumbnailKey,
+          listing_course_id AS listingCourseId FROM exams WHERE id = ?`
+      )
       .bind(id)
-      .first<{ id: string; title: string; teacherFileKey?: string | null }>();
+      .first<{
+        id: string;
+        title: string;
+        teacherFileKey?: string | null;
+        thumbnailKey?: string | null;
+        listingCourseId?: string | null;
+      }>();
 
     if (!exam) {
       throw new DomainError('الامتحان غير موجود', 404);
@@ -613,6 +623,9 @@ export class AssessmentService {
     const filesToDelete = new Set<string>();
     if (exam.teacherFileKey) {
       filesToDelete.add(exam.teacherFileKey);
+    }
+    if (exam.thumbnailKey) {
+      filesToDelete.add(exam.thumbnailKey);
     }
 
     const [questions, attempts] = await Promise.all([
@@ -659,7 +672,11 @@ export class AssessmentService {
         db.prepare('DELETE FROM attempts WHERE exam_id = ?').bind(id),
         // 7. Questions
         db.prepare('DELETE FROM questions WHERE exam_id = ?').bind(id),
-        // 8. Exam itself
+        // 8. Hide the exam's standalone course listing (enrollment history is kept)
+        db
+          .prepare("UPDATE courses SET status = 'draft', thumbnail_key = NULL, updated_at = ? WHERE id = ?")
+          .bind(Date.now(), exam.listingCourseId ?? ''),
+        // 9. Exam itself
         db.prepare('DELETE FROM exams WHERE id = ?').bind(id),
       ]);
     } catch (error) {
@@ -686,6 +703,7 @@ export class AssessmentService {
     });
 
     invalidatePublicCourseCache();
+    invalidatePublicExamCache();
     return { ok: true };
   }
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { BookOpen, LoaderCircle } from 'lucide-react';
 import type { Course } from '../data/content';
 import CourseCard from './CourseCard';
+import { filterCoursesByTab } from '../lib/course-filter';
 
 const filters = ['الكل', 'أولى ثانوي', 'تانية ثانوي', 'تالتة ثانوي', 'أخرى'];
 
@@ -31,6 +32,9 @@ export default function CoursesExplorer() {
           available: Boolean(course.available),
           thumbnailKey: course.thumbnailKey ? String(course.thumbnailKey) : null,
           updatedAt: course.updatedAt ? Number(course.updatedAt) : undefined,
+          kind: course.kind ? String(course.kind) : 'course',
+          allGrades: Boolean(course.allGrades),
+          examSlug: course.examSlug ? String(course.examSlug) : null,
         }));
 
         setCourses(loaded);
@@ -47,16 +51,8 @@ export default function CoursesExplorer() {
     };
   }, []);
 
-  const standardGrades = ['أولى ثانوي', 'تانية ثانوي', 'تالتة ثانوي'];
-  const visible = useMemo(
-    () =>
-      active === 'الكل'
-        ? courses
-        : active === 'أخرى'
-          ? courses.filter((course) => !standardGrades.includes(course.grade))
-          : courses.filter((course) => course.grade === active),
-    [active, courses]
-  );
+  // Items offered to ALL classes appear under every class tab.
+  const visible = useMemo(() => filterCoursesByTab(courses, active), [active, courses]);
 
   return (
     <>

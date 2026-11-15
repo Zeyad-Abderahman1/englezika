@@ -40,7 +40,10 @@ describe('public "أخرى" category support', () => {
   });
 
   test('filter logic handles "أخرى" correctly', async () => {
-    const content = await readFile('app/components/CoursesExplorer.tsx', 'utf-8');
+    // the grade-tab filter lives in a pure, unit-tested helper used by CoursesExplorer
+    const explorer = await readFile('app/components/CoursesExplorer.tsx', 'utf-8');
+    assert.ok(explorer.includes('filterCoursesByTab'), 'Explorer uses the shared filter');
+    const content = await readFile('app/lib/course-filter.ts', 'utf-8');
     assert.ok(content.includes("active === 'أخرى'"), 'Filter logic handles أخرى');
   });
 });

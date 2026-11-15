@@ -36,6 +36,16 @@ import { AdminFilterBar } from '../shell/AdminFilterBar';
 import { AdminEmptyState } from '../shell/AdminEmptyState';
 import { AdminStatusBadge } from '../shell/AdminStatusBadge';
 import { AIExamOcrModal } from '../AIExamOcrModal';
+import { ExamPublishingModal } from '../exam/ExamPublishingModal';
+import { PublishExamAsCourse } from '../exam/PublishExamAsCourse';
+import {
+  applyExamPublishing,
+  emptyPublishingDraft,
+  hasPublishingChanges,
+  publicExamUrl,
+  type ExamPublishingDraft,
+} from '../../../lib/exam-publishing-client';
+import { examThumbnailUrl } from '../../../lib/exam-listing';
 import { ADMIN_OPEN_OCR_EVENT } from '../shell/admin-navigation';
 
 const emptyQuestion = (): QuestionDraft => ({
@@ -62,6 +72,9 @@ export function ExamsManagerView() {
   const [isOcrOpen, setIsOcrOpen] = useState(ocrRequested);
   const [handledOcrRequest, setHandledOcrRequest] = useState(ocrRequested);
   const [questions, setQuestions] = useState<QuestionDraft[]>([emptyQuestion()]);
+  const [publishing, setPublishing] = useState<ExamPublishingDraft>(emptyPublishingDraft);
+  const [publishingExam, setPublishingExam] = useState<Exam | null>(null);
+  const [copiedExamId, setCopiedExamId] = useState('');
 
   // Keep the OCR modal in sync with `?action=ocr` navigations without an
   // effect-driven cascading render. React allows guarded state adjustment
@@ -182,10 +195,20 @@ export function ExamsManagerView() {
         }
       }
 
+      // Thumbnail + "publish as a course" go through the shared service (never blocks creation).
+      const createdId = (result as { id?: string }).id;
+      let publishingWarning = '';
+      if (createdId && hasPublishingChanges(publishing)) {
+        const outcome = await applyExamPublishing(createdId, publishing);
+        publishingWarning = outcome.warnings.join(' — ');
+      }
+
       setNotice('تم إنشاء الامتحان والأسئلة بنجاح');
+      if (publishingWarning) setError(publishingWarning);
       await refreshData(1);
       form.reset();
       setQuestions([emptyQuestion()]);
+      setPublishing(emptyPublishingDraft());
       setIsBuilderOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذر تنفيذ العملية');
@@ -400,6 +423,39 @@ export function ExamsManagerView() {
               </div>
 
               <div className="admin-exam-card-body">
+                {exam.thumbnailKey && (
+                  // eslint-disable-next-line @next/next/no-img-element -- cached artwork from our own route
+                  <img
+                    className="admin-exam-thumb"
+                    src={examThumbnailUrl(exam.id, exam.thumbnailKey)}
+                    alt=""
+                    width={320}
+                    height={180}
+                    loading="lazy"
+                  />
+                )}
+                {exam.publishedAsCourse && (
+                  <div className="admin-exam-listing-row">
+                    <span className="exam-pub-badge">منشور ككورس لكل الصفوف</span>
+                    {exam.isPublic && exam.publicSlug && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(publicExamUrl(exam.publicSlug as string));
+                            setCopiedExamId(exam.id);
+                            setTimeout(() => setCopiedExamId(''), 2000);
+                          } catch {
+                            setError('تعذر نسخ الرابط');
+                          }
+                        }}
+                      >
+                        {copiedExamId === exam.id ? 'تم النسخ' : 'نسخ الرابط العام'}
+                      </button>
+                    )}
+                  </div>
+                )}
                 <h3 className="admin-exam-title">{exam.title}</h3>
                 {exam.description && (
                   <p className="admin-exam-description">{exam.description}</p>
@@ -429,6 +485,14 @@ export function ExamsManagerView() {
                     onClick={() => handleEditMetadata(exam)}
                   >
                     <PencilLine size={14} /> تعديل البيانات
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    onClick={() => setPublishingExam(exam)}
+                  >
+                    {exam.publishedAsCourse ? 'إعدادات الكورس' : 'صورة / نشر ككورس'}
                   </button>
 
                   <button
@@ -618,6 +682,12 @@ export function ExamsManagerView() {
                 </label>
               </div>
 
+              {/* Thumbnail + publish as an all-classes course (shared component) */}
+              <div className="admin-form-section">
+                <h4 className="admin-form-section-title">صورة الامتحان والنشر ككورس (اختياري)</h4>
+                <PublishExamAsCourse value={publishing} onChange={setPublishing} disabled={busy} />
+              </div>
+
               {/* Question Builder */}
               <div className="admin-form-section">
                 <div className="admin-section-header-row">
@@ -799,6 +869,18 @@ export function ExamsManagerView() {
           </div>
         </div>
       )}
+      {publishingExam && (
+        <ExamPublishingModal
+          key={publishingExam.id}
+          exam={publishingExam}
+          onClose={() => setPublishingExam(null)}
+          onSaved={async (message) => {
+            setNotice(message);
+            await refreshData(1);
+          }}
+        />
+      )}
+
       {/* ── AI Exam OCR Modal ────────────────────────────────────────── */}
       <AIExamOcrModal
         isOpen={isOcrOpen}

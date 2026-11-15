@@ -130,3 +130,20 @@ export function studentSessionCookie(token: string, secure: boolean, rememberMe 
 export function clearStudentSessionCookie(secure: boolean): string {
   return `${STUDENT_SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure ? '; Secure' : ''}`;
 }
+
+/** Returns the signed-in student's email, or null. Never redirects (safe for public pages). */
+export async function getOptionalStudentEmail(): Promise<string | null> {
+  const jar = await cookies();
+  const token = jar.get(STUDENT_SESSION_COOKIE)?.value;
+  if (!token || token.length < 16) return null;
+  try {
+    const tokenHash = await sha256(token);
+    const row = await getDatabase()
+      .prepare('SELECT email FROM native_sessions WHERE session_hash = ? AND expires_at > ?')
+      .bind(tokenHash, Date.now())
+      .first<{ email: string }>();
+    return row?.email ?? null;
+  } catch {
+    return null;
+  }
+}

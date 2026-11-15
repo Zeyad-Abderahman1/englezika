@@ -10,6 +10,10 @@ export type Course = {
   popular?: boolean;
   thumbnailKey?: string | null;
   updatedAt?: number;
+  /** 'course' or 'exam' (an exam published as a standalone course for all classes). */
+  kind?: string;
+  allGrades?: boolean;
+  examSlug?: string | null;
 };
 
 

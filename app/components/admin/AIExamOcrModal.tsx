@@ -25,6 +25,13 @@ import {
   Maximize2,
 } from 'lucide-react';
 import type { ExtractedQuestion } from '../../lib/exam-ocr';
+import { PublishExamAsCourse } from './exam/PublishExamAsCourse';
+import {
+  applyExamPublishing,
+  emptyPublishingDraft,
+  hasPublishingChanges,
+  type ExamPublishingDraft,
+} from '../../lib/exam-publishing-client';
 import {
   mergeBatches,
   planBatches,
@@ -179,6 +186,7 @@ export function AIExamOcrModal({
   const [ocrSummary, setOcrSummary] = useState('');
   const [questionsSoFar, setQuestionsSoFar] = useState(0);
   const [visibleCount, setVisibleCount] = useState(REVIEW_PAGE_SIZE);
+  const [publishing, setPublishing] = useState<ExamPublishingDraft>(emptyPublishingDraft);
   const batchResultsRef = useRef<Map<number, BatchResult>>(new Map());
   const preparedRef = useRef<Map<string, File>>(new Map());
   const editedRef = useRef(false);
@@ -595,6 +603,12 @@ export function AIExamOcrModal({
         throw new Error(data.error || 'تعذر حفظ الاختبار');
       }
 
+      // Optional thumbnail + "publish as an all-classes course" (shared service, never blocks the save).
+      if (data.id && hasPublishingChanges(publishing)) {
+        const outcome = await applyExamPublishing(String(data.id), publishing);
+        if (outcome.warnings.length) window.alert(outcome.warnings.join(' — '));
+      }
+
       onExamSaved?.(data.id);
       onClose();
     } catch (err) {
@@ -988,6 +1002,14 @@ export function AIExamOcrModal({
                 </ul>
               )}
             </div>
+          </section>
+
+          {/* Optional: thumbnail + publish as a course for all classes (shared component) */}
+          <section className="upload-section">
+            <h3 className="section-title">
+              <ImageIcon size={18} /> صورة الامتحان والنشر ككورس (اختياري)
+            </h3>
+            <PublishExamAsCourse value={publishing} onChange={setPublishing} disabled={isSubmitting} />
           </section>
 
           {/* SECTION 3: Interactive Preview & Edit Studio */}

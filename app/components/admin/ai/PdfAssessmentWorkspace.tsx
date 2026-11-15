@@ -1,5 +1,13 @@
 'use client';
 
+import { PublishExamAsCourse } from '../exam/PublishExamAsCourse';
+import {
+  applyExamPublishing,
+  emptyPublishingDraft,
+  findExamIdInExecutionResult,
+  hasPublishingChanges,
+  type ExamPublishingDraft,
+} from '../../../lib/exam-publishing-client';
 import { useEffect, useRef, useState } from 'react';
 import { Check, CheckCircle2, FileQuestion, LoaderCircle, Minus, Plus, RefreshCw, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useAdmin } from '../../../lib/admin-context';
@@ -21,6 +29,7 @@ export function PdfAssessmentWorkspace() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState('');
+  const [publishing, setPublishing] = useState<ExamPublishingDraft>(emptyPublishingDraft);
   const [questionCount, setQuestionCount] = useState(20);
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [examType, setExamType] = useState<'exam' | 'quiz'>('quiz');
@@ -142,7 +151,16 @@ export function PdfAssessmentWorkspace() {
     const prep = await prepRes.json(); if (!prepRes.ok || !prep.success) throw new Error('تعذر إعداد التقييم للإدراج.');
     const execRes = await fetch('/api/admin/ai/execute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: prep.token }) });
     const executed = await execRes.json(); if (!execRes.ok || !executed.success) throw new Error('تعذر إدراج التقييم في الدورة.');
-    await refreshData(1); setNotice(`تم إدراج ${questions.length} سؤالًا بنجاح في الدورة.`);
+
+    // Optional thumbnail + "publish as an all-classes course" via the shared service.
+    let publishingWarning = '';
+    const newExamId = findExamIdInExecutionResult(executed.result);
+    if (newExamId && hasPublishingChanges(publishing)) {
+      const outcome = await applyExamPublishing(newExamId, publishing);
+      publishingWarning = outcome.warnings.join(' — ');
+      if (!outcome.warnings.length) setPublishing(emptyPublishingDraft());
+    }
+    await refreshData(1); setNotice(publishingWarning || `تم إدراج ${questions.length} سؤالًا بنجاح في الدورة.`);
   };
 
   return <div className="ai-pdf-page" dir="rtl">
@@ -165,6 +183,7 @@ export function PdfAssessmentWorkspace() {
             يجب أن تكون محاضرة البداية قبل أو نفس محاضرة النهاية في تسلسل الدورة.
           </p>
         )}
+        <fieldset><legend>صورة الامتحان والنشر ككورس (اختياري)</legend><PublishExamAsCourse value={publishing} onChange={setPublishing} /></fieldset>
         <fieldset><legend>نوع التقييم</legend><div className="ai-segments">{(['quiz', 'exam'] as const).map((type) => <button key={type} type="button" className={examType === type ? 'active' : ''} aria-pressed={examType === type} onClick={() => setExamType(type)}>{type === 'quiz' ? 'Quiz' : 'Exam'}</button>)}</div></fieldset>
         <fieldset><legend>مستوى الصعوبة</legend><div className="ai-segments">{(['easy', 'medium', 'hard'] as const).map((level) => <button key={level} type="button" className={difficulty === level ? 'active' : ''} aria-pressed={difficulty === level} onClick={() => setDifficulty(level)}>{level === 'easy' ? 'سهل' : level === 'medium' ? 'متوسط' : 'متقدم'}</button>)}</div></fieldset>
         <label>عدد الأسئلة<div className="ai-count-control"><button type="button" onClick={() => updateCount(questionCount - 1)} disabled={questionCount <= QUESTION_COUNT_MIN} aria-label="تقليل عدد الأسئلة"><Minus size={17} /></button><input type="number" min={QUESTION_COUNT_MIN} max={QUESTION_COUNT_MAX} value={questionCount} onChange={(e) => updateCount(Number(e.target.value))} /><button type="button" onClick={() => updateCount(questionCount + 1)} disabled={questionCount >= QUESTION_COUNT_MAX} aria-label="زيادة عدد الأسئلة"><Plus size={17} /></button></div></label>

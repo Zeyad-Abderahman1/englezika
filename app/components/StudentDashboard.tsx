@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import Link from 'next/link';
 import { openNotificationHome, visibleUnreadAnnouncementIds } from '../lib/announcement-display';
 import { getCourseThumbnailUrl } from '../lib/course-thumbnail';
+import { examThumbnailUrl } from '../lib/exam-listing';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -48,7 +49,13 @@ type DashboardData = {
   user: {
     email: string;
     displayName: string;
-    profile?: { name?: string; phone?: string; grade?: string; section?: string } | null;
+    profile?: {
+      name?: string;
+      phone?: string;
+      grade?: string;
+      section?: string;
+      hideFromLeaderboard?: boolean;
+    } | null;
   };
   enrollments: Array<{
     id: string;
@@ -58,9 +65,12 @@ type DashboardData = {
     status: string;
     thumbnailKey?: string | null;
     updatedAt?: number;
+    kind?: string;
+    listingExamId?: string | null;
   }>;
   exams: Array<{
     id: string;
+    thumbnailKey?: string | null;
     courseId?: string | null;
     title: string;
     description: string;
@@ -1180,7 +1190,10 @@ export default function StudentDashboard() {
                     <h1>{activeCourse.title}</h1>
                     <p>افتح محتوى الكورس، راجع امتحاناته، وتابع درجاتك من نفس المكان.</p>
                   </div>
-                  <Link className="btn btn-primary" href={`/learn/${activeCourse.courseId}`}>
+                  <Link
+                    className="btn btn-primary"
+                    href={activeCourse.listingExamId ? `/exam/${activeCourse.listingExamId}` : `/learn/${activeCourse.courseId}`}
+                  >
                     دخول الكورس <Play />
                   </Link>
                 </section>
@@ -1428,7 +1441,8 @@ export default function StudentDashboard() {
                 event.preventDefault();
                 setSaved(false);
                 const form = new FormData(event.currentTarget);
-                const payload = Object.fromEntries(form);
+                const payload: Record<string, FormDataEntryValue> = Object.fromEntries(form);
+                payload.hide_from_leaderboard = form.has('hide_from_leaderboard') ? 'true' : 'false';
                 if (profileGrade === 'أولى ثانوي') {
                   payload.section = '';
                 }
@@ -1498,6 +1512,17 @@ export default function StudentDashboard() {
                   </select>
                 </label>
               )}
+              <label className="settings-checkbox">
+                <input
+                  type="checkbox"
+                  name="hide_from_leaderboard"
+                  defaultChecked={Boolean(data.user.profile?.hideFromLeaderboard)}
+                />
+                <span>
+                  إخفاء اسمي من لوحة الأوائل
+                  <small> — يظهر ترتيبك باسم «طالب مجهول» في الصفحات العامة للامتحانات.</small>
+                </span>
+              </label>
               <div className="settings-submit">
                 <button className="btn btn-primary" type="submit">
                   حفظ التغييرات
@@ -1701,6 +1726,17 @@ function ExamRow({
         <b>{exam.durationMinutes}</b>
         <small>دقيقة</small>
       </span>
+      {exam.thumbnailKey && (
+        // eslint-disable-next-line @next/next/no-img-element -- small cached artwork from our own route
+        <img
+          className="exam-card-thumb"
+          src={examThumbnailUrl(exam.id, exam.thumbnailKey)}
+          alt=""
+          width={96}
+          height={54}
+          loading="lazy"
+        />
+      )}
       <div className="exam-copy">
         <strong>{exam.title}</strong>
         {!exam.isRead && <span className="status-pill status-pending">جديد</span>}

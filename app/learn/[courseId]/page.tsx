@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { getDatabase } from '../../lib/platform';
 import { isEmailVerified } from '../../lib/email-verification';
 import SecureVideoPlayer, { type Video, type InterLectureExam } from '../../components/SecureVideoPlayer';
@@ -41,6 +42,15 @@ export default async function LearnPage({
       </main>
     );
   }
+
+  // An exam published as a standalone course has no lectures: open the exam itself.
+  const listingExam = await db
+    .prepare(
+      "SELECT x.id FROM exams x JOIN courses c ON c.id = x.listing_course_id WHERE c.id = ? AND c.kind = 'exam' LIMIT 1"
+    )
+    .bind(courseId)
+    .first<{ id: string }>();
+  if (listingExam) redirect(`/exam/${listingExam.id}`);
 
   const enrollment = await db
     .prepare(

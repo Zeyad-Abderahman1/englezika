@@ -48,5 +48,14 @@ export async function PUT(request: Request) {
     )
     .run();
 
+  // Optional privacy choice: hide the student's name on public exam leaderboards.
+  if (typeof body.hide_from_leaderboard === 'boolean' || body.hide_from_leaderboard === 'true' || body.hide_from_leaderboard === 'false') {
+    const hidden = body.hide_from_leaderboard === true || body.hide_from_leaderboard === 'true';
+    await getDatabase()
+      .prepare('UPDATE users SET hide_from_leaderboard = ? WHERE email = ?')
+      .bind(hidden, user.email.toLowerCase())
+      .run();
+  }
+
   return Response.json({ ok: true });
 }

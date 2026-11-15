@@ -29,7 +29,7 @@ export default function CourseCard({ course }: { course: Course }) {
           </span>
         )}
       </div>
-      <p className="course-kicker">English Course</p>
+      <p className="course-kicker">{course.kind === 'exam' ? 'Exam' : 'English Course'}</p>
       <h3>{course.month}</h3>
       <div className="course-meta">
         <span>
@@ -47,7 +47,10 @@ export default function CourseCard({ course }: { course: Course }) {
           {course.price !== 0 && <span>جنيه</span>}
         </div>
         {course.available ? (
-          <Link className="btn btn-primary" href={`/course/${course.id}`}>
+          <Link
+            className="btn btn-primary"
+            href={course.kind === 'exam' && course.examSlug ? `/exams/${encodeURIComponent(course.examSlug)}` : `/course/${course.id}`}
+          >
             التفاصيل والاشتراك
           </Link>
         ) : (
