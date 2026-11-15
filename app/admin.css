@@ -2,15 +2,24 @@
  * app/admin.css
  *
  * Englizeka Admin Application Styling System
- * Arabic RTL-first with persistent LEFT desktop sidebar, responsive mobile drawer,
- * charcoal/red brand aesthetic, comprehensive dark & light mode support, and zero overflow.
+ * Arabic RTL-first with persistent desktop sidebar on the inline-start (right) edge,
+ * responsive mobile drawer, charcoal/red brand aesthetic, comprehensive dark & light
+ * mode support, and zero overflow.
  */
 
 /* ── Admin Layout Grid ──────────────────────────────────────────────────────── */
 
 .admin-app-layout {
+  /* Layout scale (4/8px based). Colors/theme tokens are untouched. */
+  --admin-gutter: clamp(16px, 2.5vw, 32px);
+  --admin-max: 1440px;
+  --admin-sidebar-w: 280px;
+
   display: flex;
-  flex-direction: row-reverse; /* Places left-positioned sidebar on the physical left in RTL */
+  /* `row` inside a `direction: rtl` box starts at the RIGHT edge, so the sidebar
+     (first child) sits at the inline-start. `row-reverse` here used to flip it
+     to the physical left. */
+  flex-direction: row;
   min-height: 100vh;
   background-color: var(--ink);
   color: var(--text);
@@ -27,15 +36,16 @@
   }
 }
 
-/* ── Desktop Left Sidebar Container ─────────────────────────────────────────── */
+/* ── Desktop Sidebar Container (inline-start / right in RTL) ───────────────── */
 
 .admin-desktop-sidebar-container {
-  width: 280px;
+  width: var(--admin-sidebar-w, 280px);
   flex-shrink: 0;
   position: sticky;
   top: 0;
   height: 100vh;
-  overflow-y: auto;
+  height: 100dvh;
+  overflow: hidden; /* only the nav list scrolls */
   border-inline-end: 1px solid var(--line);
   background-color: var(--surface);
   z-index: 40;
@@ -61,9 +71,9 @@
 
 .admin-content-body {
   flex: 1;
-  padding: clamp(16px, 2.5vw, 32px);
+  padding: 24px var(--admin-gutter, 24px) 40px;
   width: 100%;
-  max-width: 1400px;
+  max-width: var(--admin-max, 1440px);
   margin-inline: auto;
 }
 
@@ -3080,5 +3090,656 @@ html[data-theme='light'] .admin-app-layout .admin-topbar {
 
   html[data-theme='light'] .admin-app-layout .admin-topbar-user-initial {
     color: #b91c1c;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   LAYOUT REFINEMENT — sidebar on the inline-start (right) edge, 4/8px spacing
+   scale, Arabic-friendly type rhythm. Layout/spacing/typography only: every
+   color, gradient and font below comes from the existing tokens.
+
+   NOTE: legacy rules in globals.css still target `.admin-sidebar`,
+   `.admin-sidebar nav`, `.admin-sidebar nav button` and `.admin-sidebar-footer
+   button` (from the pre-shell AdminDashboard). They leak into this shell, so the
+   rules below are scoped under `.admin-app-layout` to out-rank them.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Sidebar shell: flush full-height panel, not a floating card ─────────────── */
+
+.admin-app-layout .admin-desktop-sidebar-container > .admin-sidebar {
+  position: static;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 16px 12px 12px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+html[data-theme='light'] .admin-app-layout .admin-sidebar {
+  border: 0 !important; /* legacy light rule adds a physical border-right */
+}
+
+.admin-app-layout .admin-sidebar-header {
+  flex-shrink: 0;
+  margin: 0 0 12px;
+  padding: 0 4px 16px;
+}
+
+.admin-app-layout .admin-sidebar-brand {
+  min-width: 0;
+  gap: 12px;
+}
+
+.admin-app-layout .admin-brand-info {
+  min-width: 0;
+  gap: 2px;
+}
+
+.admin-app-layout .admin-brand-name {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.admin-app-layout .admin-brand-role {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ── Sidebar nav: the ONLY scroll area, never scrolls horizontally ──────────── */
+
+.admin-app-layout .admin-sidebar-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 0 0 8px;
+  padding-inline: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.admin-app-layout .admin-sidebar-nav::-webkit-scrollbar {
+  width: 6px;
+}
+
+.admin-app-layout .admin-sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.admin-app-layout .admin-sidebar-nav::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 999px;
+}
+
+.admin-app-layout .admin-nav-group {
+  gap: 4px;
+}
+
+.admin-app-layout .admin-nav-group-title {
+  margin: 0 0 4px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.6;
+  letter-spacing: 0; /* letter-spacing breaks Arabic letter joining */
+  text-transform: none;
+}
+
+.admin-app-layout .admin-nav-list {
+  gap: 4px;
+}
+
+.admin-app-layout .admin-nav-item {
+  min-height: 44px;
+  padding: 6px 12px;
+  gap: 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.4;
+  transform: none;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.admin-app-layout .admin-nav-item:hover {
+  transform: none;
+}
+
+.admin-app-layout .admin-nav-item:focus-visible {
+  outline: 3px solid rgba(239, 68, 68, 0.42);
+  outline-offset: 2px;
+}
+
+.admin-app-layout .admin-nav-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.admin-app-layout .admin-nav-label {
+  min-width: 0;
+  text-align: start;
+  white-space: normal; /* long Arabic labels wrap cleanly instead of clipping */
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.admin-app-layout .admin-nav-badge {
+  flex-shrink: 0;
+  min-width: 22px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* ── Collapsible parent row (e.g. الذكاء الاصطناعي) ───────────────────────────
+   The legacy `.admin-sidebar nav button { width: 100% }` made the chevron
+   button swallow the whole row, so the label collapsed to zero width. */
+
+.admin-app-layout .admin-nav-parent-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.admin-app-layout .admin-nav-parent-row .admin-nav-item {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.admin-app-layout .admin-nav-expand {
+  flex: 0 0 40px;
+  width: 40px;
+  height: auto;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: inherit;
+  text-align: center;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.admin-app-layout .admin-nav-expand:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.admin-app-layout .admin-nav-expand svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 150ms ease;
+}
+
+html[data-theme='light'] .admin-app-layout .admin-nav-expand {
+  color: var(--muted) !important;
+  background: transparent !important;
+}
+
+html[data-theme='light'] .admin-app-layout .admin-nav-expand:hover {
+  color: var(--text) !important;
+  background: var(--surface-2) !important;
+}
+
+/* Children: indented from the inline-start edge with a connector line. */
+.admin-app-layout .admin-nav-children {
+  display: grid;
+  gap: 2px;
+  margin: 4px 0;
+  margin-inline-start: 20px;
+  padding: 0;
+  padding-inline-start: 12px;
+  border: 0;
+  border-inline-start: 2px solid var(--line);
+}
+
+.admin-app-layout .admin-nav-child {
+  min-height: 40px;
+  padding: 6px 10px;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.admin-app-layout .admin-nav-child svg {
+  flex-shrink: 0;
+}
+
+/* ── Sidebar footer: pinned to the bottom ────────────────────────────────────── */
+
+.admin-app-layout .admin-sidebar-footer {
+  flex-shrink: 0;
+  margin-top: 12px;
+  padding: 12px 0 0;
+  gap: 8px;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+.admin-app-layout .admin-user-pill {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  unicode-bidi: isolate;
+  direction: ltr; /* emails/Latin names stay unflipped */
+  text-align: end;
+}
+
+.admin-app-layout .admin-logout-btn {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 14px;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.admin-app-layout .admin-logout-btn:focus-visible {
+  outline: 3px solid rgba(239, 68, 68, 0.42);
+  outline-offset: 2px;
+}
+
+/* ── Topbar: controls align with the content container edges ────────────────── */
+
+@media (min-width: 769px) {
+  .admin-app-layout .admin-topbar {
+    min-height: 60px;
+    padding-block: 8px;
+    padding-inline: max(
+      var(--admin-gutter),
+      calc((100% - var(--admin-max)) / 2 + var(--admin-gutter))
+    );
+  }
+}
+
+.admin-app-layout .admin-topbar-end {
+  gap: 8px;
+}
+
+.admin-app-layout .admin-topbar-title {
+  line-height: 1.5;
+}
+
+.admin-app-layout .admin-topbar-subtitle {
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+
+.admin-app-layout .admin-topbar-action-btn {
+  min-height: 40px;
+  height: 40px;
+  padding-block: 0;
+}
+
+.admin-app-layout .admin-topbar-user {
+  min-height: 40px;
+  padding-block: 4px;
+}
+
+.admin-app-layout .admin-topbar-user-name,
+.admin-app-layout .admin-topbar-user-role {
+  line-height: 1.4;
+}
+
+.admin-app-layout .admin-topbar-user-name {
+  unicode-bidi: plaintext; /* "Mr Ahmed Hassan" renders without flipped punctuation */
+}
+
+/* ── Page header (greeting block) ────────────────────────────────────────────── */
+
+.admin-app-layout .admin-page-header {
+  margin-bottom: 16px;
+}
+
+.admin-app-layout .admin-page-header-main {
+  row-gap: 4px;
+}
+
+.admin-app-layout .admin-breadcrumbs {
+  margin-bottom: 4px;
+  line-height: 1.6;
+}
+
+.admin-app-layout .admin-page-title-row {
+  gap: 8px;
+}
+
+.admin-app-layout .admin-page-title-group {
+  gap: 8px 12px;
+}
+
+.admin-app-layout .admin-page-title {
+  font-size: clamp(22px, 2.4vw, 28px);
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+
+.admin-app-layout .admin-page-description {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.75;
+  max-width: 720px;
+}
+
+.admin-app-layout .admin-header-pill {
+  padding: 2px 10px;
+  line-height: 1.7;
+}
+
+/* ── Overview: one vertical rhythm for the whole dashboard ───────────────────── */
+
+.admin-app-layout .admin-overview-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.admin-app-layout .admin-overview-view > * {
+  margin-block: 0;
+}
+
+.admin-app-layout .admin-overview-view > .admin-page-header {
+  margin-bottom: -4px; /* hero stays compact against the toolbar below */
+}
+
+/* Quick actions: a toolbar, not a banner. */
+.admin-app-layout .admin-quick-actions-bar {
+  padding: 8px 12px;
+  gap: 8px 12px;
+  border-radius: 12px;
+}
+
+.admin-app-layout .admin-quick-actions-title {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.admin-app-layout .admin-quick-actions-list {
+  gap: 8px;
+}
+
+.admin-app-layout .admin-quick-btn {
+  min-height: 36px;
+  height: 36px;
+  padding: 0 12px;
+  gap: 6px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+@media (max-width: 767px) {
+  .admin-app-layout .admin-quick-btn {
+    min-height: 44px;
+    height: auto;
+    padding: 8px 12px;
+    line-height: 1.3;
+  }
+}
+
+/* KPI cards: 2 cols (phone) → 6-col span grid (tablet/laptop) → one row on wide
+   screens. Spans are chosen from the card count so no card is ever orphaned. */
+.admin-app-layout .admin-stats-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 0;
+}
+
+@media (max-width: 767px) {
+  .admin-app-layout .admin-stats-grid > .admin-stat-card:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 768px) {
+  .admin-app-layout .admin-stats-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .admin-app-layout .admin-stats-grid > .admin-stat-card {
+    grid-column: span 2;
+  }
+
+  /* 5 cards: 3 + 2 */
+  .admin-app-layout .admin-stats-grid:has(> :nth-child(5):last-child) > :nth-child(n + 4) {
+    grid-column: span 3;
+  }
+
+  /* 4 cards: 2 + 2, and 2 cards: 1 row */
+  .admin-app-layout .admin-stats-grid:has(> :nth-child(4):last-child) > .admin-stat-card,
+  .admin-app-layout .admin-stats-grid:has(> :nth-child(2):last-child) > .admin-stat-card {
+    grid-column: span 3;
+  }
+
+  .admin-app-layout .admin-stats-grid:has(> :first-child:last-child) > .admin-stat-card {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 1440px) {
+  .admin-app-layout .admin-stats-grid:has(> :nth-child(5):last-child) {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .admin-app-layout .admin-stats-grid:has(> :nth-child(4):last-child) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .admin-app-layout .admin-stats-grid:has(> :nth-child(5):last-child) > .admin-stat-card,
+  .admin-app-layout .admin-stats-grid:has(> :nth-child(4):last-child) > .admin-stat-card {
+    grid-column: span 1;
+  }
+}
+
+.admin-app-layout .admin-stat-card {
+  min-width: 0;
+  min-height: 88px;
+  padding: 16px;
+  gap: 12px;
+  border-radius: 14px;
+}
+
+.admin-app-layout .admin-stat-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+}
+
+.admin-app-layout .admin-stat-details {
+  min-width: 0;
+  gap: 2px;
+}
+
+.admin-app-layout .admin-stat-label {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.admin-app-layout .admin-stat-value {
+  font-size: 26px;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-app-layout .admin-attention-section {
+  padding: 16px 20px;
+}
+
+.admin-app-layout .admin-attention-header h2 {
+  line-height: 1.5;
+}
+
+/* ── Course workspace ────────────────────────────────────────────────────────── */
+
+.admin-app-layout .teacher-course-workspace {
+  padding: 20px;
+  gap: 16px;
+  border-radius: 16px;
+}
+
+.admin-app-layout .workspace-heading {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+
+.admin-app-layout .workspace-heading h2 {
+  margin: 4px 0;
+  font-size: clamp(20px, 2.2vw, 24px);
+  line-height: 1.4;
+}
+
+.admin-app-layout .workspace-heading p {
+  max-width: 60ch;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.admin-app-layout .workspace-filters {
+  flex: 0 1 auto;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+}
+
+.admin-app-layout .workspace-search {
+  flex: 1 1 0;
+  min-width: 0;
+  width: min(280px, 100%);
+  height: 44px;
+}
+
+.admin-app-layout .workspace-search input {
+  height: 100%;
+  min-height: 0;
+}
+
+.admin-app-layout .workspace-filters select {
+  flex: 0 0 auto;
+  height: 44px;
+  min-height: 44px;
+  max-width: 45%;
+  padding-inline: 12px;
+}
+
+@media (max-width: 760px) {
+  .admin-app-layout .workspace-heading {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .admin-app-layout .workspace-filters {
+    flex-direction: row;
+    width: 100%;
+  }
+
+  .admin-app-layout .workspace-search {
+    width: auto;
+  }
+}
+
+.admin-app-layout .teacher-course-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+@media (min-width: 640px) {
+  .admin-app-layout .teacher-course-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .admin-app-layout .teacher-course-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.admin-app-layout .teacher-course-card {
+  padding: 16px;
+  gap: 12px;
+  border-radius: 14px;
+}
+
+.admin-app-layout .teacher-course-copy h3 {
+  margin: 4px 0;
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.admin-app-layout .teacher-course-copy p {
+  line-height: 1.75;
+}
+
+.admin-app-layout .teacher-course-metrics small {
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.admin-app-layout .teacher-course-actions .btn {
+  min-height: 40px;
+  padding: 6px;
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: normal;
+}
+
+.admin-app-layout .teacher-course-actions .btn-primary {
+  font-size: 13px;
+}
+
+/* ── Announcements row (composer + list) ─────────────────────────────────────── */
+
+.admin-app-layout .admin-overview-announcements-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (min-width: 1100px) {
+  .admin-app-layout .admin-overview-announcements-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ── Motion: short transitions, none when reduced ────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-app-layout .admin-nav-item,
+  .admin-app-layout .admin-nav-expand,
+  .admin-app-layout .admin-nav-expand svg,
+  .admin-app-layout .admin-stat-card,
+  .admin-app-layout .teacher-course-card {
+    transition: none;
+  }
+
+  .admin-app-layout .admin-stat-card:hover,
+  .admin-app-layout .teacher-course-card:hover {
+    transform: none;
   }
 }

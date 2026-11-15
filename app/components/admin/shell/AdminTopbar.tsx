@@ -86,7 +86,7 @@ export function AdminTopbar({ title }: AdminTopbarProps) {
             <ShieldCheck size={14} />
           </span>
           <span className="admin-topbar-user-text">
-            <span className="admin-topbar-user-name">{displayName}</span>
+            <span className="admin-topbar-user-name" dir="auto">{displayName}</span>
             <span className="admin-topbar-user-role">{roleLabel}</span>
           </span>
           <span className="admin-topbar-user-initial" aria-hidden="true">

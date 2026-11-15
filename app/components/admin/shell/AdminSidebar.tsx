@@ -3,7 +3,7 @@
 /**
  * app/components/admin/shell/AdminSidebar.tsx
  *
- * Persistent desktop navigation sidebar positioned on the LEFT side of the desktop viewport.
+ * Persistent desktop navigation sidebar anchored to the inline-start (right, in RTL) edge.
  * Fully permission-aware: renders only authorized task groups and pages.
  * Supports pending badges, role indicator, and quick logout.
  */
@@ -43,7 +43,7 @@ export function AdminSidebar({ onItemClick }: { onItemClick?: () => void }) {
             <ShieldCheck size={24} />
           </span>
           <div className="admin-brand-info">
-            <strong className="admin-brand-name">{admin?.name || 'لوحة الإدارة'}</strong>
+            <strong className="admin-brand-name" dir="auto">{admin?.name || 'لوحة الإدارة'}</strong>
             <span className="admin-brand-role">{roleBadgeLabel}</span>
           </div>
         </Link>
@@ -103,7 +103,7 @@ export function AdminSidebar({ onItemClick }: { onItemClick?: () => void }) {
       {/* ── Sidebar Footer / User / Logout ───────────────────────────────── */}
       <div className="admin-sidebar-footer">
         <div className="admin-user-pill">
-          <span className="admin-user-email" title={admin?.email}>
+          <span className="admin-user-email" title={admin?.email} dir="auto">
             {admin?.email}
           </span>
         </div>

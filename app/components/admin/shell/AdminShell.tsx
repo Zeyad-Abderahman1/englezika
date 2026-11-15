@@ -4,7 +4,7 @@
  * app/components/admin/shell/AdminShell.tsx
  *
  * Master shell layout orchestrator for the multi-page Englizeka admin portal.
- * Assembles desktop persistent left sidebar, responsive mobile navigation drawer,
+ * Assembles desktop persistent sidebar (right edge in RTL), responsive mobile navigation drawer,
  * sticky topbar, global notification banners, prompt modals, and confirm dialogs.
  */
 
@@ -39,7 +39,7 @@ export function AdminShell({ children, pageTitle }: AdminShellProps) {
 
   return (
     <div className="admin-app-layout">
-      {/* ── Desktop Left Persistent Sidebar ─────────────────────────────────── */}
+      {/* ── Desktop Persistent Sidebar (inline-start / right in RTL) ────────── */}
       <div className="admin-desktop-sidebar-container">
         <AdminSidebar />
       </div>
