@@ -164,22 +164,97 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     contextBindings: { assessmentId: 'assessmentId' },
   },
 
+  list_grades: {
+    name: 'list_grades',
+    description: 'List the class/grade values that can be used for courses (canonical list plus grades already in use).',
+    requiredPermission: 'manage_courses',
+    mutationType: 'read',
+    intentFamily: 'course.read',
+    riskLevel: 'low',
+    confirmationPolicy: 'none',
+    allowedKeys: {},
+  },
+
+  list_lectures: {
+    name: 'list_lectures',
+    description: 'List the lectures of one course (title, status, duration, view limit).',
+    requiredPermission: 'manage_videos',
+    mutationType: 'read',
+    intentFamily: 'lecture.read',
+    riskLevel: 'low',
+    confirmationPolicy: 'none',
+    allowedKeys: {
+      courseId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
+    },
+    contextBindings: { courseId: 'courseId' },
+  },
+
+  get_platform_stats: {
+    name: 'get_platform_stats',
+    description:
+      'Read one aggregate platform metric: students, active_enrollments, pending_enrollments, published_courses, or course_lecture_count (needs courseId).',
+    requiredPermission: 'manage_courses',
+    mutationType: 'read',
+    intentFamily: 'course.read',
+    riskLevel: 'low',
+    confirmationPolicy: 'none',
+    allowedKeys: {
+      metric: { type: 'string', required: true, minLength: 3, maxLength: 40 },
+      courseId: { type: 'string', required: false, minLength: 1, maxLength: 64 },
+    },
+    contextBindings: { courseId: 'courseId' },
+  },
+
   // --- COURSE TOOLS ---
   create_course: {
     name: 'create_course',
-    description: 'Create a new course in draft mode.',
+    description:
+      'Create a new course. Draft by default; `publish` is only honoured when the teacher explicitly confirmed publishing. `thumbnailUploadId` is a staged upload reference, never image data.',
     requiredPermission: 'manage_courses',
     mutationType: 'create',
     intentFamily: 'course.create',
     riskLevel: 'low',
     confirmationPolicy: 'none',
-    serverOwnedKeys: ['status'],
+    serverOwnedKeys: ['status', 'publish', 'thumbnailUploadId'],
     allowedKeys: {
       title: { type: 'string', required: true, minLength: 2, maxLength: 200 },
       grade: { type: 'string', required: true, minLength: 1, maxLength: 50 },
       description: { type: 'string', required: false, maxLength: 2000 },
       price: { type: 'number', required: false, min: 0, max: 100000 },
+      publish: { type: 'boolean', required: false },
+      thumbnailUploadId: { type: 'string', required: false, minLength: 1, maxLength: 80 },
     },
+  },
+
+  attach_course_thumbnail: {
+    name: 'attach_course_thumbnail',
+    description:
+      'Attach (or replace) the thumbnail of an existing course from a staged upload reference (JPG/PNG/WebP, max 5MB).',
+    requiredPermission: 'manage_courses',
+    mutationType: 'update',
+    intentFamily: 'course.metadata.update',
+    riskLevel: 'low',
+    confirmationPolicy: 'none',
+    serverOwnedKeys: ['thumbnailUploadId'],
+    allowedKeys: {
+      courseId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
+      thumbnailUploadId: { type: 'string', required: true, minLength: 1, maxLength: 80 },
+    },
+    contextBindings: { courseId: 'courseId' },
+  },
+
+  unpublish_course: {
+    name: 'unpublish_course',
+    description: 'Move a published course back to draft so students no longer see it.',
+    requiredPermission: 'manage_courses',
+    mutationType: 'publish',
+    intentFamily: 'course.publish',
+    riskLevel: 'medium',
+    confirmationPolicy: 'mandatory',
+    allowedKeys: {
+      courseId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
+    },
+    contextBindings: { courseId: 'courseId' },
   },
 
   update_course: {
@@ -251,13 +326,16 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     intentFamily: 'lecture.create',
     riskLevel: 'low',
     confirmationPolicy: 'none',
-    serverOwnedKeys: ['status'],
+    serverOwnedKeys: ['status', 'publish'],
     allowedKeys: {
       courseId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
       title: { type: 'string', required: true, minLength: 2, maxLength: 200 },
       youtubeUrl: { type: 'string', required: true, minLength: 5, maxLength: 500 },
       duration: { type: 'number', required: false, min: 0, max: 86400 },
       maxViews: { type: 'number', required: false, min: 0, max: 1000 },
+      prerequisiteExamId: { type: 'string', required: false, minLength: 1, maxLength: 80 },
+      minimumScore: { type: 'number', required: false, min: 0, max: 100 },
+      publish: { type: 'boolean', required: false },
     },
     contextBindings: { courseId: 'courseId' },
   },

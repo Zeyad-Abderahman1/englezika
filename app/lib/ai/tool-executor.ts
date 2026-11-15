@@ -6,6 +6,9 @@ import { lectureService } from '../services/lecture-service';
 import { assessmentService } from '../services/assessment-service';
 import { announcementService } from '../services/announcement-service';
 import { getDatabase } from '../platform';
+import { COURSE_GRADE_OPTIONS } from '../course-grades';
+import { DomainError } from '../services/types';
+import { deleteStagedImage, isValidUploadId, loadStagedImage } from './agent/image-staging';
 
 export class ToolExecutionError extends Error {
   readonly code:
@@ -165,8 +168,43 @@ export function validateToolArguments(
       if (!Array.isArray(val)) {
         throw new ToolExecutionError(`Parameter '${key}' must be an array`, 'INVALID_ARGS', 400);
       }
+    } else if (schema.type === 'boolean') {
+      if (typeof val !== 'boolean') {
+        throw new ToolExecutionError(`Parameter '${key}' must be a boolean`, 'INVALID_ARGS', 400);
+      }
     }
   }
+}
+
+/**
+ * Attaches a staged chat upload as the course thumbnail through the SAME service
+ * method (and therefore the same validation) as the admin thumbnail endpoint.
+ * The staged reference is resolved against the acting staff member's own
+ * namespace, so another user's upload can never be attached.
+ */
+async function attachStagedThumbnail(
+  courseId: string,
+  uploadId: string,
+  actor: StaffActor,
+  serviceContext: ServiceContext
+): Promise<{ attached: boolean; error?: string }> {
+  if (!isValidUploadId(uploadId)) {
+    return { attached: false, error: 'مرجع الصورة غير صالح' };
+  }
+  const staged = await loadStagedImage(actor.email, uploadId, serviceContext.storage as never);
+  if (!staged) {
+    return { attached: false, error: 'لم أجد الصورة المرفوعة (ربما انتهت صلاحيتها). ارفعها مرة أخرى.' };
+  }
+  try {
+    await courseService.uploadThumbnail(courseId, staged.bytes, staged.mime, actor, serviceContext);
+  } catch (error) {
+    if (error instanceof DomainError) {
+      return { attached: false, error: error.message };
+    }
+    throw error;
+  }
+  await deleteStagedImage(actor.email, uploadId, serviceContext.storage as never);
+  return { attached: true };
 }
 
 export async function executeTool(params: ExecuteToolParams): Promise<ToolExecutionSuccessResult> {
@@ -280,7 +318,7 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
           filtered = filtered.filter((c: { grade: unknown }) => String(c.grade || '') === grade);
         }
 
-        resultPayload = { courses: filtered.slice(0, 20) };
+        resultPayload = { courses: filtered.slice(0, 100) };
         break;
       }
 
@@ -316,17 +354,159 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
         break;
       }
 
+      case 'list_grades': {
+        const gradesRes = await db.query(
+          "SELECT DISTINCT grade FROM courses WHERE grade IS NOT NULL AND grade <> ''"
+        );
+        const rows: Array<{ grade?: unknown }> = gradesRes?.rows
+          ? gradesRes.rows
+          : Array.isArray(gradesRes)
+            ? gradesRes
+            : [];
+        const merged = [...COURSE_GRADE_OPTIONS] as string[];
+        for (const row of rows) {
+          const grade = typeof row.grade === 'string' ? row.grade.trim() : '';
+          if (grade && !merged.includes(grade)) merged.push(grade);
+        }
+        resultPayload = { grades: merged };
+        break;
+      }
+
+      case 'list_lectures': {
+        const courseId = String(args.courseId);
+        const lecturesRes = await db.query(
+          `SELECT id, title, status, duration_seconds, max_views
+           FROM videos WHERE course_id = $1 ORDER BY created_at ASC LIMIT 100`,
+          [courseId]
+        );
+        const rows: Array<Record<string, unknown>> = lecturesRes?.rows
+          ? lecturesRes.rows
+          : Array.isArray(lecturesRes)
+            ? lecturesRes
+            : [];
+        resultPayload = {
+          lectures: rows.map((row) => ({
+            id: row.id,
+            title: row.title,
+            status: row.status,
+            durationSeconds: row.duration_seconds,
+            maxViews: row.max_views,
+          })),
+        };
+        break;
+      }
+
+      case 'get_platform_stats': {
+        const metric = String(args.metric);
+        const queries: Record<string, { sql: string; permission: StaffPermission }> = {
+          students: {
+            sql: "SELECT COUNT(*) AS total FROM users WHERE role = 'student'",
+            permission: 'view_students',
+          },
+          active_enrollments: {
+            sql: "SELECT COUNT(*) AS total FROM enrollments WHERE status = 'approved'",
+            permission: 'manage_enrollments',
+          },
+          pending_enrollments: {
+            sql: "SELECT COUNT(*) AS total FROM enrollments WHERE status = 'pending'",
+            permission: 'manage_enrollments',
+          },
+        };
+
+        if (queries[metric]) {
+          const { sql, permission } = queries[metric];
+          if (!hasStaffPermission(actor, permission)) {
+            throw new ToolExecutionError(
+              `Staff actor does not have required permission '${permission}' for metric '${metric}'`,
+              'FORBIDDEN',
+              403
+            );
+          }
+          const res = await db.query(sql);
+          const row = res?.rows ? res.rows[0] : Array.isArray(res) ? res[0] : res;
+          resultPayload = { metric, total: Number(row?.total ?? 0) };
+        } else if (metric === 'published_courses') {
+          const res = await db.query(
+            "SELECT id, title, grade FROM courses WHERE status = 'published' ORDER BY title ASC LIMIT 30"
+          );
+          const rows: Array<Record<string, unknown>> = res?.rows ? res.rows : Array.isArray(res) ? res : [];
+          resultPayload = {
+            metric,
+            total: rows.length,
+            courses: rows.map((row) => ({ id: row.id, title: row.title, grade: row.grade })),
+          };
+        } else if (metric === 'course_lecture_count') {
+          const courseId = args.courseId ? String(args.courseId) : '';
+          if (!courseId) {
+            throw new ToolExecutionError("Metric 'course_lecture_count' requires courseId", 'INVALID_ARGS', 400);
+          }
+          if (!hasStaffPermission(actor, 'manage_videos')) {
+            throw new ToolExecutionError(
+              "Staff actor does not have required permission 'manage_videos' for this metric",
+              'FORBIDDEN',
+              403
+            );
+          }
+          const res = await db.query(
+            'SELECT COUNT(*) AS total FROM videos WHERE course_id = $1',
+            [courseId]
+          );
+          const row = res?.rows ? res.rows[0] : Array.isArray(res) ? res[0] : res;
+          resultPayload = { metric, courseId, total: Number(row?.total ?? 0) };
+        } else {
+          throw new ToolExecutionError(`Unsupported metric '${metric}'`, 'INVALID_ARGS', 400);
+        }
+        break;
+      }
+
       // --- COURSE TOOLS ---
       case 'create_course': {
-        // Enforce STRICT DRAFT policy (status: 'draft')
+        // Draft unless the teacher explicitly confirmed publishing through the
+        // server-built confirmation payload (never from a model-supplied status).
         const course = await courseService.createCourse(
           {
             title: args.title,
             grade: args.grade,
             description: args.description,
             price: args.price,
-            status: 'draft',
+            status: args.publish === true ? 'published' : 'draft',
           },
+          actor,
+          serviceContext
+        );
+
+        let thumbnail: { attached: boolean; error?: string } | undefined;
+        if (typeof args.thumbnailUploadId === 'string' && args.thumbnailUploadId) {
+          thumbnail = await attachStagedThumbnail(
+            course.id,
+            args.thumbnailUploadId,
+            actor,
+            serviceContext
+          );
+        }
+        resultPayload = { course, ...(thumbnail ? { thumbnail } : {}) };
+        break;
+      }
+
+      case 'attach_course_thumbnail': {
+        const thumbnail = await attachStagedThumbnail(
+          String(args.courseId),
+          String(args.thumbnailUploadId),
+          actor,
+          serviceContext
+        );
+        if (!thumbnail.attached) {
+          throw new ToolExecutionError(thumbnail.error || 'تعذر حفظ صورة الكورس', 'EXECUTION_FAILED', 400);
+        }
+        resultPayload = { courseId: String(args.courseId), thumbnail };
+        break;
+      }
+
+      case 'unpublish_course': {
+        const courseId = String(args.courseId);
+        const course = await courseService.updateCourse(
+          courseId,
+          { status: 'draft' },
           actor,
           serviceContext
         );
@@ -384,7 +564,7 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
       // --- LECTURE TOOLS ---
       case 'add_lecture': {
         const courseId = String(args.courseId);
-        // Enforce STRICT DRAFT policy (status: 'draft')
+        // Draft unless publishing was explicitly confirmed server-side.
         const video = await lectureService.createLecture(
           {
             courseId,
@@ -392,7 +572,9 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
             youtubeUrl: args.youtubeUrl,
             durationSeconds: args.duration,
             maxViews: args.maxViews,
-            status: 'draft',
+            prerequisiteExamId: args.prerequisiteExamId,
+            minimumScore: args.minimumScore,
+            status: args.publish === true ? 'published' : 'draft',
           },
           actor,
           serviceContext
