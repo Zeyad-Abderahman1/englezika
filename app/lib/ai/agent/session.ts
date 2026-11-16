@@ -7,7 +7,13 @@ import { getDatabase } from '../../platform';
  * small and expire automatically.
  */
 
-export type FlowId = 'create_course' | 'add_lecture' | 'update_course' | 'add_homework';
+export type FlowId =
+  | 'create_course'
+  | 'add_lecture'
+  | 'update_course'
+  | 'add_homework'
+  | 'create_exam_from_images'
+  | 'delete_item';
 
 export interface LectureSlot {
   title: string;

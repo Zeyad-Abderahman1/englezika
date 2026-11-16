@@ -7,6 +7,9 @@ import { executeTool } from '../../../../lib/ai/tool-executor';
 import type { AiToolName } from '../../../../lib/ai/tool-registry';
 import { formatUserFacingConfirmationError } from '../../../../lib/ai/confirmation-state';
 import { getDatabase } from '../../../../lib/platform';
+import { checkRateLimit, rateLimitResponse } from '../../../../lib/rate-limit';
+import { precheckDestructiveConfirmation } from '../../../../lib/ai/destructive-guard';
+import { computeDeleteImpact } from '../../../../lib/ai/agent/delete-impact';
 
 export const runtime = 'nodejs';
 
@@ -51,6 +54,26 @@ export async function POST(request: Request) {
     permissions: staff.permissions || [],
   };
   const database = getDatabase();
+
+  // Destructive confirmations (deletes): typed name + unchanged impact are verified HERE, before
+  // the single-use token is consumed. Deletes are also rate limited per staff account.
+  const guard = await precheckDestructiveConfirmation({
+    db: database as never,
+    actorEmail: staff.email,
+    token,
+    confirmText: body.confirmText,
+    impactFor: (kind, id) => computeDeleteImpact(database as never, kind, id),
+  });
+  if (!guard.ok) {
+    return Response.json({ error: guard.message, code: guard.code }, { status: guard.status });
+  }
+  if (guard.destructive) {
+    const rate = await checkRateLimit('admin-ai-delete', staff.email.toLowerCase(), 10, 300);
+    if (!rate.allowed) {
+      return rateLimitResponse(rate.resetAfterSeconds, 'عدد عمليات الحذف كبير. انتظر قليلًا ثم حاول مرة أخرى.');
+    }
+  }
+
   const afterCommit: Array<() => Promise<void> | void> = [];
 
   try {

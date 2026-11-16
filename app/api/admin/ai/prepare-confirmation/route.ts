@@ -6,6 +6,7 @@ import { getToolDefinition, isRegisteredTool, type AiToolName } from '../../../.
 import { generateActionPreview } from '../../../../lib/ai/preview-generator';
 import { validateGeneratedAssessment } from '../../../../lib/ai/assessment-validator';
 import { getDatabase } from '../../../../lib/platform';
+import { DESTRUCTIVE_ACTIONS } from '../../../../lib/ai/agent/delete-impact';
 
 export const runtime = 'nodejs';
 
@@ -40,6 +41,15 @@ export async function POST(request: Request) {
 
   if (!actionType || !actionPayload) {
     return jsonError('نوع الإجراء وحمولته مطلوبان', 400);
+  }
+
+  // Deletes are only created by the assistant agent (typed-name confirmation, server-built payload).
+  const payloadSteps = Array.isArray(actionPayload.steps) ? actionPayload.steps : [];
+  if (
+    DESTRUCTIVE_ACTIONS.has(actionType) ||
+    payloadSteps.some((step: { tool?: string }) => step?.tool && DESTRUCTIVE_ACTIONS.has(step.tool))
+  ) {
+    return jsonError('الحذف يتم فقط من المساعد الذكي مع تأكيد كتابة اسم العنصر', 403);
   }
 
   // Validate tool exists in registry or is a compound plan

@@ -297,8 +297,12 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     intentFamily: 'course.delete',
     riskLevel: 'high',
     confirmationPolicy: 'mandatory',
+    serverOwnedKeys: ['confirmName', 'expectedImpact'],
     allowedKeys: {
       courseId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
+      // Set by the assistant only (never by the model): typed-name and impact guards re-checked by the server.
+      confirmName: { type: 'string', required: false, minLength: 1, maxLength: 300 },
+      expectedImpact: { type: 'object', required: false },
     },
     contextBindings: { courseId: 'courseId' },
   },
@@ -365,8 +369,12 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     intentFamily: 'lecture.delete',
     riskLevel: 'high',
     confirmationPolicy: 'mandatory',
+    serverOwnedKeys: ['confirmName', 'expectedImpact'],
     allowedKeys: {
       videoId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
+      // Set by the assistant only (never by the model): typed-name and impact guards re-checked by the server.
+      confirmName: { type: 'string', required: false, minLength: 1, maxLength: 300 },
+      expectedImpact: { type: 'object', required: false },
     },
     contextBindings: { videoId: 'lectureId' },
   },
@@ -481,8 +489,12 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
     intentFamily: 'assessment.delete',
     riskLevel: 'high',
     confirmationPolicy: 'mandatory',
+    serverOwnedKeys: ['confirmName', 'expectedImpact'],
     allowedKeys: {
       examId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
+      // Set by the assistant only (never by the model): typed-name and impact guards re-checked by the server.
+      confirmName: { type: 'string', required: false, minLength: 1, maxLength: 300 },
+      expectedImpact: { type: 'object', required: false },
     },
     contextBindings: { examId: 'assessmentId' },
   },
@@ -527,6 +539,126 @@ const TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
       assessmentId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
     },
     contextBindings: { assessmentId: 'assessmentId' },
+  },
+
+  // --- SAFE DELETE (assistant) ---
+  find_items_for_deletion: {
+    name: 'find_items_for_deletion',
+    description:
+      'Search courses, lectures, exams or assignments by name (read only) so the teacher can pick ONE item to delete or hide.',
+    requiredPermission: 'manage_courses',
+    mutationType: 'read',
+    intentFamily: 'course.read',
+    riskLevel: 'low',
+    confirmationPolicy: 'none',
+    allowedKeys: {
+      kind: { type: 'string', required: true, minLength: 4, maxLength: 12 },
+      query: { type: 'string', required: false, maxLength: 100 },
+    },
+  },
+
+  get_delete_impact: {
+    name: 'get_delete_impact',
+    description:
+      'Count what deleting one item would remove (lectures, students, payments, attempts, files). Read only.',
+    requiredPermission: 'manage_courses',
+    mutationType: 'read',
+    intentFamily: 'course.read',
+    riskLevel: 'low',
+    confirmationPolicy: 'none',
+    allowedKeys: {
+      kind: { type: 'string', required: true, minLength: 4, maxLength: 12 },
+      id: { type: 'string', required: true, minLength: 1, maxLength: 64 },
+    },
+  },
+
+  delete_assignment: {
+    name: 'delete_assignment',
+    description: 'Permanently delete one assignment with its submissions and files.',
+    requiredPermission: 'manage_assignments',
+    mutationType: 'delete',
+    intentFamily: 'assignment.publish',
+    riskLevel: 'high',
+    confirmationPolicy: 'mandatory',
+    serverOwnedKeys: ['confirmName', 'expectedImpact'],
+    allowedKeys: {
+      assignmentId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
+      // Set by the assistant only (never by the model): typed-name and impact guards re-checked by the server.
+      confirmName: { type: 'string', required: false, minLength: 1, maxLength: 300 },
+      expectedImpact: { type: 'object', required: false },
+    },
+  },
+
+  hide_item: {
+    name: 'hide_item',
+    description:
+      'Safer alternative to deleting: move one course, lecture, exam or assignment back to draft so students no longer see it. Nothing is removed and it can be published again.',
+    requiredPermission: 'manage_courses',
+    mutationType: 'publish',
+    intentFamily: 'course.publish',
+    riskLevel: 'medium',
+    confirmationPolicy: 'mandatory',
+    allowedKeys: {
+      kind: { type: 'string', required: true, minLength: 4, maxLength: 12 },
+      id: { type: 'string', required: true, minLength: 1, maxLength: 64 },
+    },
+  },
+
+  // --- EXAM FROM PHOTOS (assistant) ---
+  extract_exam_from_images: {
+    name: 'extract_exam_from_images',
+    description:
+      'Extract the questions of ONE window of staged exam-page photos (OCR pipeline). Stores the result server-side by extraction id; creates no exam.',
+    requiredPermission: 'manage_exams',
+    mutationType: 'read',
+    intentFamily: 'assessment.read',
+    riskLevel: 'low',
+    confirmationPolicy: 'none',
+    allowedKeys: {
+      extractionId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
+      windowIndex: { type: 'number', required: true, min: 0, max: 100000 },
+    },
+  },
+
+  create_exam_from_extraction: {
+    name: 'create_exam_from_extraction',
+    description:
+      'Create a general online exam (draft) from a stored photo extraction, by extraction id. Not tied to a class. Requires confirmation.',
+    requiredPermission: 'manage_exams',
+    mutationType: 'create',
+    intentFamily: 'assessment.create',
+    riskLevel: 'medium',
+    confirmationPolicy: 'preview_required',
+    serverOwnedKeys: ['status', 'assessmentType'],
+    allowedKeys: {
+      extractionId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
+      title: { type: 'string', required: true, minLength: 3, maxLength: 150 },
+      durationMinutes: { type: 'number', required: false, min: 1, max: 300 },
+      passingScore: { type: 'number', required: false, min: 0, max: 100 },
+      showReview: { type: 'boolean', required: false },
+      allowPartial: { type: 'boolean', required: false },
+      skipInvalid: { type: 'boolean', required: false },
+    },
+  },
+
+  publish_exam_as_course: {
+    name: 'publish_exam_as_course',
+    description:
+      'Publish an existing exam as a standalone course for ALL classes (price, optional description/thumbnail, public page and leaderboard switches) through the shared listing service. Requires confirmation.',
+    requiredPermission: 'manage_exams',
+    mutationType: 'publish',
+    intentFamily: 'assessment.publish',
+    riskLevel: 'medium',
+    confirmationPolicy: 'mandatory',
+    serverOwnedKeys: ['thumbnailUploadId'],
+    allowedKeys: {
+      examId: { type: 'string', required: true, minLength: 1, maxLength: 64 },
+      listingPrice: { type: 'number', required: false, min: 0, max: 100000 },
+      listingDescription: { type: 'string', required: false, maxLength: 1000 },
+      isPublic: { type: 'boolean', required: false },
+      showLeaderboard: { type: 'boolean', required: false },
+      thumbnailUploadId: { type: 'string', required: false, minLength: 1, maxLength: 80 },
+    },
   },
 
   // --- ASSIGNMENT TOOLS ---

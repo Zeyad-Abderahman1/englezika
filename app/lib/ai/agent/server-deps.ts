@@ -13,7 +13,9 @@ import {
 import { getToolDefinition } from '../tool-registry';
 import type { AgentActor, AgentDeps, AgentStats } from './agent';
 import { stagedImageKey } from './image-staging';
+import type { DeleteCandidate, DeleteImpact } from './delete-impact';
 import { DatabaseSessionStore } from './session';
+import { createExtraction, getExtraction, loadWindows, summarizeExtraction } from './exam-extraction-store';
 
 /**
  * Production wiring of the agent's dependencies.
@@ -79,7 +81,23 @@ export async function createServerAgentDeps(
       },
     },
 
-    async createConfirmation({ actionType, payload, preview }) {
+    deleteTools: {
+      async find(kind, query) {
+        const result = await read('find_items_for_deletion', { kind, query });
+        return Array.isArray(result.items) ? (result.items as DeleteCandidate[]) : [];
+      },
+      async impact(kind, id) {
+        try {
+          const result = await read('get_delete_impact', { kind, id });
+          return (result.impact as DeleteImpact | undefined) ?? null;
+        } catch (error) {
+          if ((error as { status?: number })?.status === 404) return null;
+          throw error;
+        }
+      },
+    },
+
+    async createConfirmation({ actionType, payload, preview, expiresInMs }) {
       // Fail early (while the teacher is still in the chat) if the proposed
       // arguments or the actor's permissions would be rejected at execution time.
       const steps =
@@ -99,6 +117,7 @@ export async function createServerAgentDeps(
         actionType,
         actionPayload: payload,
         preview,
+        expiresInMs,
         db,
       });
       return { token: created.token };
@@ -139,6 +158,19 @@ export async function createServerAgentDeps(
       } catch {
         return false;
       }
+    },
+
+    examExtraction: {
+      async create(conversationId: string, pages: string[]) {
+        const record = await createExtraction(db, { conversationId, email: actor.email, pages });
+        return { id: record.id, windowCount: record.windows.length };
+      },
+      async summary(extractionId: string) {
+        const record = await getExtraction(db, extractionId, actor.email);
+        if (!record) return null;
+        const summary = summarizeExtraction(record, await loadWindows(db, record.id));
+        return { summary, pageCount: record.pages.length, windowCount: record.windows.length };
+      },
     },
 
     persist: {

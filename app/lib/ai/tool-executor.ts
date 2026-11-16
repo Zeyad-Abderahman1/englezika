@@ -8,6 +8,23 @@ import { announcementService } from '../services/announcement-service';
 import { getDatabase } from '../platform';
 import { COURSE_GRADE_OPTIONS } from '../course-grades';
 import { examListingService } from '../services/exam-listing-service';
+import { OcrError, extractExamUnit, type ImageInput } from '../exam-ocr';
+import { recordAuditLog } from '../audit';
+import {
+  DELETE_KINDS,
+  computeDeleteImpact,
+  findDeletableItems,
+  impactSignature,
+  KIND_LABEL,
+  type DeleteKind,
+} from './agent/delete-impact';
+import {
+  getExtraction,
+  isSavableQuestion,
+  loadWindows,
+  saveWindow,
+  summarizeExtraction,
+} from './agent/exam-extraction-store';
 import { DomainError } from '../services/types';
 import { deleteStagedImage, isValidUploadId, loadStagedImage } from './agent/image-staging';
 
@@ -260,6 +277,66 @@ async function applyExamListingArgs(
   }
 
   return Object.keys(extra).length ? extra : undefined;
+}
+
+const KIND_PERMISSION: Record<DeleteKind, StaffPermission> = {
+  course: 'manage_courses',
+  lecture: 'manage_videos',
+  exam: 'manage_exams',
+  assignment: 'manage_assignments',
+};
+
+function parseDeleteKind(value: unknown): DeleteKind {
+  if (typeof value === 'string' && (DELETE_KINDS as string[]).includes(value)) return value as DeleteKind;
+  throw new ToolExecutionError('نوع العنصر غير مدعوم', 'INVALID_ARGS', 400);
+}
+
+/**
+ * Server-side guards for every destructive tool call made by the assistant:
+ * the item must still exist, its name must still match the confirmed one, and the impact
+ * counts must be unchanged since the confirmation card was shown.
+ */
+async function verifyDeleteTarget(
+  db: unknown,
+  kind: DeleteKind,
+  id: string,
+  args: Record<string, unknown>
+) {
+  const impact = await computeDeleteImpact(db as never, kind, id);
+  if (!impact) {
+    throw new ToolExecutionError(`${KIND_LABEL[kind]} غير موجود أو اتحذف بالفعل`, 'EXECUTION_FAILED', 404);
+  }
+  if (typeof args.confirmName === 'string' && impact.name.trim() !== args.confirmName.trim()) {
+    throw new ToolExecutionError('اسم العنصر اتغيّر بعد التأكيد. أعد التأكيد من جديد.', 'EXECUTION_FAILED', 409);
+  }
+  if (
+    args.expectedImpact !== undefined &&
+    (typeof args.expectedImpact !== 'object' || args.expectedImpact === null || Array.isArray(args.expectedImpact))
+  ) {
+    throw new ToolExecutionError('بيانات تأكيد الحذف غير صالحة', 'INVALID_ARGS', 400);
+  }
+  if (args.expectedImpact && typeof args.expectedImpact === 'object') {
+    const expected = impactSignature(args.expectedImpact as Record<string, number>);
+    if (expected !== impactSignature(impact.counts)) {
+      throw new ToolExecutionError('IMPACT_CHANGED: تغيّرت بيانات العنصر بعد عرض التأكيد. أعد التأكيد من جديد.', 'EXECUTION_FAILED', 409);
+    }
+  }
+  return impact;
+}
+
+async function auditAssistantDelete(
+  actor: StaffActor,
+  impact: { kind: string; id: string; name: string; counts: Record<string, number> },
+  serviceContext: ServiceContext
+) {
+  await recordAuditLog({
+    userEmail: actor.email,
+    action: 'ai.item_deleted',
+    resource: impact.kind,
+    resourceId: impact.id,
+    details: { name: impact.name, impact: impact.counts, via: 'ai_assistant' },
+    request: serviceContext.request,
+  });
 }
 
 export async function executeTool(params: ExecuteToolParams): Promise<ToolExecutionSuccessResult> {
@@ -599,8 +676,10 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
 
       case 'delete_course': {
         const courseId = String(args.courseId);
+        const impact = await verifyDeleteTarget(db, 'course', courseId, args);
         await courseService.deleteCourse(courseId, actor, serviceContext);
-        resultPayload = { success: true, deletedCourseId: courseId };
+        await auditAssistantDelete(actor, impact, serviceContext);
+        resultPayload = { success: true, deletedCourseId: courseId, name: impact.name, impact: impact.counts };
         break;
       }
 
@@ -655,8 +734,10 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
 
       case 'delete_lecture': {
         const videoId = String(args.videoId);
+        const impact = await verifyDeleteTarget(db, 'lecture', videoId, args);
         await lectureService.deleteLecture(videoId, actor, serviceContext);
-        resultPayload = { success: true, deletedVideoId: videoId };
+        await auditAssistantDelete(actor, impact, serviceContext);
+        resultPayload = { success: true, deletedVideoId: videoId, name: impact.name, impact: impact.counts };
         break;
       }
 
@@ -681,6 +762,120 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
           serviceContext
         );
         resultPayload = { video };
+        break;
+      }
+
+      // --- EXAM FROM PHOTOS (assistant) ---
+      case 'extract_exam_from_images': {
+        const record = await getExtraction(db, String(args.extractionId), actor.email);
+        if (!record) {
+          throw new ToolExecutionError('انتهت صلاحية الاستخراج أو لم يعد متاحًا. ابدأ من جديد.', 'EXECUTION_FAILED', 404);
+        }
+        const windowIndex = Number(args.windowIndex);
+        const window = record.windows[windowIndex];
+        if (!Number.isInteger(windowIndex) || !window) {
+          throw new ToolExecutionError('رقم دفعة الصفحات غير صالح', 'INVALID_ARGS', 400);
+        }
+
+        const existing = (await loadWindows(db, record.id)).find((row) => row.index === windowIndex);
+        if (existing?.questions) {
+          resultPayload = { windowIndex, status: 'done', count: existing.questions.length, cached: true };
+          break;
+        }
+
+        // Staged pages are resolved inside THIS staff member's namespace only.
+        const images: ImageInput[] = [];
+        let missing = false;
+        for (const uploadId of record.pages.slice(window.start, window.end)) {
+          const staged = await loadStagedImage(actor.email, uploadId, serviceContext.storage as never);
+          if (!staged) {
+            missing = true;
+            break;
+          }
+          images.push({ data: Buffer.from(staged.bytes).toString('base64'), mimeType: staged.mime });
+        }
+        if (missing) {
+          const message = 'لم أجد بعض الصور المرفوعة (ربما انتهت صلاحيتها). أعد رفعها.';
+          await saveWindow(db, record.id, windowIndex, { error: message, retryable: false });
+          resultPayload = { windowIndex, status: 'failed', error: message, retryable: false };
+          break;
+        }
+
+        try {
+          const unit = await extractExamUnit(images);
+          await saveWindow(db, record.id, windowIndex, { questions: unit.questions });
+          resultPayload = { windowIndex, status: 'done', count: unit.questions.length, recovered: unit.recovered };
+        } catch (error) {
+          const ocr = error instanceof OcrError ? error : null;
+          const message = ocr?.message ?? 'تعذر استخراج الأسئلة من هذه الصفحات';
+          const retryable = ocr?.retryable ?? true;
+          await saveWindow(db, record.id, windowIndex, { error: message, retryable });
+          resultPayload = { windowIndex, status: 'failed', error: message, retryable };
+        }
+        break;
+      }
+
+      case 'create_exam_from_extraction': {
+        const record = await getExtraction(db, String(args.extractionId), actor.email);
+        if (!record) {
+          throw new ToolExecutionError('انتهت صلاحية الاستخراج أو لم يعد متاحًا. ابدأ من جديد.', 'EXECUTION_FAILED', 404);
+        }
+        const summary = summarizeExtraction(record, await loadWindows(db, record.id));
+        if ((summary.failedWindows.length || summary.pendingWindows.length) && args.allowPartial !== true) {
+          throw new ToolExecutionError('بعض الصفحات لم يتم استخراجها بعد. أعد محاولتها أو أكمل بدونها.', 'EXECUTION_FAILED', 400);
+        }
+        const savable = summary.questions.filter(isSavableQuestion);
+        if (savable.length !== summary.questions.length && args.skipInvalid !== true) {
+          throw new ToolExecutionError('بعض الأسئلة بلا إجابة صحيحة. راجعها أو وافق على استبعادها.', 'EXECUTION_FAILED', 400);
+        }
+        if (savable.length === 0) {
+          throw new ToolExecutionError('لا توجد أسئلة صالحة للحفظ.', 'EXECUTION_FAILED', 400);
+        }
+
+        // Same service as the other AI exam tools, with the OCR parsing/validation rules and no question cap.
+        const exam = await assessmentService.createExam(
+          {
+            title: args.title,
+            courseId: undefined, // a general exam, not tied to one class
+            durationMinutes: args.durationMinutes ?? 30,
+            passingScore: args.passingScore ?? 70,
+            showReview: args.showReview !== false,
+            status: 'draft',
+            assessmentType: 'exam',
+            mode: 'online',
+            questionSource: 'ocr',
+            questions: savable.map((question) => ({
+              type: question.type,
+              prompt: question.prompt,
+              options: question.options,
+              correctAnswer: question.correct_answer,
+              explanation: question.explanation,
+              points: question.points,
+            })),
+          },
+          actor,
+          serviceContext
+        );
+        resultPayload = { exam, questionCount: savable.length, skipped: summary.questions.length - savable.length };
+        break;
+      }
+
+      case 'publish_exam_as_course': {
+        const examId = String(args.examId);
+        const extra = await applyExamListingArgs(
+          examId,
+          {
+            publishAsCourse: true,
+            listingPrice: args.listingPrice,
+            listingDescription: args.listingDescription,
+            isPublic: args.isPublic,
+            showLeaderboard: args.showLeaderboard,
+            thumbnailUploadId: args.thumbnailUploadId,
+          },
+          actor,
+          serviceContext
+        );
+        resultPayload = { examId, ...(extra ?? {}) };
         break;
       }
 
@@ -748,8 +943,72 @@ export async function executeTool(params: ExecuteToolParams): Promise<ToolExecut
       case 'delete_exam':
       case 'delete_assessment': {
         const examId = String(args.examId || args.assessmentId);
+        const impact = await verifyDeleteTarget(db, 'exam', examId, args);
         await assessmentService.deleteExam(examId, actor, serviceContext);
-        resultPayload = { success: true, deletedExamId: examId };
+        await auditAssistantDelete(actor, impact, serviceContext);
+        resultPayload = { success: true, deletedExamId: examId, name: impact.name, impact: impact.counts };
+        break;
+      }
+
+      case 'delete_assignment': {
+        const assignmentId = String(args.assignmentId);
+        const impact = await verifyDeleteTarget(db, 'assignment', assignmentId, args);
+        await assessmentService.deleteAssignment(assignmentId, actor, serviceContext);
+        await auditAssistantDelete(actor, impact, serviceContext);
+        resultPayload = { success: true, deletedAssignmentId: assignmentId, name: impact.name, impact: impact.counts };
+        break;
+      }
+
+      case 'find_items_for_deletion': {
+        const kind = parseDeleteKind(args.kind);
+        if (!hasStaffPermission(actor, KIND_PERMISSION[kind])) {
+          throw new ToolExecutionError(`Staff actor does not have required permission '${KIND_PERMISSION[kind]}'`, 'FORBIDDEN', 403);
+        }
+        const items = await findDeletableItems(db as never, kind, typeof args.query === 'string' ? args.query : '');
+        resultPayload = { kind, items };
+        break;
+      }
+
+      case 'get_delete_impact': {
+        const kind = parseDeleteKind(args.kind);
+        if (!hasStaffPermission(actor, KIND_PERMISSION[kind])) {
+          throw new ToolExecutionError(`Staff actor does not have required permission '${KIND_PERMISSION[kind]}'`, 'FORBIDDEN', 403);
+        }
+        const impact = await computeDeleteImpact(db as never, kind, String(args.id));
+        if (!impact) throw new ToolExecutionError('العنصر غير موجود', 'EXECUTION_FAILED', 404);
+        resultPayload = { impact };
+        break;
+      }
+
+      case 'hide_item': {
+        const kind = parseDeleteKind(args.kind);
+        const id = String(args.id);
+        if (!hasStaffPermission(actor, KIND_PERMISSION[kind])) {
+          throw new ToolExecutionError(`Staff actor does not have required permission '${KIND_PERMISSION[kind]}'`, 'FORBIDDEN', 403);
+        }
+        const impact = await computeDeleteImpact(db as never, kind, id);
+        if (!impact) throw new ToolExecutionError('العنصر غير موجود', 'EXECUTION_FAILED', 404);
+
+        // Soft option: move to draft through the SAME services as the admin screens. Nothing is removed.
+        if (kind === 'course') {
+          await courseService.updateCourse(id, { status: 'draft' }, actor, serviceContext);
+        } else if (kind === 'lecture') {
+          await lectureService.updateLecture(id, { title: impact.name, status: 'draft' }, actor, serviceContext);
+        } else if (kind === 'exam') {
+          if (impact.counts.listing) await examListingService.unpublish(id, actor, serviceContext);
+          await assessmentService.updateExam(id, { status: 'draft' }, actor, serviceContext);
+        } else {
+          await assessmentService.updateAssignment(id, { status: 'draft' }, actor, serviceContext);
+        }
+        await recordAuditLog({
+          userEmail: actor.email,
+          action: 'ai.item_hidden',
+          resource: kind,
+          resourceId: id,
+          details: { name: impact.name, via: 'ai_assistant' },
+          request: serviceContext.request,
+        });
+        resultPayload = { success: true, hiddenKind: kind, hiddenId: id, name: impact.name };
         break;
       }
 

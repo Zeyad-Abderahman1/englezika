@@ -11,7 +11,9 @@ import {
   matchCourses,
   matchGrade,
   normalizeArabic,
+  parseDurationMinutes,
   parseLectureLines,
+  parsePassingScore,
   parsePrice,
   parsePriceWithContext,
   parseYouTubeUrl,
@@ -26,6 +28,26 @@ import {
 } from './session';
 import type { AgentChipOption, AgentConfirmRow, AgentEvent, AgentUi } from './ui-types';
 import type { ConfirmationPreview } from '../preview-generator';
+import type { ExtractionSummary } from './exam-extraction-store';
+import {
+  DELETE_KINDS,
+  DELETE_TOOL_BY_KIND,
+  hasDependents,
+  impactRows,
+  KIND_LABEL,
+  type DeleteCandidate,
+  type DeleteImpact,
+  type DeleteKind,
+} from './delete-impact';
+import {
+  CAPABILITIES_MESSAGE,
+  classifyRequest,
+  detectTargetKind,
+  extractDeleteQuery,
+  hasDeleteVerb,
+  hasSwitchCue,
+  type Classified,
+} from './intent';
 
 /**
  * Conversational agent for the admin AI assistant.
@@ -82,10 +104,24 @@ export interface AgentDeps {
     actionType: string;
     payload: Record<string, unknown>;
     preview: ConfirmationPreview;
+    /** Shorter lifetime for risky confirmations (deleting). */
+    expiresInMs?: number;
   }): Promise<PendingConfirmation>;
+  /** Read-only helpers of the delete flow (search + impact counts). They never delete. */
+  deleteTools: {
+    find(kind: DeleteKind, query: string): Promise<DeleteCandidate[]>;
+    impact(kind: DeleteKind, id: string): Promise<DeleteImpact | null>;
+  };
   supersedeConfirmation(token: string): Promise<void>;
   loadConfirmation(token: string): Promise<ExecutedConfirmation | null>;
   stagedImageExists(uploadId: string): Promise<boolean>;
+  /** Server-side state of "exam from photos" extractions (windows are extracted by the browser). */
+  examExtraction: {
+    create(conversationId: string, pages: string[]): Promise<{ id: string; windowCount: number }>;
+    summary(
+      extractionId: string
+    ): Promise<{ summary: ExtractionSummary; pageCount: number; windowCount: number } | null>;
+  };
   persist: {
     ensureConversation(conversationId: string, title: string): Promise<void>;
     saveMessage(
@@ -186,20 +222,11 @@ export function detectIntent(message: string): SimpleIntent {
   const n = normalizeArabic(message);
   if (!n) return null;
 
-  const addVerb = '(?:اضيف|اضف|ضيف|ضيفلي|انشئ|انشاء|اعمل|اعملي|سجل|رفع|ارفع|عايز|عاوز|محتاج|اريد)';
+  const classified = classifyRequest(message);
+  if (classified.type === 'delete') return 'delete_item';
+  if (classified.type === 'add') return classified.flow;
+  if (classified.type === 'edit') return classified.unsupported ? null : 'update_course';
 
-  if (new RegExp(`${addVerb}.{0,25}(?:محاضره|محاضرات|فيديو|فيديوهات|درس|دروس|لينك)`).test(n)) {
-    return 'add_lecture';
-  }
-  if (new RegExp(`${addVerb}.{0,25}(?:واجب|واجبات|هوم ?ورك|homework)`).test(n) || /^(?:واجب|هوم ?ورك)/.test(n)) {
-    return 'add_homework';
-  }
-  if (new RegExp(`${addVerb}.{0,25}(?:كورس|دوره)`).test(n) || /(?:كورس|دوره) جديد/.test(n)) {
-    return 'create_course';
-  }
-  if (/(?:غير|عدل|بدل|خلي|تغيير|تعديل|اخفي|انشر|وقف نشر|الغي نشر).{0,30}(?:سعر|اسم|وصف|صوره|صف|كورس|نشر)/.test(n)) {
-    return 'update_course';
-  }
   if (/(?:كام|عدد|اجمالي|اعرض|اظهر|قولي).{0,25}(?:طالب|طلاب|اشتراك|اشتراكات|كورسات|محاضرات|محاضره)/.test(n)) {
     return 'info';
   }
@@ -314,10 +341,21 @@ async function step(ctx: TurnContext, session: AgentSession): Promise<Omit<Agent
   if (event?.type === 'cancel' || (message && session.flow && isCancelCommand(message))) {
     return cancelFlow(ctx, session);
   }
+  if (event?.type === 'choice' && event.slot === 'del_mode' && event.value === 'cancel') {
+    return cancelFlow(ctx, session);
+  }
   if (event?.type === 'start_flow') {
     await cancelPending(ctx, session);
     resetFlow(session, event.flow);
     return advance(ctx, session, true);
+  }
+
+  // Exam-paper photos (staged by the browser). They start (or feed) the exam-from-photos flow.
+  if (event?.type === 'pages') return handlePages(ctx, session, event.uploadIds);
+  if (event?.type === 'extraction_done') return handleExtractionDone(ctx, session, event.extractionId);
+  if (event?.type === 'choice' && session.flow === 'create_exam_from_images') {
+    const special = await handleExamChoice(ctx, session, event.slot, event.value);
+    if (special) return special;
   }
 
   if (event?.type === 'choice' && event.slot === '__start') {
@@ -327,6 +365,7 @@ async function step(ctx: TurnContext, session: AgentSession): Promise<Omit<Agent
       resetFlow(session, flowId);
       const prefill = rest.join(':').trim();
       if (prefill && flowId === 'create_course') session.slots.title = cleanText(prefill, 120);
+      if (prefill && flowId === 'delete_item' && (DELETE_KINDS as string[]).includes(prefill)) session.slots.kind = prefill;
       if (prefill && flowId === 'update_course' && UPDATE_FIELDS.some((field) => field.value === prefill)) {
         session.slots.pendingField = prefill;
       }
@@ -365,6 +404,10 @@ async function step(ctx: TurnContext, session: AgentSession): Promise<Omit<Agent
   if (!session.flow) {
     if (!message) return reply('', [], null, false);
 
+    const classified = classifyRequest(message);
+    const handledRequest = await handleClassified(ctx, session, classified, null);
+    if (handledRequest) return handledRequest;
+
     let intent = detectIntent(message);
     let extraction: ModelExtraction | null = null;
     if (!intent) {
@@ -376,7 +419,11 @@ async function step(ctx: TurnContext, session: AgentSession): Promise<Omit<Agent
         grades,
         courseTitles: courses.map((c) => c.title),
       });
-      if (extraction?.intent && extraction.intent !== 'other') intent = extraction.intent;
+      // The model may only pick a flow whose target noun the teacher actually wrote: it can never
+      // turn an unrelated or unsupported request into "create a course".
+      if (extraction?.intent && extraction.intent !== 'other' && modelIntentIsGrounded(extraction.intent, message)) {
+        intent = extraction.intent;
+      }
     }
     if (!intent) return reply('', [], null, false);
 
@@ -389,6 +436,30 @@ async function step(ctx: TurnContext, session: AgentSession): Promise<Omit<Agent
     resetFlow(session, intent);
     await prefillFromMessage(ctx, session, message, extraction);
     return advance(ctx, session, true);
+  }
+
+  // Delete flow: while the confirmation card is open, only the card (typed name) can confirm.
+  if (message && !event && session.flow === 'delete_item' && session.pendingToken && session.awaiting === null) {
+    if (isNoCommand(message)) return cancelFlow(ctx, session);
+    const classified = classifyRequest(message);
+    if (
+      classified.type === 'none' ||
+      classified.type === 'ambiguous' ||
+      (classified.type === 'delete' && !classified.kind && !classified.bulk && !classified.unsupportedTarget)
+    ) {
+      return reply(
+        'الحذف بيتأكد من البطاقة بس: اكتب اسم العنصر بالضبط في الخانة واضغط «حذف نهائي». لو غيّرت رأيك قول «إلغاء».',
+        [],
+        session.flow
+      );
+    }
+  }
+
+  // Mid-flow: a clear request for something else switches (or cleanly rejects) instead of being
+  // swallowed as an answer for the open question.
+  if (message && !event) {
+    const switched = await maybeSwitchFlow(ctx, session);
+    if (switched) return switched;
   }
 
   // Active flow ─ apply the teacher's input to the current slot.
@@ -405,7 +476,13 @@ async function step(ctx: TurnContext, session: AgentSession): Promise<Omit<Agent
 // ── Flow lifecycle ────────────────────────────────────────────────────────────
 
 function isFlowId(value: string): value is FlowId {
-  return value === 'create_course' || value === 'add_lecture' || value === 'update_course' || value === 'add_homework';
+  return (
+    value === 'create_course' ||
+    value === 'add_lecture' ||
+    value === 'update_course' ||
+    value === 'add_homework' ||
+    value === 'delete_item'
+  );
 }
 
 function resetFlow(session: AgentSession, flow: FlowId): void {
@@ -555,6 +632,8 @@ async function applyInput(ctx: TurnContext, session: AgentSession): Promise<stri
   const { event, message } = ctx;
   const flow = session.flow as FlowId;
 
+  if (flow === 'delete_item') return applyDeleteInput(ctx, session);
+
   // Edit phrases ("غير السعر") work from any point in a flow.
   if (message && !event) {
     const edit = detectEditRequest(message);
@@ -625,8 +704,11 @@ function mapEditSlot(flow: FlowId, slot: ReturnType<typeof detectEditRequest>): 
     add_lecture: ['course', 'lectures'],
     update_course: ['price', 'title', 'grade', 'description', 'publish', 'thumbnail', 'course'],
     add_homework: ['course', 'title', 'description'],
+    create_exam_from_images: ['title', 'price', 'description', 'thumbnail', 'publish'],
+    delete_item: [],
   };
-  return allowed[flow].includes(slot) ? slot : null;
+  if (!allowed[flow].includes(slot)) return null;
+  return flow === 'create_exam_from_images' && slot === 'publish' ? 'publish_course' : slot;
 }
 
 async function opportunisticExtras(
@@ -648,6 +730,7 @@ async function opportunisticExtras(
     }
   }
   if (flow === 'add_lecture') applyLectureOptions(slots, message);
+  if (flow === 'create_exam_from_images') applyExamSettingsFromText(slots, message);
 }
 
 async function applyValue(
@@ -694,8 +777,56 @@ async function applyValue(
       session.awaiting = null;
       return null;
     }
+    case 'duration': {
+      const minutes = parseDurationMinutes(text) ?? (/^\d{1,3}$/.test(normalizeArabic(text)) ? Number(normalizeArabic(text)) : null);
+      if (minutes === null || minutes < 1 || minutes > 300) return 'اكتب المدة بالدقائق (من 1 إلى 300)، مثلًا 45 دقيقة.';
+      slots.durationMinutes = minutes;
+      slots.settingsConfirmed = true;
+      session.awaiting = 'settings';
+      return null;
+    }
+    case 'passing': {
+      const score = parsePassingScore(text) ?? (/^\d{1,3}$/.test(normalizeArabic(text)) ? Number(normalizeArabic(text)) : null);
+      if (score === null || score < 0 || score > 100) return 'اكتب نسبة النجاح من 0 إلى 100، مثلًا 60.';
+      slots.passingScore = score;
+      slots.settingsConfirmed = true;
+      session.awaiting = 'settings';
+      return null;
+    }
+    case 'settings': {
+      if (text === 'ok') {
+        slots.settingsConfirmed = true;
+        session.awaiting = null;
+        return null;
+      }
+      if (text === 'edit_duration') {
+        session.awaiting = 'duration';
+        return null;
+      }
+      if (text === 'edit_passing') {
+        session.awaiting = 'passing';
+        return null;
+      }
+      if (text === 'toggle_review') {
+        slots.showReview = slots.showReview === false;
+        return null; // stay on the settings question so the new value is shown
+      }
+      applyExamSettingsFromText(slots, text);
+      if (slots.settingsConfirmed) {
+        session.awaiting = null;
+        return null;
+      }
+      return 'اختار من الأزرار، أو اكتب المدة (مثل 45 دقيقة) أو نسبة النجاح (مثل نجاح 60).';
+    }
+    case 'publish_course': {
+      if (text !== 'yes' && text !== 'no') return 'اختار: نعم أو لا.';
+      slots.publish = text;
+      session.awaiting = null;
+      return null;
+    }
     case 'description': {
       if (input.skip) {
+        slots.descriptionSkipped = true;
         delete target.description;
       } else {
         const value = cleanText(text, 1000);
@@ -884,6 +1015,10 @@ async function advance(
       return withLead(lead, await nextUpdateCourse(ctx, session));
     case 'add_homework':
       return withLead(lead, await nextAddHomework(ctx, session));
+    case 'create_exam_from_images':
+      return withLead(lead, await nextCreateExamFromImages(ctx, session));
+    case 'delete_item':
+      return withLead(lead, await nextDeleteItem(ctx, session));
   }
 }
 
@@ -892,6 +1027,7 @@ function withLead(lead: string, outcome: Omit<AgentTurnResult, 'conversationId'>
 }
 
 function startLine(flow: FlowId, slots: Record<string, unknown>): string {
+  if (flow === 'delete_item') return '';
   const known = Object.keys(slots).filter((key) => !['changes', 'invalidUrl'].includes(key) && slots[key] !== undefined);
   if (known.length === 0) return flow === 'create_course' ? 'تمام.' : '';
   return 'تمام، سجّلت اللي قلته.';
@@ -905,8 +1041,11 @@ async function askSlot(
   const flow = session.flow as FlowId;
   const slots = session.slots as Record<string, unknown>;
 
+  if (flow === 'delete_item') return askDeleteSlot(session, slot);
+
   switch (slot) {
     case 'title':
+      if (flow === 'create_exam_from_images') return reply('عنوان الامتحان إيه؟', [], flow);
       return reply(flow === 'add_homework' ? 'عنوان الواجب إيه؟' : flow === 'update_course' ? 'تحب الاسم الجديد للكورس يبقى إيه؟' : 'اسم الكورس إيه؟', [], flow);
     case 'grade': {
       const grades = await getGrades(ctx);
@@ -951,6 +1090,52 @@ async function askSlot(
     }
     case 'change_pick':
       return reply('إيه اللي عايز تعدله في الكورس؟', [{ kind: 'chips', slot: 'change_pick', options: UPDATE_FIELDS }], flow);
+    case 'pages':
+      return reply(
+        'ابعت صور ورق الامتحان بالترتيب (تقدر تختار أكتر من صورة مرة واحدة من زر المرفقات)، وبعدين اضغط إرسال.',
+        [{ kind: 'pages_request', accept: THUMBNAIL_ACCEPT, maxBytesPerPage: 10 * 1024 * 1024 }],
+        flow
+      );
+    case 'settings': {
+      const duration = Number(slots.durationMinutes ?? 30);
+      const passing = Number(slots.passingScore ?? 70);
+      const review = slots.showReview !== false;
+      return reply(
+        `الإعدادات الحالية: المدة ${duration} دقيقة، نسبة النجاح ${passing}%، مراجعة الإجابات بعد التسليم ${review ? 'مسموحة' : 'غير مسموحة'}. أكمل بيها ولا تعدّل؟`,
+        [
+          {
+            kind: 'chips',
+            slot: 'settings',
+            options: [
+              { label: 'تمام، كمّل', value: 'ok' },
+              { label: 'تعديل المدة', value: 'edit_duration' },
+              { label: 'تعديل نسبة النجاح', value: 'edit_passing' },
+              { label: review ? 'منع المراجعة بعد التسليم' : 'السماح بالمراجعة', value: 'toggle_review' },
+            ],
+          },
+        ],
+        flow
+      );
+    }
+    case 'duration':
+      return reply('مدة الامتحان كام دقيقة؟', [], flow);
+    case 'passing':
+      return reply('نسبة النجاح كام في المية؟', [], flow);
+    case 'publish_course':
+      return reply(
+        'تحب تنشر الامتحان ككورس لكل الصفوف (بسعر أو مجانًا) عشان يظهر للطلاب في قائمة الكورسات؟',
+        [
+          {
+            kind: 'chips',
+            slot: 'publish_course',
+            options: [
+              { label: 'نعم، انشره ككورس لكل الصفوف', value: 'yes' },
+              { label: 'لا، امتحان عادي فقط', value: 'no' },
+            ],
+          },
+        ],
+        flow
+      );
     default:
       return null;
   }
@@ -1184,6 +1369,411 @@ async function nextAddHomework(ctx: TurnContext, session: AgentSession) {
   });
 }
 
+// ── Exam from photos ─────────────────────────────────────────────────────────
+
+function applyExamSettingsFromText(slots: Record<string, unknown>, message: string): void {
+  const minutes = parseDurationMinutes(message);
+  if (minutes !== null) {
+    slots.durationMinutes = minutes;
+    slots.settingsConfirmed = true;
+  }
+  const passing = parsePassingScore(message);
+  if (passing !== null) {
+    slots.passingScore = passing;
+    slots.settingsConfirmed = true;
+  }
+  const n = normalizeArabic(message);
+  if (/(?:منع|بدون|من غير|مفيش).{0,12}مراجع/.test(n)) {
+    slots.showReview = false;
+    slots.settingsConfirmed = true;
+  }
+}
+
+function indices(count: number): number[] {
+  return Array.from({ length: count }, (_, index) => index);
+}
+
+async function handlePages(
+  ctx: TurnContext,
+  session: AgentSession,
+  uploadIds: string[]
+): Promise<Omit<AgentTurnResult, 'conversationId'>> {
+  for (const uploadId of uploadIds) {
+    if (!(await ctx.deps.stagedImageExists(uploadId))) {
+      return reply('بعض الصور مش لاقيها (ممكن تكون انتهت صلاحيتها). ارفعها تاني من فضلك.', [], session.flow);
+    }
+  }
+
+  // Photos always belong to the exam flow. Starting it replaces any other unfinished flow.
+  if (session.flow !== 'create_exam_from_images') {
+    await cancelPending(ctx, session);
+    resetFlow(session, 'create_exam_from_images');
+  } else {
+    // New photos replace the previous extraction (it was made from other pages).
+    const slots = session.slots as Record<string, unknown>;
+    delete slots.extractionId;
+    delete slots.extractionDone;
+    delete slots.partialAck;
+    await cancelPending(ctx, session);
+  }
+
+  const slots = session.slots as Record<string, unknown>;
+  slots.pages = uploadIds;
+  session.awaiting = null;
+
+  if (ctx.message) {
+    const title = extractAfterKeyword(ctx.message, /(?:اسمه|اسمها|بعنوان|عنوانه)/);
+    if (title && cleanText(title, 150).length >= 3) slots.title = cleanText(title, 150);
+    applyExamSettingsFromText(slots, ctx.message);
+  }
+
+  const lead = `استلمت ${uploadIds.length} صفحة.`;
+  return withLead(lead, await advance(ctx, session, false));
+}
+
+async function nextCreateExamFromImages(ctx: TurnContext, session: AgentSession) {
+  const slots = session.slots as Record<string, unknown>;
+  const pages = (Array.isArray(slots.pages) ? slots.pages : []) as string[];
+
+  if (pages.length === 0) return forceAsk(ctx, session, 'pages');
+  if (!slots.title) return forceAsk(ctx, session, 'title');
+  if (!slots.settingsConfirmed) return forceAsk(ctx, session, 'settings');
+  if (slots.publish === undefined) return forceAsk(ctx, session, 'publish_course');
+  if (slots.publish === 'yes') {
+    if (typeof slots.price !== 'number') return forceAsk(ctx, session, 'price');
+    if (!slots.description && !slots.descriptionSkipped) return forceAsk(ctx, session, 'description');
+    if (!slots.thumbnailUploadId && !slots.thumbnailSkipped) return forceAsk(ctx, session, 'thumbnail');
+  }
+
+  // The exam already exists (draft): only the publishing step is left.
+  if (typeof slots.examId === 'string') return confirmPublishExam(ctx, session);
+
+  if (!slots.extractionId) {
+    const created = await ctx.deps.examExtraction.create(ctx.conversationId, pages);
+    slots.extractionId = created.id;
+    slots.windowCount = created.windowCount;
+    slots.extractionDone = false;
+  }
+  if (!slots.extractionDone) {
+    session.awaiting = 'extracting';
+    const windowCount = Number(slots.windowCount ?? 1);
+    return reply(
+      `تمام، هبدأ أستخرج الأسئلة من ${pages.length} صفحة. ممكن ياخد شوية وقت حسب العدد، وهتشوف التقدم هنا.`,
+      [
+        {
+          kind: 'extract',
+          extractionId: String(slots.extractionId),
+          windowIndices: indices(windowCount),
+          windowCount,
+          pageCount: pages.length,
+        },
+      ],
+      session.flow
+    );
+  }
+  return confirmCreateExam(ctx, session);
+}
+
+function pageLabelFor(window: { start: number; end: number }): string {
+  return window.end - window.start <= 1 ? String(window.start + 1) : `${window.start + 1}–${window.end}`;
+}
+
+function buildResultCard(
+  extractionId: string,
+  info: { summary: ExtractionSummary; pageCount: number }
+): AgentUi {
+  const { summary } = info;
+  return {
+    kind: 'extraction_result',
+    extractionId,
+    questionCount: summary.questions.length,
+    pageCount: info.pageCount,
+    invalidCount: summary.invalidCount,
+    duplicatesRemoved: summary.duplicatesRemoved,
+    warnings: summary.warnings.map((warning) => warning.message),
+    failedPages: summary.failedWindows.map((failed) => pageLabelFor(failed.window)),
+    preview: summary.questions.slice(0, 3).map((question) => ({
+      number: question.source_number ?? question.sort_order,
+      prompt: question.prompt.slice(0, 160),
+      options: question.options.slice(0, 4).map((option) => option.slice(0, 80)),
+    })),
+    reviewHref: `/admin/exams?extraction=${encodeURIComponent(extractionId)}`,
+  };
+}
+
+async function handleExtractionDone(
+  ctx: TurnContext,
+  session: AgentSession,
+  extractionId: string
+): Promise<Omit<AgentTurnResult, 'conversationId'>> {
+  const slots = session.slots as Record<string, unknown>;
+  if (session.flow !== 'create_exam_from_images' || slots.extractionId !== extractionId) {
+    return reply('الاستخراج ده مش تابع للمحادثة الحالية. ابدأ من جديد من فضلك.');
+  }
+  const info = await ctx.deps.examExtraction.summary(extractionId);
+  if (!info) {
+    delete slots.extractionId;
+    return reply('انتهت صلاحية الاستخراج. ارفع الصور تاني وهنبدأ من جديد.', [], session.flow);
+  }
+
+  slots.extractionDone = true;
+  session.awaiting = null;
+  const card = buildResultCard(extractionId, info);
+  const { summary } = info;
+  const unresolved = summary.failedWindows.length + summary.pendingWindows.length;
+
+  if (summary.questions.length === 0) {
+    session.awaiting = 'extract_failed';
+    return reply('معرفتش أستخرج أي سؤال من الصور.', [
+      card,
+      {
+        kind: 'chips',
+        slot: 'extract_failed',
+        options: [{ label: 'إعادة المحاولة', value: 'retry' }],
+      },
+    ], session.flow);
+  }
+
+  if (unresolved > 0 && slots.partialAck !== true) {
+    session.awaiting = 'extract_failed';
+    return reply(
+      `استخرجت ${summary.questions.length} سؤال، لكن فشلت صفحات: ${summary.failedWindows.map((f) => pageLabelFor(f.window)).join('، ') || 'بعض الدفعات'}.`,
+      [
+        card,
+        {
+          kind: 'chips',
+          slot: 'extract_failed',
+          options: [
+            { label: 'إعادة محاولة الصفحات الفاشلة فقط', value: 'retry' },
+            { label: 'متابعة بالأسئلة المستخرجة', value: 'partial' },
+          ],
+        },
+      ],
+      session.flow
+    );
+  }
+
+  const confirm = await confirmCreateExam(ctx, session);
+  return {
+    ...confirm,
+    reply: `استخرجت ${summary.questions.length} سؤال من ${info.pageCount} صفحة.\n${confirm.reply}`,
+    ui: [card, ...confirm.ui],
+  };
+}
+
+async function handleExamChoice(
+  ctx: TurnContext,
+  session: AgentSession,
+  slot: string,
+  value: string
+): Promise<Omit<AgentTurnResult, 'conversationId'> | null> {
+  const slots = session.slots as Record<string, unknown>;
+
+  if (slot === 'extract_failed') {
+    if (value === 'partial') {
+      slots.partialAck = true;
+      session.awaiting = null;
+      return advance(ctx, session, false);
+    }
+    // Retry ONLY the windows that failed (or never ran).
+    const info = typeof slots.extractionId === 'string' ? await ctx.deps.examExtraction.summary(slots.extractionId) : null;
+    if (!info) return reply('انتهت صلاحية الاستخراج. ارفع الصور تاني.', [], session.flow);
+    const pending = [
+      ...info.summary.failedWindows.map((failed) => failed.index),
+      ...info.summary.pendingWindows,
+    ];
+    if (pending.length === 0) {
+      slots.extractionDone = true;
+      return advance(ctx, session, false);
+    }
+    slots.extractionDone = false;
+    session.awaiting = 'extracting';
+    return reply(`هعيد محاولة ${pending.length} دفعة من الصفحات الفاشلة فقط.`, [
+      {
+        kind: 'extract',
+        extractionId: String(slots.extractionId),
+        windowIndices: pending,
+        windowCount: info.windowCount,
+        pageCount: info.pageCount,
+      },
+    ], session.flow);
+  }
+
+  if (slot === '__edit' && (value === 'toggle_public' || value === 'toggle_leaderboard')) {
+    await cancelPending(ctx, session);
+    if (value === 'toggle_public') {
+      slots.isPublic = slots.isPublic === false;
+      if (slots.isPublic === false) slots.showLeaderboard = false;
+    } else {
+      slots.showLeaderboard = slots.showLeaderboard === false;
+      if (slots.showLeaderboard !== false) slots.isPublic = true;
+    }
+    session.awaiting = null;
+    return advance(ctx, session, false);
+  }
+  return null;
+}
+
+async function confirmCreateExam(ctx: TurnContext, session: AgentSession) {
+  const slots = session.slots as Record<string, unknown>;
+  const extractionId = String(slots.extractionId);
+  const info = await ctx.deps.examExtraction.summary(extractionId);
+  if (!info) {
+    delete slots.extractionId;
+    return reply('انتهت صلاحية الاستخراج. ارفع الصور تاني وهنبدأ من جديد.', [], session.flow);
+  }
+  const { summary } = info;
+  const savable = summary.questions.length - summary.invalidCount;
+  const unresolved = summary.failedWindows.length + summary.pendingWindows.length;
+  const duration = Number(slots.durationMinutes ?? 30);
+  const passing = Number(slots.passingScore ?? 70);
+  const showReview = slots.showReview !== false;
+
+  const rows: AgentConfirmRow[] = [
+    { label: 'عنوان الامتحان', value: String(slots.title) },
+    { label: 'النوع', value: 'امتحان عام (غير مرتبط بصف معيّن)' },
+    { label: 'عدد الأسئلة', value: String(savable) },
+    { label: 'المدة', value: `${duration} دقيقة` },
+    { label: 'نسبة النجاح', value: `${passing}%` },
+    { label: 'مراجعة الإجابات بعد التسليم', value: showReview ? 'مسموحة' : 'غير مسموحة' },
+    { label: 'الحالة', value: 'مسودة (تُنشر لاحقًا)' },
+  ];
+  if (summary.invalidCount > 0) {
+    rows.push({ label: 'أسئلة مستبعدة (بلا إجابة صحيحة)', value: String(summary.invalidCount) });
+  }
+  if (unresolved > 0) {
+    rows.push({ label: 'صفحات لم تُستخرج', value: String(unresolved) + ' دفعة' });
+  }
+  if (slots.publish === 'yes') {
+    rows.push({ label: 'بعد الإنشاء', value: 'هيتعرض عليك تأكيد منفصل لنشره ككورس لكل الصفوف' });
+  }
+
+  return buildConfirmation(ctx, session, {
+    title: 'مراجعة الامتحان قبل الإنشاء',
+    rows,
+    editable: [
+      { label: 'العنوان', value: 'title' },
+      { label: 'المدة والنجاح', value: 'settings' },
+      { label: 'نشره ككورس', value: 'publish_course' },
+    ],
+    steps: [
+      {
+        tool: 'create_exam_from_extraction',
+        parameters: {
+          extractionId,
+          title: String(slots.title),
+          durationMinutes: duration,
+          passingScore: passing,
+          showReview,
+          ...(unresolved > 0 ? { allowPartial: true } : {}),
+          ...(summary.invalidCount > 0 ? { skipInvalid: true } : {}),
+        },
+      },
+    ],
+  });
+}
+
+async function confirmPublishExam(ctx: TurnContext, session: AgentSession) {
+  const slots = session.slots as Record<string, unknown>;
+  const price = Number(slots.price ?? 0);
+  const isPublic = slots.isPublic !== false;
+  const showLeaderboard = isPublic && slots.showLeaderboard !== false;
+
+  const rows: AgentConfirmRow[] = [
+    { label: 'الامتحان', value: String(slots.title) },
+    { label: 'الفئة', value: 'كل الصفوف' },
+    { label: 'السعر', value: formatPrice(price) },
+    ...(slots.description ? [{ label: 'الوصف', value: String(slots.description) }] : []),
+    { label: 'الصورة المصغرة', value: slots.thumbnailUploadId ? 'مرفقة' : 'بدون صورة' },
+    { label: 'صفحة عامة للامتحان', value: isPublic ? 'مفعّلة' : 'غير مفعّلة' },
+    { label: 'لوحة أفضل 10 طلاب', value: showLeaderboard ? 'مفعّلة' : 'غير مفعّلة' },
+    { label: 'الحالة بعد التأكيد', value: 'منشور ككورس لكل الصفوف' },
+  ];
+
+  return buildConfirmation(ctx, session, {
+    title: 'مراجعة نشر الامتحان ككورس',
+    rows,
+    editable: [
+      { label: 'السعر', value: 'price' },
+      { label: 'الوصف', value: 'description' },
+      { label: 'الصورة', value: 'thumbnail' },
+      { label: isPublic ? 'إلغاء الصفحة العامة' : 'تفعيل الصفحة العامة', value: 'toggle_public' },
+      { label: showLeaderboard ? 'إخفاء لوحة الأوائل' : 'إظهار لوحة الأوائل', value: 'toggle_leaderboard' },
+    ],
+    steps: [
+      {
+        tool: 'publish_exam_as_course',
+        parameters: {
+          examId: String(slots.examId),
+          listingPrice: price,
+          isPublic,
+          showLeaderboard,
+          ...(slots.description ? { listingDescription: String(slots.description) } : {}),
+          ...(slots.thumbnailUploadId ? { thumbnailUploadId: String(slots.thumbnailUploadId) } : {}),
+        },
+      },
+    ],
+  });
+}
+
+async function handleExamExecuted(
+  ctx: TurnContext,
+  session: AgentSession,
+  actionType: string,
+  results: ToolResultLike[]
+): Promise<Omit<AgentTurnResult, 'conversationId'>> {
+  const slots = session.slots as Record<string, unknown>;
+  session.pendingToken = null;
+
+  if (actionType === 'create_exam_from_extraction') {
+    const exam = results.map((r) => r.result?.exam as { id?: string } | undefined).find((e) => e?.id);
+    const detail = results[0]?.result as { questionCount?: number; skipped?: number } | undefined;
+    if (!exam?.id) {
+      return reply('الامتحان اتنفّذ لكن مقدرتش أقرأ رقمه. افتح صفحة الامتحانات وراجع.', [
+        { kind: 'error', message: 'تعذر قراءة نتيجة الإنشاء.', retry: false },
+      ]);
+    }
+    slots.examId = exam.id;
+
+    const lines = [`عدد الأسئلة: ${detail?.questionCount ?? ''}`.trim()];
+    if (detail?.skipped) lines.push(`أسئلة مستبعدة بلا إجابة صحيحة: ${detail.skipped}`);
+    const success: AgentUi = {
+      kind: 'success',
+      title: `تم إنشاء الامتحان «${String(slots.title)}» كمسودة`,
+      lines,
+      link: { href: '/admin/exams', label: 'فتح الامتحانات' },
+    };
+
+    if (slots.publish === 'yes') {
+      const confirm = await confirmPublishExam(ctx, session);
+      return {
+        ...confirm,
+        reply: 'تم إنشاء الامتحان كمسودة ✅\nدلوقتي راجع نشره ككورس لكل الصفوف وأكّد لو تمام:',
+        ui: [success, ...confirm.ui],
+      };
+    }
+    session.flow = null;
+    session.slots = {};
+    session.awaiting = null;
+    return reply('تم إنشاء الامتحان كمسودة ✅\nتحب أساعدك في حاجة تانية؟', [success]);
+  }
+
+  // publish_exam_as_course finished
+  const listing = results.map((r) => r.result?.listing as { publicSlug?: string; isPublic?: boolean } | undefined).find(Boolean);
+  const thumbnail = results.map((r) => r.result?.thumbnail as { attached?: boolean; error?: string } | undefined).find(Boolean);
+  const lines = ['الامتحان ظاهر دلوقتي في قائمة الكورسات لكل الصفوف.'];
+  if (thumbnail && !thumbnail.attached) lines.push(`الصورة المصغرة لم تُحفظ: ${thumbnail.error ?? 'خطأ غير معروف'}. تقدر ترفعها بعدين.`);
+  const link =
+    listing?.isPublic && listing.publicSlug
+      ? { href: `/exams/${encodeURIComponent(listing.publicSlug)}`, label: 'فتح الصفحة العامة' }
+      : { href: '/admin/exams', label: 'فتح الامتحانات' };
+  const title = `تم نشر «${String(slots.title)}» ككورس لكل الصفوف`;
+  session.flow = null;
+  session.slots = {};
+  session.awaiting = null;
+  return reply(`${title} ✅\nتحب أساعدك في حاجة تانية؟`, [{ kind: 'success', title, lines, link }]);
+}
+
 async function forceAsk(ctx: TurnContext, session: AgentSession, slot: string) {
   session.awaiting = slot;
   const asked = await askSlot(ctx, session, slot);
@@ -1228,8 +1818,9 @@ async function buildConfirmation(ctx: TurnContext, session: AgentSession, spec: 
 }
 
 async function rebuildConfirmation(ctx: TurnContext, session: AgentSession) {
-  session.pendingToken = null;
+  await cancelPending(ctx, session);
   session.awaiting = null;
+  if (session.flow === 'delete_item') return refreshDeleteConfirmation(ctx, session);
   return advance(ctx, session, false);
 }
 
@@ -1333,6 +1924,10 @@ async function handleExecuted(
 
   const flow = session.flow;
   const results = collectResults(record.result);
+  if (flow === 'delete_item') return handleDeleteExecuted(session, record.actionType, results);
+  if (flow === 'create_exam_from_images') {
+    return handleExamExecuted(ctx, session, record.actionType, results);
+  }
   const lines: string[] = [];
   let link: { href: string; label: string } | undefined;
   let title = 'تم التنفيذ بنجاح';
@@ -1365,5 +1960,431 @@ async function handleExecuted(
   session.awaiting = null;
   session.pendingToken = null;
 
+  return reply(`${title} ✅\nتحب أساعدك في حاجة تانية؟`, [{ kind: 'success', title, lines, link }]);
+}
+
+// ── Safe delete flow (one item at a time, typed-name confirmation) ───────────
+
+const KIND_NOUN: Record<DeleteKind, string> = {
+  course: 'كورس',
+  lecture: 'محاضرة',
+  exam: 'امتحان',
+  assignment: 'واجب',
+};
+const KIND_CHIPS: AgentChipOption[] = DELETE_KINDS.map((kind) => ({ label: KIND_NOUN[kind], value: kind }));
+const DELETE_ID_KEY: Record<DeleteKind, string> = {
+  course: 'courseId',
+  lecture: 'videoId',
+  exam: 'examId',
+  assignment: 'assignmentId',
+};
+const DELETE_CONFIRM_TTL_MS = 5 * 60 * 1000;
+
+const FLOW_LABEL: Record<FlowId, string> = {
+  create_course: 'إضافة الكورس',
+  add_lecture: 'إضافة المحاضرة',
+  update_course: 'تعديل الكورس',
+  add_homework: 'إضافة الواجب',
+  create_exam_from_images: 'إنشاء الامتحان من الصور',
+  delete_item: 'الحذف',
+};
+
+function isDeleteKind(value: unknown): value is DeleteKind {
+  return typeof value === 'string' && (DELETE_KINDS as string[]).includes(value);
+}
+
+function modelIntentIsGrounded(intent: string, message: string): boolean {
+  const kind = detectTargetKind(message);
+  if (hasDeleteVerb(message)) return false;
+  if (intent === 'create_course') return kind === 'course';
+  if (intent === 'add_lecture') return kind === 'lecture' || findYouTubeAnywhere(message);
+  if (intent === 'add_homework') return kind === 'assignment';
+  return intent === 'update_course' ? kind === 'course' : true;
+}
+
+function ambiguityChips(kind: DeleteKind | null): AgentUi {
+  const noun = kind ? KIND_NOUN[kind] : 'كورس';
+  const add = kind === 'lecture' ? 'add_lecture' : kind === 'assignment' ? 'add_homework' : 'create_course';
+  const options: AgentChipOption[] = [{ label: `إضافة ${noun}`, value: add }];
+  if (!kind || kind === 'course') options.push({ label: 'تعديل كورس', value: 'update_course' });
+  options.push({ label: `حذف ${noun}`, value: `delete_item:${kind ?? 'course'}` });
+  return { kind: 'chips', slot: '__start', options };
+}
+
+/** Handles delete / unsupported-edit / ambiguous requests. Returns null for "add" and "none". */
+async function handleClassified(
+  ctx: TurnContext,
+  session: AgentSession,
+  classified: Classified,
+  notice: string | null
+): Promise<Omit<AgentTurnResult, 'conversationId'> | null> {
+  const lead = (text: string) => (notice ? `${notice}\n${text}` : text);
+
+  if (classified.type === 'delete') {
+    if (classified.unsupportedTarget) {
+      const everything = /(?:الكل|كل حاجه|كل شيء|قاعده البيانات|الداتا)/.test(classified.unsupportedTarget);
+      if (!everything) {
+        return reply(lead(`مقدرش أحذف «${classified.unsupportedTarget}» من هنا.\n${CAPABILITIES_MESSAGE}`), [], session.flow);
+      }
+      classified = { ...classified, bulk: true, unsupportedTarget: undefined };
+    }
+    if (classified.type === 'delete' && classified.bulk) {
+      const kind = classified.kind;
+      const noun = kind ? KIND_NOUN[kind] : 'عنصر';
+      await cancelPending(ctx, session);
+      session.flow = null;
+      session.slots = {};
+      session.awaiting = null;
+      const options: AgentChipOption[] = kind
+        ? [{ label: `حذف ${noun} واحد`, value: `delete_item:${kind}` }]
+        : KIND_CHIPS.map((chip) => ({ label: `حذف ${chip.label}`, value: `delete_item:${chip.value}` }));
+      return reply(
+        lead(
+          `مبحذفش أكتر من عنصر في المرة الواحدة، علشان الحذف نهائي ومحدش يمسح حاجة بالغلط. نبدأ نحذف ${noun} واحد واحد؟ اختار وأنا أدور عليه وأطلب تأكيدك.`
+        ),
+        [{ kind: 'chips', slot: '__start', options }],
+        null
+      );
+    }
+    if (classified.type === 'delete') {
+      await cancelPending(ctx, session);
+      resetFlow(session, 'delete_item');
+      if (classified.kind) session.slots.kind = classified.kind;
+      const query = extractDeleteQuery(ctx.message);
+      if (query) session.slots.query = cleanText(query, 80);
+      return withLead(notice ?? '', await advance(ctx, session, true));
+    }
+  }
+
+  if (classified.type === 'edit' && classified.unsupported) {
+    return reply(
+      lead(`تعديل ${classified.kind ? KIND_NOUN[classified.kind] : 'العنصر'} مش متاح من المساعد دلوقتي.\n${CAPABILITIES_MESSAGE}`),
+      [],
+      session.flow
+    );
+  }
+
+  if (classified.type === 'ambiguous' && !session.flow) {
+    return reply('تحب تعمل إيه بالضبط؟', [ambiguityChips(classified.kind)], null);
+  }
+
+  return null;
+}
+
+async function maybeSwitchFlow(
+  ctx: TurnContext,
+  session: AgentSession
+): Promise<Omit<AgentTurnResult, 'conversationId'> | null> {
+  const flow = session.flow as FlowId;
+  const classified = classifyRequest(ctx.message);
+  if (classified.type === 'none' || classified.type === 'ambiguous') return null;
+
+  const cue = hasSwitchCue(ctx.message);
+  const awaiting = session.awaiting ?? '';
+  const typedAnswer = FREE_TEXT_SLOTS.has(awaiting) || awaiting === 'del_query' || awaiting === 'del_pick';
+  const notice = `تمام، وقفت «${FLOW_LABEL[flow]}» ومفيش حاجة اتنفّذت.`;
+
+  if (classified.type === 'delete') {
+    // "احذفه" (no item type) inside the delete flow is just an answer, not a new request.
+    if (flow === 'delete_item' && !classified.kind && !classified.bulk && !classified.unsupportedTarget) return null;
+    // A delete request is never swallowed as a name/title. Inside the delete flow it restarts the search.
+    return handleClassified(ctx, session, classified, flow === 'delete_item' ? null : notice);
+  }
+
+  if (typedAnswer && !cue) return null;
+  // Edit phrases ("غير السعر") belong to the running flow's own edit handling unless the teacher
+  // explicitly walks away from it.
+  if (classified.type === 'edit' && !classified.unsupported && flow !== 'delete_item' && !cue) return null;
+
+  if (classified.type === 'edit' && classified.unsupported) {
+    return handleClassified(ctx, session, classified, null);
+  }
+
+  const target: FlowId | null =
+    classified.type === 'add' ? classified.flow : classified.type === 'edit' ? 'update_course' : null;
+  if (!target || target === flow) return null;
+
+  await cancelPending(ctx, session);
+  resetFlow(session, target);
+  await prefillFromMessage(ctx, session, ctx.message, null);
+  const started = await advance(ctx, session, true);
+  return { ...started, reply: `${notice}\n${started.reply}` };
+}
+
+function askDeleteSlot(session: AgentSession, slot: string): Omit<AgentTurnResult, 'conversationId'> | null {
+  const kind = session.slots.kind;
+  if (slot === 'del_kind') {
+    return reply('تحب تحذف إيه؟ اختار النوع:', [{ kind: 'chips', slot: 'del_kind', options: KIND_CHIPS }], session.flow);
+  }
+  if (slot === 'del_query') {
+    const noun = isDeleteKind(kind) ? KIND_NOUN[kind] : 'العنصر';
+    return reply(`اكتب اسم الـ${noun} اللي عايز تحذفه (أو جزء منه) وأنا أدوّر عليه.`, [], session.flow);
+  }
+  return null;
+}
+
+async function applyDeleteInput(ctx: TurnContext, session: AgentSession): Promise<string | null> {
+  const { event, message } = ctx;
+  const slots = session.slots as Record<string, unknown>;
+
+  const resetTarget = () => {
+    delete slots.targetId;
+    delete slots.targetName;
+    delete slots.impact;
+    delete slots.mode;
+    delete slots.candidateIds;
+  };
+
+  if (event?.type === 'choice') {
+    if (event.slot === 'del_kind') {
+      if (!isDeleteKind(event.value)) return 'النوع ده مش مدعوم. اختار من القائمة.';
+      slots.kind = event.value;
+      delete slots.query;
+      resetTarget();
+      session.awaiting = null;
+      return null;
+    }
+    if (event.slot === 'del_pick') {
+      const ids = Array.isArray(slots.candidateIds) ? (slots.candidateIds as string[]) : [];
+      if (!ids.includes(event.value)) return 'الاختيار ده مش من النتائج اللي ظهرت. اختار من القايمة أو اكتب الاسم تاني.';
+      resetTarget();
+      slots.targetId = event.value; // from here on the target is locked by id, never by name
+      session.awaiting = null;
+      return null;
+    }
+    if (event.slot === 'del_mode') {
+      if (event.value !== 'hide' && event.value !== 'delete') return 'اختار إخفاء أو حذف أو إلغاء.';
+      slots.mode = event.value;
+      session.awaiting = null;
+      return null;
+    }
+    return null;
+  }
+  if (event) return null;
+  if (!message) return null;
+
+  const awaiting = session.awaiting;
+  if (awaiting === 'del_kind') {
+    const kind = detectTargetKind(message);
+    if (!kind) return 'مفهمتش نوع العنصر. اختار: كورس أو محاضرة أو امتحان أو واجب.';
+    slots.kind = kind;
+    session.awaiting = null;
+    return null;
+  }
+  if (awaiting === 'del_query' || awaiting === 'del_pick') {
+    // In the delete flow, a typed name is a SEARCH for the item to delete.
+    resetTarget();
+    slots.query = cleanText(message, 80);
+    session.awaiting = null;
+    return null;
+  }
+  if (awaiting === 'del_mode') {
+    if (/(?:اخف|مسوده|وقف|ايقاف)/.test(normalizeArabic(message))) slots.mode = 'hide';
+    else if (hasDeleteVerb(message) || /(?:حذف|نهائي)/.test(normalizeArabic(message))) slots.mode = 'delete';
+    else return 'اختار: إخفاء (مسودة) أو حذف نهائي أو إلغاء.';
+    session.awaiting = null;
+    return null;
+  }
+  return null;
+}
+
+function candidateChip(candidate: DeleteCandidate): AgentChipOption {
+  const parts = [candidate.title, candidate.subtitle, candidate.stat].filter(Boolean);
+  const label = parts.join(' — ');
+  return { label: label.length > 90 ? `${label.slice(0, 89)}…` : label, value: candidate.id };
+}
+
+function impactSummaryText(impact: DeleteImpact): string {
+  const rows = impactRows(impact);
+  return rows.length ? rows.map((row) => `• ${row.label}: ${row.value}`).join('\n') : '• مفيش بيانات مرتبطة.';
+}
+
+async function nextDeleteItem(ctx: TurnContext, session: AgentSession): Promise<Omit<AgentTurnResult, 'conversationId'>> {
+  const slots = session.slots as Record<string, unknown>;
+  const kind = slots.kind;
+  if (!isDeleteKind(kind)) return forceAsk(ctx, session, 'del_kind');
+  const noun = KIND_NOUN[kind];
+
+  if (!slots.targetId) {
+    const query = typeof slots.query === 'string' ? slots.query : '';
+    if (!query) return forceAsk(ctx, session, 'del_query');
+
+    const found = await ctx.deps.deleteTools.find(kind, query);
+    if (found.length === 0) {
+      delete slots.query;
+      session.awaiting = 'del_query';
+      return reply(`مش لاقي ${noun} باسم «${query}». اكتب الاسم تاني أو جزء مميز منه.`, [], session.flow);
+    }
+    const shown = found.slice(0, MAX_CHIPS);
+    slots.candidateIds = shown.map((item) => item.id);
+    session.awaiting = 'del_pick';
+    const text =
+      found.length === 1
+        ? `لقيت ${noun} واحد مطابق. اضغط عليه علشان أتأكد إنه هو المقصود:`
+        : `لقيت ${found.length} نتيجة${found.length > shown.length ? ` (هعرض أول ${shown.length}، اكتب اسم أدق لتضييق البحث)` : ''}. اختار الـ${noun} المقصود:`;
+    return reply(text, [{ kind: 'chips', slot: 'del_pick', options: shown.map(candidateChip) }], session.flow);
+  }
+
+  const id = String(slots.targetId);
+  let impact = slots.impact as DeleteImpact | undefined;
+  if (!impact) {
+    const fresh = await ctx.deps.deleteTools.impact(kind, id);
+    if (!fresh) {
+      delete slots.targetId;
+      delete slots.impact;
+      session.awaiting = 'del_query';
+      return reply(`الـ${noun} ده مبقاش موجود. اكتب اسم تاني أو قول «إلغاء».`, [], session.flow);
+    }
+    slots.impact = fresh;
+    slots.targetName = fresh.name;
+    impact = fresh;
+  }
+
+  if (!slots.mode) {
+    if (hasDependents(impact)) {
+      session.awaiting = 'del_mode';
+      return reply(
+        `«${impact.name}» عليه بيانات مرتبطة:\n${impactSummaryText(impact)}\n\nالأأمن إنك تخفيه عن الطلاب الأول (مسودة) من غير ما يتمسح حاجة. وتقدر برضه تحذفه نهائيًا.`,
+        [
+          {
+            kind: 'chips',
+            slot: 'del_mode',
+            options: [
+              { label: 'إخفاء بدل الحذف (الأأمن)', value: 'hide' },
+              { label: 'حذف نهائي', value: 'delete' },
+              { label: 'إلغاء', value: 'cancel' },
+            ],
+          },
+        ],
+        session.flow
+      );
+    }
+    slots.mode = 'delete';
+  }
+
+  return slots.mode === 'hide' ? confirmHide(ctx, session, impact) : confirmDelete(ctx, session, impact);
+}
+
+async function confirmHide(ctx: TurnContext, session: AgentSession, impact: DeleteImpact) {
+  return buildConfirmation(ctx, session, {
+    title: `إخفاء ${KIND_NOUN[impact.kind]} «${impact.name.slice(0, 80)}»`,
+    rows: [
+      { label: 'العنصر', value: impact.name },
+      { label: 'الإجراء', value: 'إخفاء عن الطلاب (مسودة) — من غير حذف أي بيانات' },
+    ],
+    editable: [],
+    steps: [{ tool: 'hide_item', parameters: { kind: impact.kind, id: impact.id } }],
+  });
+}
+
+async function confirmDelete(ctx: TurnContext, session: AgentSession, impact: DeleteImpact) {
+  await cancelPending(ctx, session);
+  session.awaiting = null;
+
+  const actionType = DELETE_TOOL_BY_KIND[impact.kind];
+  const payload: Record<string, unknown> = {
+    [DELETE_ID_KEY[impact.kind]]: impact.id,
+    confirmName: impact.name,
+    expectedImpact: impact.counts,
+  };
+  const rows = impactRows(impact);
+  const preview: ConfirmationPreview = {
+    actionType,
+    title: `حذف ${KIND_NOUN[impact.kind]} «${impact.name.slice(0, 80)}»`,
+    titleAr: `حذف ${KIND_NOUN[impact.kind]} «${impact.name.slice(0, 80)}»`,
+    description: 'حذف نهائي',
+    descriptionAr: rows.map((row) => `${row.label}: ${row.value}`).join(' | ').slice(0, 500) || 'حذف نهائي',
+    riskLevel: 'high',
+    requiresConfirmation: true,
+    items: [],
+    metadata: { rows },
+  };
+
+  const { token } = await ctx.deps.createConfirmation({
+    actionType,
+    payload,
+    preview,
+    expiresInMs: DELETE_CONFIRM_TTL_MS,
+  });
+  session.pendingToken = token;
+
+  return reply(
+    `ده حذف نهائي ومش هتقدر ترجّعه. راجع اللي هيتمسح، واكتب اسم الـ${KIND_NOUN[impact.kind]} بالضبط علشان يتفعّل زر الحذف:`,
+    [
+      {
+        kind: 'delete_confirm',
+        token,
+        itemKind: KIND_NOUN[impact.kind],
+        name: impact.name,
+        rows,
+        expectText: impact.name,
+        irreversible: true,
+        expiresInSec: DELETE_CONFIRM_TTL_MS / 1000,
+      },
+    ],
+    session.flow
+  );
+}
+
+/** After a changed-counts rejection (or "retry"): re-read the impact and show a fresh card. */
+async function refreshDeleteConfirmation(ctx: TurnContext, session: AgentSession) {
+  const slots = session.slots as Record<string, unknown>;
+  const kind = slots.kind;
+  const previous = slots.impact as DeleteImpact | undefined;
+  if (!isDeleteKind(kind) || !slots.targetId) return advance(ctx, session, false);
+
+  const fresh = await ctx.deps.deleteTools.impact(kind, String(slots.targetId));
+  if (!fresh) {
+    delete slots.targetId;
+    delete slots.impact;
+    delete slots.mode;
+    session.awaiting = 'del_query';
+    return reply(`الـ${KIND_NOUN[kind]} ده مبقاش موجود (اتحذف أو اتغيّر). اكتب اسم تاني أو قول «إلغاء».`, [], session.flow);
+  }
+  slots.impact = fresh;
+  slots.targetName = fresh.name;
+  // Students/attempts appeared since the first summary: offer "hide instead" again.
+  if (previous && !hasDependents(previous) && hasDependents(fresh)) delete slots.mode;
+  const changed = !previous || JSON.stringify(previous.counts) !== JSON.stringify(fresh.counts) || previous.name !== fresh.name;
+  const outcome = await advance(ctx, session, false);
+  return changed
+    ? { ...outcome, reply: `البيانات اتغيّرت من وقت ما عرضت التأكيد، فحدّثت الملخص. راجعه وأكّد من جديد.\n${outcome.reply}` }
+    : outcome;
+}
+
+function handleDeleteExecuted(
+  session: AgentSession,
+  actionType: string,
+  results: ToolResultLike[]
+): Omit<AgentTurnResult, 'conversationId'> {
+  const slots = session.slots as Record<string, unknown>;
+  const kind = isDeleteKind(slots.kind) ? slots.kind : 'course';
+  const name = String(slots.targetName ?? (slots.impact as DeleteImpact | undefined)?.name ?? '');
+  const result = results.map((r) => r.result).find(Boolean) as Record<string, unknown> | undefined;
+  const lines: string[] = [];
+  let title: string;
+
+  if (actionType === 'hide_item') {
+    title = `تم إخفاء ${KIND_LABEL[kind]} «${name}»`;
+    lines.push('اتحوّل لمسودة ومبقاش ظاهر للطلاب، ومفيش بيانات اتمسحت.', 'تقدر ترجّعه بنشره تاني من الصفحة الخاصة بيه.');
+  } else {
+    title = `تم حذف ${KIND_LABEL[kind]} «${name}»`;
+    const counts = (result?.impact as Record<string, number> | undefined) ?? {};
+    const rows = impactRows({ kind, id: String(slots.targetId ?? ''), name, counts });
+    if (rows.length) lines.push(...rows.map((row) => `اتحذف/اتأثر: ${row.label} (${row.value})`));
+    lines.push('الحذف نهائي ولا يمكن التراجع عنه.');
+  }
+  const pages: Record<DeleteKind, [string, string]> = {
+    course: ['/admin/courses', 'فتح الكورسات'],
+    lecture: ['/admin/lectures', 'فتح المحاضرات'],
+    exam: ['/admin/exams', 'فتح الامتحانات'],
+    assignment: ['/admin/assignments', 'فتح الواجبات'],
+  };
+  const link = { href: pages[kind][0], label: pages[kind][1] };
+
+  session.flow = null;
+  session.slots = {};
+  session.awaiting = null;
+  session.pendingToken = null;
   return reply(`${title} ✅\nتحب أساعدك في حاجة تانية؟`, [{ kind: 'success', title, lines, link }]);
 }
