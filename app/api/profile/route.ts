@@ -13,6 +13,8 @@ export async function PUT(request: Request) {
   const phone = safeText(body.phone, 30);
   const grade = safeText(body.grade, 60);
   const section = safeText(body.section, 60);
+  const isFirstSecondary = grade === 'أولى ثانوي';
+  const finalSection = isFirstSecondary ? '' : section;
   const schoolName = safeText(body.school_name, 150);
   const parentJob = safeText(body.parent_job, 100);
   const governorate = safeText(body.governorate, 60);
@@ -34,7 +36,7 @@ export async function PUT(request: Request) {
       name,
       phone,
       grade,
-      section,
+      finalSection,
       schoolName,
       parentJob,
       governorate,
@@ -45,6 +47,15 @@ export async function PUT(request: Request) {
       user.email.toLowerCase()
     )
     .run();
+
+  // Optional privacy choice: hide the student's name on public exam leaderboards.
+  if (typeof body.hide_from_leaderboard === 'boolean' || body.hide_from_leaderboard === 'true' || body.hide_from_leaderboard === 'false') {
+    const hidden = body.hide_from_leaderboard === true || body.hide_from_leaderboard === 'true';
+    await getDatabase()
+      .prepare('UPDATE users SET hide_from_leaderboard = ? WHERE email = ?')
+      .bind(hidden, user.email.toLowerCase())
+      .run();
+  }
 
   return Response.json({ ok: true });
 }

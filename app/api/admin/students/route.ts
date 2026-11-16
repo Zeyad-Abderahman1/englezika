@@ -1,6 +1,13 @@
 import { apiStaff, isStaffResponse } from '../../../lib/staff-auth';
-import { getDatabase } from '../../../lib/platform';
-import { safeInteger } from '../../../lib/security';
+import { deleteStudentAccountData } from '../../../lib/account-deletion';
+import { getDatabase, getPrivateStorage } from '../../../lib/platform';
+import {
+  jsonError,
+  readBoundedJson,
+  requireSameOrigin,
+  safeInteger,
+  safeText,
+} from '../../../lib/security';
 
 export async function GET(request: Request) {
   const actor = await apiStaff(request, 'view_students');
@@ -57,4 +64,22 @@ export async function GET(request: Request) {
     limit,
     pages: Math.ceil(Number(countRow?.total ?? 0) / limit),
   });
+}
+
+export async function DELETE(request: Request) {
+  const originError = requireSameOrigin(request);
+  if (originError) return originError;
+  const actor = await apiStaff(request, 'manage_staff');
+  if (isStaffResponse(actor)) return actor;
+
+  const parsed = await readBoundedJson<Record<string, unknown>>(request, 32 * 1024);
+  if (!parsed.ok) return parsed.response;
+  const email = safeText(parsed.data.email, 254).trim().toLowerCase();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return jsonError('البريد الإلكتروني للطالب غير صالح', 400);
+  }
+
+  const deleted = await deleteStudentAccountData(getDatabase(), getPrivateStorage(), email);
+  if (!deleted) return jsonError('الطالب غير موجود أو تم حذف حسابه من قبل', 404);
+  return Response.json({ ok: true });
 }

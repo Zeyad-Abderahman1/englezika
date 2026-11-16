@@ -3,33 +3,15 @@ import { getDatabase } from '../../../lib/platform';
 import { jsonError, requireSameOrigin, safeInteger, safeText } from '../../../lib/security';
 import { invalidatePublicCourseCache } from '../../../lib/public-course-cache';
 import { recordAuditLog } from '../../../lib/audit';
-
-type RawQuestion = Record<string, unknown>;
-
-function parseQuestion(question: RawQuestion, sortOrder: number) {
-  const rawType = String(question.type || 'multiple_choice').toLowerCase();
-  const type =
-    rawType === 'true_false' || rawType === 'short_answer' ? rawType : 'multiple_choice';
-  const prompt = safeText(question.prompt, 2000);
-  const correctAnswer = safeText(question.correctAnswer ?? question.correct_answer, 1000);
-  const rubric = safeText(question.rubric, 2000);
-  const points = safeInteger(question.points, 1, 1, 100);
-  const options = Array.isArray(question.options)
-    ? question.options
-        .map((option) => safeText(option, 300))
-        .filter(Boolean)
-        .slice(0, 8)
-    : type === 'true_false'
-      ? ['True', 'False']
-      : [];
-  return { type, prompt, correctAnswer, rubric, points, options, sortOrder };
-}
+import { parseQuestion, validateQuestion, type RawQuestion } from '../../../lib/exam-validation';
+import { buildQuestionInsertStatements } from '../../../lib/exam-questions-insert';
 
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
   const admin = await apiStaff(request, 'manage_exams');
   if (isStaffResponse(admin)) return admin;
+
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const title = safeText(body.title, 150);
   const description = safeText(body.description, 1200);
@@ -39,35 +21,32 @@ export async function POST(request: Request) {
   const passingScore = safeInteger(body.passingScore, 50, 0, 100);
   const maxAttempts = safeInteger(body.maxAttempts, 3, 1, 10);
   const status = body.status === 'published' ? 'published' : 'draft';
+  const assessmentType = body.assessmentType === 'quiz' ? 'quiz' : 'exam';
+  const mode = body.mode === 'file' ? 'file' : 'online';
   const scopeType = body.scopeType === 'lecture_range' ? 'lecture_range' : 'all_lectures';
-  const fromVideoId = safeText(body.fromVideoId, 80) || null;
-  const toVideoId = safeText(body.toVideoId, 80) || null;
+  let fromVideoId = safeText(body.fromVideoId, 80) || null;
+  let toVideoId = safeText(body.toVideoId, 80) || null;
+  const coverageStartLectureId = safeText(body.coverageStartLectureId, 80) || null;
+  const coverageEndLectureId = safeText(body.coverageEndLectureId, 80) || null;
+  const showReview = body.showReview !== false && body.show_review !== false;
 
-  const questions = Array.isArray(body.questions)
-    ? body.questions
-        .slice(0, 100)
-        .map((question, index) => parseQuestion(question as RawQuestion, index + 1))
-    : [];
+  const questions =
+    mode === 'online' && Array.isArray(body.questions)
+      ? body.questions
+          .map((question, index) => parseQuestion(question as RawQuestion, index + 1))
+      : [];
 
   if (title.length < 3) return jsonError('اسم الامتحان مطلوب');
-  if (
-    !questions.length ||
-    questions.some((question) => !question.prompt || !question.correctAnswer)
-  ) {
-    return jsonError('أضف سؤالاً واحداً على الأقل مع الإجابة الصحيحة');
-  }
-  if (
-    questions.some((question) => question.type === 'multiple_choice' && question.options.length < 2)
-  ) {
-    return jsonError('كل سؤال اختيار من متعدد يحتاج اختيارين على الأقل');
-  }
-  if (
-    questions.some(
-      (question) =>
-        question.type === 'multiple_choice' && !question.options.includes(question.correctAnswer)
-    )
-  ) {
-    return jsonError('اختر الإجابة الصحيحة من اختيارات السؤال');
+  if (mode === 'online') {
+    if (!questions.length) {
+      return jsonError('أضف سؤالاً واحداً على الأقل مع الإجابة الصحيحة');
+    }
+    for (const question of questions) {
+      const questionError = validateQuestion(question);
+      if (questionError) {
+        return jsonError(questionError, 400);
+      }
+    }
   }
 
   const db = getDatabase();
@@ -80,19 +59,57 @@ export async function POST(request: Request) {
     if (!courseId) {
       return jsonError('يجب اختيار كورس عند تحديد نطاق محاضرات للاختبار', 400);
     }
-    if (fromVideoId) {
-      const vFrom = await db
-        .prepare('SELECT id FROM videos WHERE id = ? AND course_id = ?')
-        .bind(fromVideoId, courseId)
-        .first();
-      if (!vFrom) return jsonError('المحاضرة الأولى غير صالحة لهذا الكورس', 400);
+    if (!fromVideoId || !toVideoId) {
+      return jsonError('يجب تحديد المحاضرة الأولى والمحاضرة التالية لنطاق الاختبار', 400);
     }
-    if (toVideoId) {
-      const vTo = await db
-        .prepare('SELECT id FROM videos WHERE id = ? AND course_id = ?')
-        .bind(toVideoId, courseId)
-        .first();
-      if (!vTo) return jsonError('المحاضرة التالية غير صالحة لهذا الكورس', 400);
+    if (fromVideoId === toVideoId) {
+      return jsonError('لا يمكن أن تبدأ وتنتهي بوابة الاختبار عند نفس المحاضرة', 400);
+    }
+
+    const vFrom = await db
+      .prepare(
+        'SELECT id, course_id, created_at, prerequisite_exam_id FROM videos WHERE id = ? AND course_id = ?'
+      )
+      .bind(fromVideoId, courseId)
+      .first<{
+        id: string;
+        course_id: string;
+        created_at: number;
+        prerequisite_exam_id: string | null;
+      }>();
+    if (!vFrom) return jsonError('المحاضرة الأولى غير صالحة لهذا الكورس', 400);
+
+    const vTo = await db
+      .prepare('SELECT id, course_id, created_at, prerequisite_exam_id FROM videos WHERE id = ? AND course_id = ?')
+      .bind(toVideoId, courseId)
+      .first<{ id: string; course_id: string; created_at: number; prerequisite_exam_id: string | null }>();
+    if (!vTo) return jsonError('المحاضرة التالية غير صالحة لهذا الكورس', 400);
+
+    // Lecture gates can be selected in any order. Normalize the range chronologically
+    // instead of blocking the save: the earlier lecture starts the range and the later
+    // lecture is the one locked by the exam.
+    const chronological = vFrom.created_at <= vTo.created_at;
+    const rangeEndVideo = chronological ? vTo : vFrom;
+    if (!chronological) {
+      const originalFromVideoId = fromVideoId;
+      fromVideoId = toVideoId;
+      toVideoId = originalFromVideoId;
+    }
+
+    // Check if target video already has a different prerequisite_exam_id
+    if (rangeEndVideo.prerequisite_exam_id) {
+      const confirmOverride = Boolean(body.confirmOverride || body.overridePrerequisite);
+      if (!confirmOverride) {
+        return Response.json(
+          {
+            ok: false,
+            error: 'المحاضرة المستهدفة مرتبطة بالفعل باختبار إجباري آخر. هل ترغب في استبداله؟',
+            code: 'PREREQUISITE_CONFLICT',
+            existingPrerequisiteExamId: rangeEndVideo.prerequisite_exam_id,
+          },
+          { status: 409 }
+        );
+      }
     }
   }
 
@@ -104,8 +121,9 @@ export async function POST(request: Request) {
       .prepare(
         `INSERT INTO exams
        (id, course_id, title, description, instructions, duration_minutes, passing_score, max_attempts,
-        status, opens_at, closes_at, scope_type, from_video_id, to_video_id, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        status, opens_at, closes_at, scope_type, from_video_id, to_video_id, created_by, created_at, updated_at,
+        assessment_type, mode, coverage_start_lecture_id, coverage_end_lecture_id, show_review)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         id,
@@ -124,31 +142,22 @@ export async function POST(request: Request) {
         toVideoId,
         admin.email.toLowerCase(),
         now,
-        now
+        now,
+        assessmentType,
+        mode,
+        coverageStartLectureId,
+        coverageEndLectureId,
+        showReview
       ),
-    ...questions.map((question) =>
-      db
-        .prepare(
-          `INSERT INTO questions
-       (id, exam_id, sort_order, type, prompt, options, correct_answer, rubric, points)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .bind(
-          crypto.randomUUID(),
-          id,
-          question.sortOrder,
-          question.type,
-          question.prompt,
-          JSON.stringify(question.options),
-          question.correctAnswer,
-          question.rubric,
-          question.points
-        )
-    ),
   ];
 
-  // If lecture range has a target to_video_id, bind the inter-lecture prerequisite gate atomically
-  if (scopeType === 'lecture_range' && toVideoId && courseId) {
+  if (mode === 'online') {
+    // Multi-row inserts, executed in the same transaction as the exam row.
+    statements.push(...buildQuestionInsertStatements(db, id, questions));
+  }
+
+  // Only bind prerequisite gate when exam status is published
+  if (status === 'published' && scopeType === 'lecture_range' && toVideoId && courseId) {
     statements.push(
       db
         .prepare(
@@ -174,6 +183,8 @@ export async function POST(request: Request) {
       toVideoId,
       passingScore,
       questionCount: questions.length,
+      assessmentType,
+      mode,
     },
   });
 

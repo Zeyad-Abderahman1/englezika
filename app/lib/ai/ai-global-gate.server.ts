@@ -1,0 +1,375 @@
+import 'server-only';
+import { randomUUID } from 'node:crypto';
+import { getDatabase } from '../database';
+
+export const DEFAULT_AI_GATE_MAX_CONCURRENT = 3;
+export const DEFAULT_AI_GATE_MAX_WAITING = 6;
+export const SAFE_MAX_AI_GATE_CONCURRENT = 10;
+export const SAFE_MAX_AI_GATE_WAITING = 20;
+
+export const AI_GATE_MAX_CONCURRENT = DEFAULT_AI_GATE_MAX_CONCURRENT;
+export const AI_GATE_MAX_RUNNING = DEFAULT_AI_GATE_MAX_CONCURRENT;
+export const AI_GATE_MAX_WAITING = DEFAULT_AI_GATE_MAX_WAITING;
+export const AI_GATE_MAX_TOTAL = DEFAULT_AI_GATE_MAX_CONCURRENT + DEFAULT_AI_GATE_MAX_WAITING;
+export const AI_GATE_ADVISORY_LOCK = 2026091201;
+
+export const DEFAULT_HEARTBEAT_INTERVAL_MS = 5000;
+export const DEFAULT_RUNNING_EXPIRY_MS = 30000;
+export const DEFAULT_WAITING_EXPIRY_MS = 120000;
+export const DEFAULT_POLL_INTERVAL_MS = 100;
+
+export function resolveGateConcurrency(
+  explicitMax?: number,
+  envValue?: string
+): number {
+  const val = explicitMax !== undefined ? explicitMax : (envValue !== undefined ? Number(envValue) : DEFAULT_AI_GATE_MAX_CONCURRENT);
+  if (!Number.isFinite(val) || val < 1) return 1;
+  return Math.min(SAFE_MAX_AI_GATE_CONCURRENT, Math.floor(val));
+}
+
+export function resolveGateWaiting(
+  explicitMax?: number,
+  envValue?: string
+): number {
+  const val = explicitMax !== undefined ? explicitMax : (envValue !== undefined ? Number(envValue) : DEFAULT_AI_GATE_MAX_WAITING);
+  if (!Number.isFinite(val) || val < 1) return 1;
+  return Math.min(SAFE_MAX_AI_GATE_WAITING, Math.floor(val));
+}
+
+export class AiGateSaturatedError extends Error {
+  readonly code = 'AI_QUEUE_SATURATED';
+  constructor(
+    message = 'خدمة المساعد الذكي مشغولة حاليًا بعدد كبير من الطلبات. يرجى الانتظار قليلاً والمحاولة مرة أخرى.'
+  ) {
+    super(message);
+    this.name = 'AiGateSaturatedError';
+  }
+}
+
+export class AiGateCoordinationError extends Error {
+  readonly code = 'AI_COORDINATION_FAILED';
+  constructor(message = 'تعذر تنسيق طلب الذكاء الاصطناعي مع الخادم. يرجى المحاولة لاحقاً.') {
+    super(message);
+    this.name = 'AiGateCoordinationError';
+  }
+}
+
+export interface GlobalAiGateOptions {
+  db?: any;
+  maxConcurrent?: number;
+  maxWaiting?: number;
+  pollIntervalMs?: number;
+  heartbeatIntervalMs?: number;
+  runningExpiryMs?: number;
+  waitingExpiryMs?: number;
+}
+
+export interface GateExecuteParams<T> {
+  requestId?: string;
+  workerId?: string;
+  signal?: AbortSignal;
+  action: (signal: AbortSignal) => Promise<T>;
+}
+
+async function runQuery(db: any, sql: string, values: any[] = []): Promise<any> {
+  const stmt = db.prepare(sql);
+  if (typeof stmt.bind === 'function') {
+    const bound = stmt.bind(...values);
+    return bound.run();
+  }
+  return stmt.run(...values);
+}
+
+async function getFirstRow<T = any>(db: any, sql: string, values: any[] = []): Promise<T | null> {
+  const stmt = db.prepare(sql);
+  if (typeof stmt.bind === 'function') {
+    const bound = stmt.bind(...values);
+    if (typeof bound.first === 'function') {
+      return bound.first();
+    }
+    if (typeof bound.get === 'function') {
+      return bound.get();
+    }
+  }
+  if (typeof stmt.first === 'function') {
+    return stmt.first(...values);
+  }
+  if (typeof stmt.get === 'function') {
+    return stmt.get(...values);
+  }
+  return null;
+}
+
+export class GlobalAiGate {
+  private customDb?: any;
+  readonly maxConcurrent: number;
+  readonly maxWaiting: number;
+  readonly maxTotal: number;
+  private pollIntervalMs: number;
+  private heartbeatIntervalMs: number;
+  private runningExpiryMs: number;
+  private waitingExpiryMs: number;
+
+  constructor(options: GlobalAiGateOptions = {}) {
+    this.customDb = options.db;
+    this.maxConcurrent = resolveGateConcurrency(options.maxConcurrent, process.env.AI_GATE_MAX_CONCURRENT);
+    this.maxWaiting = resolveGateWaiting(options.maxWaiting, process.env.AI_GATE_MAX_WAITING);
+    this.maxTotal = this.maxConcurrent + this.maxWaiting;
+    this.pollIntervalMs = options.pollIntervalMs || DEFAULT_POLL_INTERVAL_MS;
+    this.heartbeatIntervalMs = options.heartbeatIntervalMs || DEFAULT_HEARTBEAT_INTERVAL_MS;
+    this.runningExpiryMs = options.runningExpiryMs || DEFAULT_RUNNING_EXPIRY_MS;
+    this.waitingExpiryMs = options.waitingExpiryMs || DEFAULT_WAITING_EXPIRY_MS;
+  }
+
+  private getDb() {
+    return this.customDb || getDatabase();
+  }
+
+  async execute<T>(params: GateExecuteParams<T>): Promise<T> {
+    const requestId = params.requestId?.trim() || `req_${randomUUID()}`;
+    const workerId = params.workerId?.trim() || `worker_${process.pid}_${randomUUID().slice(0, 8)}`;
+    const externalSignal = params.signal;
+
+    if (externalSignal?.aborted) {
+      const err = new Error('تم إلغاء الطلب قبل البدء');
+      err.name = 'AbortError';
+      throw err;
+    }
+
+    const abortController = new AbortController();
+    const onExternalAbort = () => {
+      abortController.abort(externalSignal?.reason);
+    };
+
+    if (externalSignal) {
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+
+    let isAdmitted = false;
+    let heartbeatTimer: NodeJS.Timeout | null = null;
+
+    try {
+      const db = this.getDb();
+
+      // ==========================================
+      // STEP 1: ATOMIC ADMISSION UNDER ADVISORY LOCK
+      // ==========================================
+      try {
+        await db.withTransaction(async (txDb: any) => {
+          // Acquire transaction-scoped advisory lock (PostgreSQL only)
+          try {
+            await getFirstRow(txDb, 'SELECT pg_advisory_xact_lock(?)', [AI_GATE_ADVISORY_LOCK]);
+          } catch {
+            // Mock DB or environment without advisory lock continues safely
+          }
+
+          const now = Date.now();
+
+          // A. Sweep expired rows (recovers stale crashed entries)
+          await runQuery(txDb, 'DELETE FROM ai_runtime_queue WHERE expires_at < ?', [now]);
+
+          // B. Check current total active capacity
+          const countRow = await getFirstRow<{ count: number | string }>(
+            txDb,
+            'SELECT COUNT(*) as count FROM ai_runtime_queue'
+          );
+
+          const currentCount = Number(countRow?.count ?? 0);
+          if (currentCount >= this.maxTotal) {
+            throw new AiGateSaturatedError();
+          }
+
+          // C. Insert new waiting row
+          const expiresAt = now + this.waitingExpiryMs;
+          await runQuery(
+            txDb,
+            `INSERT INTO ai_runtime_queue 
+              (request_id, worker_id, status, created_at, heartbeat_at, expires_at) 
+             VALUES (?, ?, 'waiting', ?, ?, ?)`,
+            [requestId, workerId, now, now, expiresAt]
+          );
+
+          isAdmitted = true;
+        });
+      } catch (err: any) {
+        if (err instanceof AiGateSaturatedError) {
+          throw err;
+        }
+        // Fail-closed: sanitize DB connection error
+        throw new AiGateCoordinationError(
+          'تعذر تنسيق طلب الذكاء الاصطناعي مع الخادم. يرجى المحاولة لاحقاً.'
+        );
+      }
+
+      // ==========================================
+      // STEP 2: FIFO WAIT & CLAIM LOOP
+      // ==========================================
+      let claimedRunning = false;
+
+      while (!claimedRunning) {
+        if (abortController.signal.aborted) {
+          const err = new Error('تم إلغاء الطلب أثناء الانتظار');
+          err.name = 'AbortError';
+          throw err;
+        }
+
+        try {
+          await db.withTransaction(async (txDb: any) => {
+            try {
+              await getFirstRow(txDb, 'SELECT pg_advisory_xact_lock(?)', [AI_GATE_ADVISORY_LOCK]);
+            } catch {}
+
+            const now = Date.now();
+
+            // 1. Sweep expired rows in case a running worker crashed while we were waiting
+            await runQuery(txDb, 'DELETE FROM ai_runtime_queue WHERE expires_at < ?', [now]);
+
+            // 2. Check if THIS request has already been promoted to running
+            const selfRow = await getFirstRow<{ id: number; request_id: string; status: string }>(
+              txDb,
+              'SELECT id, request_id, status FROM ai_runtime_queue WHERE request_id = ?',
+              [requestId]
+            );
+
+            if (!selfRow) {
+              throw new AiGateCoordinationError('تم فقد تسجيل طلب الانتظار في طابور المعالجة.');
+            }
+
+            if (selfRow.status === 'running') {
+              claimedRunning = true;
+              return;
+            }
+
+            // 3. Count currently active running jobs
+            const runningCountRow = await getFirstRow<{ count: number | string }>(
+              txDb,
+              "SELECT COUNT(*) as count FROM ai_runtime_queue WHERE status = 'running' AND expires_at >= ?",
+              [now]
+            );
+
+            const currentRunningCount = Number(runningCountRow?.count ?? 0);
+            if (currentRunningCount >= this.maxConcurrent) {
+              // Concurrency limit reached; we must wait
+              return;
+            }
+
+            // 4. Running capacity is available; check if we are the oldest waiting row
+            const oldestWaiting = await getFirstRow<{ id: number; request_id: string }>(
+              txDb,
+              "SELECT id, request_id FROM ai_runtime_queue WHERE status = 'waiting' ORDER BY id ASC LIMIT 1"
+            );
+
+            if (!oldestWaiting) {
+              return;
+            }
+
+            if (oldestWaiting.request_id === requestId) {
+              // It is our turn! Claim the running slot
+              const newExpiresAt = now + this.runningExpiryMs;
+              await runQuery(
+                txDb,
+                "UPDATE ai_runtime_queue SET status = 'running', started_at = ?, heartbeat_at = ?, expires_at = ? WHERE request_id = ?",
+                [now, now, newExpiresAt, requestId]
+              );
+
+              claimedRunning = true;
+            }
+          });
+        } catch (claimErr: any) {
+          if (claimErr instanceof AiGateSaturatedError) throw claimErr;
+          if (claimErr.name === 'AbortError') throw claimErr;
+          throw new AiGateCoordinationError();
+        }
+
+        if (!claimedRunning) {
+          // Sleep before polling again
+          await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
+        }
+      }
+
+      // ==========================================
+      // STEP 3: RUNNING WITH HEARTBEAT
+      // ==========================================
+      heartbeatTimer = setInterval(async () => {
+        try {
+          const now = Date.now();
+          const newExpiresAt = now + this.runningExpiryMs;
+          await runQuery(
+            db,
+            'UPDATE ai_runtime_queue SET heartbeat_at = ?, expires_at = ? WHERE request_id = ?',
+            [now, newExpiresAt, requestId]
+          );
+        } catch {
+          // Suppress heartbeat errors to avoid crashing running action
+        }
+      }, this.heartbeatIntervalMs);
+
+      if (typeof (heartbeatTimer as any).unref === 'function') {
+        (heartbeatTimer as any).unref();
+      }
+
+      // Execute actual generation action with the signal
+      return await params.action(abortController.signal);
+    } finally {
+      // ==========================================
+      // STEP 4: CLEANUP & SLOT RELEASE
+      // ==========================================
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', onExternalAbort);
+      }
+
+      if (isAdmitted) {
+        try {
+          const db = this.getDb();
+          await runQuery(db, 'DELETE FROM ai_runtime_queue WHERE request_id = ?', [requestId]);
+        } catch {
+          // Suppress final delete error to preserve primary error or result
+        }
+      }
+    }
+  }
+}
+
+let globalAiGateInstance: GlobalAiGate | null = null;
+
+export function getGlobalAiGate(options?: GlobalAiGateOptions): GlobalAiGate {
+  if (!globalAiGateInstance || options) {
+    globalAiGateInstance = new GlobalAiGate(options);
+  }
+  return globalAiGateInstance;
+}
+
+export async function withGlobalAiGate<T>(
+  action: (signal: AbortSignal) => Promise<T>,
+  options?: {
+    requestId?: string;
+    workerId?: string;
+    signal?: AbortSignal;
+    db?: any;
+    maxConcurrent?: number;
+    maxWaiting?: number;
+  }
+): Promise<T> {
+  const gate = options?.db
+    ? new GlobalAiGate({
+        db: options.db,
+        maxConcurrent: options.maxConcurrent,
+        maxWaiting: options.maxWaiting,
+      })
+    : getGlobalAiGate(
+        options?.maxConcurrent !== undefined || options?.maxWaiting !== undefined
+          ? { maxConcurrent: options.maxConcurrent, maxWaiting: options.maxWaiting }
+          : undefined
+      );
+  return gate.execute({
+    requestId: options?.requestId,
+    workerId: options?.workerId,
+    signal: options?.signal,
+    action,
+  });
+}

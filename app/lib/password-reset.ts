@@ -1,4 +1,5 @@
 import { createVerificationCode, sendVerificationEmail } from './email-verification';
+import { findStudentByEmail } from './native-auth';
 import { getDatabase, getPlatformEnv } from './platform';
 
 export const PASSWORD_RESET_CODE_TTL_MS = 10 * 60_000;
@@ -8,6 +9,11 @@ export type PasswordResetCodeResult = 'verified' | 'expired' | 'invalid' | 'lock
 
 function normalizedEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+function safeResetRecipient(email: string): string | null {
+  const normalized = normalizedEmail(email);
+  return /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(normalized) ? normalized : null;
 }
 
 function resetSecret(): string {
@@ -82,6 +88,41 @@ export async function sendPasswordResetEmail(
   idempotencyKey: string
 ): Promise<string> {
   return sendVerificationEmail(email, code, idempotencyKey);
+}
+
+export async function issuePasswordResetCode(
+  requestedEmail: string,
+  now = Date.now()
+): Promise<{ code: string; issued: boolean }> {
+  const normalizedRequest = normalizedEmail(requestedEmail);
+  const code = createPasswordResetCode();
+  const student = await findStudentByEmail(normalizedRequest);
+  const recipientEmail = student?.role === 'student' ? safeResetRecipient(student.email) : null;
+  const codeHash = await hashPasswordResetCode(recipientEmail ?? normalizedRequest, code);
+
+  if (!recipientEmail) return { code, issued: false };
+
+  try {
+    await savePasswordResetCode(recipientEmail, codeHash, now);
+
+    const currentStudent = await findStudentByEmail(recipientEmail);
+    if (
+      currentStudent?.role !== 'student' ||
+      safeResetRecipient(currentStudent.email) !== recipientEmail
+    ) {
+      await invalidatePasswordResetCode(recipientEmail, codeHash).catch(() => {});
+      return { code, issued: false };
+    }
+
+    const idempotencyKey = `reset-${recipientEmail}-${now}`;
+    const deliveryId = await sendPasswordResetEmail(recipientEmail, code, idempotencyKey);
+    await recordPasswordResetDelivery(recipientEmail, codeHash, deliveryId);
+    return { code, issued: true };
+  } catch (error) {
+    await invalidatePasswordResetCode(recipientEmail, codeHash).catch(() => {});
+    console.error('Password reset delivery failed', error);
+    return { code, issued: false };
+  }
 }
 
 export async function consumePasswordResetCode(

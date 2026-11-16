@@ -1,13 +1,24 @@
 import { apiVerifiedUser, isResponse } from '../../../lib/api-auth';
+import { examAvailabilityError, loadStudentExam } from '../../../lib/exam-access';
 import { gradeWrittenAnswers, type WrittenGradingInput } from '../../../lib/grading';
+import { claimExamSession, releaseExamSessionClaim } from '../../../lib/exam-session';
 import { getDatabase } from '../../../lib/platform';
+import { getPrivateStorage } from '../../../lib/private-storage';
 import { invalidateLeaderboardCache } from '../../../lib/leaderboard-cache';
-import { jsonError, requireSameOrigin, safeText } from '../../../lib/security';
+import { checkRateLimit, getClientIp, rateLimitResponse } from '../../../lib/rate-limit';
 import {
-  claimExamSession,
-  releaseExamSessionClaim,
-  startOrResumeExamSession,
-} from '../../../lib/exam-session';
+  jsonError,
+  requestBodyWithinLimit,
+  requireSameOrigin,
+  safeText,
+} from '../../../lib/security';
+import {
+  hasAllowedContentLength,
+  isPdfUpload,
+  MAX_PDF_SIZE,
+  MAX_UPLOAD_BODY_SIZE,
+} from '../../../lib/upload-validation';
+import { hasCourseItems, getCourseSequenceUnlockState } from '../../../lib/course-sequence';
 
 type QuestionRow = {
   id: string;
@@ -16,65 +27,85 @@ type QuestionRow = {
   options: string | null;
   correctAnswer: string;
   rubric: string;
+  explanation: string;
   points: number;
   sortOrder: number;
 };
 
-async function loadExam(id: string, email: string) {
-  const db = getDatabase();
-  const exam = await db
-    .prepare(
-      `SELECT x.id, x.course_id AS courseId, x.title, x.description, x.instructions,
-     x.duration_minutes AS durationMinutes, x.passing_score AS passingScore,
-     x.max_attempts AS maxAttempts,
-     x.opens_at AS opensAt, x.closes_at AS closesAt
-     FROM exams x LEFT JOIN enrollments e
-     ON e.course_id = x.course_id AND e.user_email = ? AND e.status = 'approved'
-     WHERE x.id = ? AND x.status = 'published' AND (x.course_id IS NULL OR e.id IS NOT NULL)`
-    )
-    .bind(email, id)
-    .first<Record<string, unknown>>();
-  return exam;
+async function assertExamUnlocked(
+  examId: string,
+  courseId: string | null,
+  email: string
+): Promise<{ ok: boolean; status?: number; error?: string }> {
+  if (!courseId) return { ok: true };
+  const courseHasSequence = await hasCourseItems(courseId);
+  if (!courseHasSequence) return { ok: true };
+  const unlockState = await getCourseSequenceUnlockState(courseId, email);
+  const key = `exam:${examId}`;
+  const state = unlockState.get(key);
+  if (state && !state.unlocked) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'يجب إكمال العناصر السابقة في تسلسل التعلم أولاً',
+    };
+  }
+  return { ok: true };
 }
 
-export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await apiVerifiedUser();
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const user = await apiVerifiedUser(request);
   if (isResponse(user)) return user;
   const { id } = await params;
-  const exam = await loadExam(id, user.email.toLowerCase());
-  if (!exam) return jsonError('الامتحان غير متاح لحسابك', 404);
-  const now = Date.now();
-  if (exam.opensAt && Number(exam.opensAt) > now) return jsonError('الامتحان لم يبدأ بعد', 403);
-  if (exam.closesAt && Number(exam.closesAt) < now)
-    return jsonError('انتهى وقت إتاحة الامتحان', 403);
   const email = user.email.toLowerCase();
-  const sessionResult = await startOrResumeExamSession(
-    getDatabase(),
-    id,
-    email,
-    Number(exam.durationMinutes || 30),
-    Number(exam.maxAttempts || 3),
-    now
-  );
-  if (sessionResult.kind === 'attempt_limit') {
-    return jsonError('انتهى عدد المحاولات المتاحة لهذا الاختبار', 409);
+  const exam = await loadStudentExam(id, email);
+  if (!exam) return jsonError('الامتحان غير متاح لحسابك', 404);
+  const availabilityError = examAvailabilityError(exam, Date.now());
+  if (availabilityError === 'not-open') return jsonError('الامتحان لم يبدأ بعد', 403);
+  if (availabilityError === 'closed') return jsonError('انتهى وقت إتاحة الامتحان', 403);
+
+  const sequenceCheck = await assertExamUnlocked(id, exam.courseId, email);
+  if (!sequenceCheck.ok) return jsonError(sequenceCheck.error!, sequenceCheck.status!);
+
+  const session = await getDatabase()
+    .prepare(
+      `SELECT id, started_at AS startedAt, expires_at AS expiresAt, status
+       FROM exam_sessions WHERE exam_id = ? AND user_email = ?`
+    )
+    .bind(id, email)
+    .first<{ id: string; startedAt: number; expiresAt: number; status: string }>();
+  if (session?.status === 'terminated') {
+    return Response.json(
+      {
+        terminated: true,
+        error: 'تم إنهاء الامتحان. تم تسجيل مغادرة صفحة الامتحان للمرة الثانية.',
+      },
+      { status: 403 }
+    );
   }
-  if (sessionResult.kind === 'busy') {
-    return jsonError('جاري تسليم هذا الامتحان', 409);
+  if (!session || session.status !== 'active' || Number(session.expiresAt) <= Date.now()) {
+    return jsonError('ابدأ الامتحان من حسابك أولاً', 409);
   }
+
   const result = await getDatabase()
     .prepare(
-      `SELECT id, sort_order AS sortOrder, type, prompt, options, points
-     FROM questions WHERE exam_id = ? ORDER BY sort_order`
+      `SELECT id, sort_order AS sortOrder, type, prompt, options, points,
+              image_file_key AS imageFileKey
+       FROM questions WHERE exam_id = ? ORDER BY sort_order`
     )
     .bind(id)
     .all();
   return Response.json({
     exam,
-    session: sessionResult.session,
+    session,
     questions: result.results.map((question) => ({
-      ...question,
+      id: question.id,
+      sortOrder: question.sortOrder,
+      type: question.type,
+      prompt: question.prompt,
       options: question.options ? JSON.parse(String(question.options)) : [],
+      points: question.points,
+      hasImage: question.imageFileKey != null,
     })),
   });
 }
@@ -86,11 +117,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (isResponse(user)) return user;
   const { id } = await params;
   const email = user.email.toLowerCase();
-  const exam = await loadExam(id, email);
+  const submitRate = await checkRateLimit('exam-submit', `${getClientIp(request)}:${email}`, 10, 60);
+  if (!submitRate.allowed) return rateLimitResponse(submitRate.resetAfterSeconds);
+  const exam = await loadStudentExam(id, email);
   if (!exam) return jsonError('الامتحان غير متاح لحسابك', 404);
   const now = Date.now();
-  if (exam.opensAt && Number(exam.opensAt) > now) return jsonError('الامتحان لم يبدأ بعد', 403);
-  if (exam.closesAt && Number(exam.closesAt) < now) return jsonError('انتهى وقت الامتحان', 403);
+  const availabilityError = examAvailabilityError(exam, now);
+  if (availabilityError === 'not-open') return jsonError('الامتحان لم يبدأ بعد', 403);
+  if (availabilityError === 'closed') return jsonError('انتهى وقت الامتحان', 403);
+
+  const sequenceCheck = await assertExamUnlocked(id, exam.courseId, email);
+  if (!sequenceCheck.ok) return jsonError(sequenceCheck.error!, sequenceCheck.status!);
+
   const attemptCount = await getDatabase()
     .prepare('SELECT COUNT(*) AS count FROM attempts WHERE exam_id = ? AND user_email = ?')
     .bind(id, email)
@@ -98,27 +136,80 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (Number(attemptCount?.count || 0) >= Number(exam.maxAttempts || 3)) {
     return jsonError('انتهى عدد المحاولات المتاحة لهذا الاختبار', 409);
   }
-  const payload = (await request.json().catch(() => ({}))) as {
-    sessionId?: string;
-    answers?: Record<string, unknown>;
-  };
-  const sessionId = safeText(payload.sessionId, 100);
-  if (!sessionId) return jsonError('جلسة الامتحان مطلوبة', 400);
-  const session = await getDatabase()
+
+  const db = getDatabase();
+  const examRow = await db
+    .prepare('SELECT COALESCE(mode, \'online\') AS mode FROM exams WHERE id = ?')
+    .bind(id)
+    .first<{ mode: string }>();
+  const examMode = examRow?.mode || 'online';
+
+  let sessionId: string;
+  let answers: Record<string, unknown> = {};
+  let pdfStorageKey: string | null = null;
+
+  if (examMode === 'file') {
+    const contentType = request.headers.get('content-type') || '';
+    const normalizedContentType = contentType.split(';', 1)[0].trim().toLowerCase();
+    if (normalizedContentType !== 'multipart/form-data') {
+      return jsonError('يجب رفع ملف PDF مع بيانات الجلسة', 400);
+    }
+    if (!hasAllowedContentLength(request, MAX_UPLOAD_BODY_SIZE)) {
+      return jsonError('حجم الطلب غير صالح أو يتجاوز الحد المسموح', 413);
+    }
+    const formData = await request.formData().catch(() => null);
+    if (!formData) return jsonError('تعذر قراءة البيانات', 400);
+    sessionId = safeText(formData.get('sessionId'), 100);
+    if (!sessionId) return jsonError('جلسة الامتحان مطلوبة', 400);
+    const answersRaw = formData.get('answers');
+    if (typeof answersRaw === 'string') {
+      try { answers = JSON.parse(answersRaw); } catch { answers = {}; }
+    }
+    const file = formData.get('file');
+    if (!(file instanceof Blob)) return jsonError('يجب رفع ملف PDF', 400);
+    const fileBytes = await file.arrayBuffer();
+    if (fileBytes.byteLength > MAX_PDF_SIZE) {
+      return jsonError('حجم الملف يتجاوز الحد الأقصى (15 ميجابايت)', 400);
+    }
+    if (!isPdfUpload(file.type || 'application/pdf', fileBytes)) {
+      return jsonError('يجب رفع ملف PDF صالح فقط', 400);
+    }
+    const storage = getPrivateStorage();
+    const attemptId = crypto.randomUUID();
+    const fileKey = `exams/${id}/submissions/${email}-${attemptId}.pdf`;
+    await storage.put(fileKey, new Uint8Array(fileBytes), {
+      httpMetadata: { contentType: 'application/pdf' },
+      customMetadata: { uploadedBy: email },
+    });
+    pdfStorageKey = fileKey;
+  } else {
+    if (!requestBodyWithinLimit(request, 768 * 1024)) {
+      return jsonError('حجم الطلب غير صالح أو يتجاوز الحد المسموح', 413);
+    }
+    const payload = (await request.json().catch(() => ({}))) as {
+      sessionId?: string;
+      answers?: Record<string, unknown>;
+    };
+    sessionId = safeText(payload.sessionId, 100);
+    if (!sessionId) return jsonError('جلسة الامتحان مطلوبة', 400);
+    answers = payload.answers && typeof payload.answers === 'object' ? payload.answers : {};
+  }
+
+  const session = await db
     .prepare(
       `SELECT id, started_at AS startedAt, expires_at AS expiresAt, status
        FROM exam_sessions WHERE id = ? AND exam_id = ? AND user_email = ?`
     )
-    .bind(sessionId, id, email)
+    .bind(sessionId!, id, email)
     .first<{ id: string; startedAt: number; expiresAt: number; status: string }>();
   if (!session || session.status !== 'active')
     return jsonError('جلسة الامتحان غير صالحة، افتح الامتحان من حسابك', 409);
-  if (now > Number(session.expiresAt)) return jsonError('انتهى وقت الامتحان', 408);
-  const answers = payload.answers && typeof payload.answers === 'object' ? payload.answers : {};
-  const questionResult = await getDatabase()
+  if (now >= Number(session.expiresAt)) return jsonError('انتهى وقت الامتحان', 408);
+
+  const questionResult = await db
     .prepare(
       `SELECT id, sort_order AS sortOrder, type, prompt, options, correct_answer AS correctAnswer,
-     rubric, points FROM questions WHERE exam_id = ? ORDER BY sort_order`
+       rubric, explanation, points FROM questions WHERE exam_id = ? ORDER BY sort_order`
     )
     .bind(id)
     .all<QuestionRow>();
@@ -150,7 +241,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         question,
         answer,
         score: correct ? question.points : 0,
-        feedback: correct ? 'إجابة صحيحة.' : `الإجابة الصحيحة: ${question.correctAnswer}`,
+        feedback: correct
+          ? 'إجابة صحيحة.'
+          : (exam.showReview !== false ? `الإجابة الصحيحة: ${question.correctAnswer}` : 'إجابة غير صحيحة.'),
       });
     }
   }
@@ -170,36 +263,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const maxScore = questionResult.results.reduce((total, question) => total + question.points, 0);
   const percentage = maxScore ? Math.round((score / maxScore) * 100) : 0;
   const submittedAt = Date.now();
-  const claimedSession = await claimExamSession(getDatabase(), sessionId, id, email, submittedAt);
-  if (!claimedSession) {
-    return jsonError('جلسة الامتحان انتهت أو تم تسليمها', 409);
-  }
+  const claimedSession = await claimExamSession(db, sessionId!, id, email, submittedAt);
+  if (!claimedSession) return jsonError('جلسة الامتحان انتهت أو تم تسليمها', 409);
   const attemptId = crypto.randomUUID();
   const startedAt = Number(claimedSession.startedAt);
   const feedback =
     percentage >= Number(exam.passingScore || 50)
       ? 'أداء ممتاز، استمر على نفس المستوى.'
       : 'راجع ملاحظات كل سؤال ثم حاول تثبيت النقاط التي فقدتها.';
-  const db = getDatabase();
   try {
     await db.batch([
       db
         .prepare(
           `INSERT INTO attempts
-       (id, exam_id, user_email, status, score, max_score, feedback, grading_method, started_at, submitted_at)
-       VALUES (?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?)`
+         (id, exam_id, user_email, status, score, max_score, feedback, grading_method, started_at, submitted_at, pdf_storage_key)
+         VALUES (?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?, ?)`
         )
-        .bind(
-          attemptId,
-          id,
-          email,
-          score,
-          maxScore,
-          feedback,
-          written.method,
-          startedAt,
-          submittedAt
-        ),
+        .bind(attemptId, id, email, score, maxScore, feedback, written.method, startedAt, submittedAt, pdfStorageKey),
       ...allAnswers.map((item) =>
         db
           .prepare(
@@ -215,9 +295,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           )
       ),
       db
-        .prepare(
-          "UPDATE exam_sessions SET status = 'submitted' WHERE id = ? AND status = 'submitting'"
-        )
+        .prepare("UPDATE exam_sessions SET status = 'submitted' WHERE id = ? AND status = 'submitting'")
         .bind(claimedSession.id),
     ]);
   } catch (error) {
@@ -232,12 +310,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     percentage,
     passed: percentage >= Number(exam.passingScore || 50),
     feedback,
+    showReview: exam.showReview !== false,
     gradingMethod: writtenInputs.length ? written.method : 'rules',
     answers: allAnswers.map((item) => ({
       questionId: item.question.id,
       score: item.score,
       points: item.question.points,
       feedback: item.feedback,
+      correctAnswer: exam.showReview !== false ? item.question.correctAnswer : '',
+      explanation: exam.showReview !== false ? (item.question.explanation || '') : '',
     })),
   });
 }

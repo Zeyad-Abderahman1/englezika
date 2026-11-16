@@ -22,60 +22,160 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
   const youtubeId = JSON.stringify(access.video.youtubeId);
   const lessonId = JSON.stringify(id);
-  const embedOrigin = JSON.stringify(new URL(request.url).origin);
+  const expectedDuration = Math.max(0, Math.round(Number(access.video.durationSeconds) || 0));
   const html = `<!doctype html>
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <style>html,body,#player{width:100%;height:100%;margin:0;background:#000;overflow:hidden}</style>
+  <style>html,body,#player{width:100%;height:100%;margin:0;background:#000;overflow:hidden}#player{pointer-events:none}</style>
 </head>
 <body oncontextmenu="return false">
   <div id="player"></div>
-  <script src="https://www.youtube.com/iframe_api"></script>
   <script>
-    window.onYouTubeIframeAPIReady = function () {
+    (function () {
       var playerReady = false;
       var pendingCommand = null;
-      var player = new YT.Player('player', {
-        videoId: ${youtubeId},
-        playerVars: { controls: 0, disablekb: 1, fs: 0, modestbranding: 1, origin: ${embedOrigin}, playsinline: 1, rel: 0 },
-        events: {
-          onReady: function () {
-            playerReady = true;
-            window.parent.postMessage({ type: 'englizeka-video-ready', videoId: ${lessonId}, qualities: player.getAvailableQualityLevels(), quality: player.getPlaybackQuality() || 'default' }, window.location.origin);
-            if (pendingCommand === 'play') player.playVideo();
-            if (pendingCommand === 'pause') player.pauseVideo();
-            pendingCommand = null;
-          },
-          onStateChange: function (event) {
-            var state = event.data === YT.PlayerState.PLAYING ? 'playing' : event.data === YT.PlayerState.PAUSED ? 'paused' : event.data === YT.PlayerState.ENDED ? 'ended' : 'other';
-            window.parent.postMessage({ type: 'englizeka-video-state', videoId: ${lessonId}, state: state }, window.location.origin);
-            if (event.data === YT.PlayerState.PLAYING) {
-              window.parent.postMessage({ type: 'englizeka-video-ready', videoId: ${lessonId}, qualities: player.getAvailableQualityLevels(), quality: player.getPlaybackQuality() || 'default' }, window.location.origin);
-            }
-            if (event.data === YT.PlayerState.ENDED) {
-              window.parent.postMessage({ type: 'englizeka-video-ended', videoId: ${lessonId} }, window.location.origin);
-            }
-          },
-          onPlaybackQualityChange: function (event) {
-            window.parent.postMessage({ type: 'englizeka-video-quality', videoId: ${lessonId}, quality: event.data || 'default' }, window.location.origin);
+      var progressTimer = null;
+      var player = null;
+      var defaultDuration = ${expectedDuration};
+      var targetOrigin = window.location.origin;
+
+      function sendPlayerInfo() {
+        if (!playerReady || !player) return;
+        var qualities = [];
+        var quality = 'default';
+        var rates = [0.5, 0.75, 1, 1.25, 1.5, 2];
+        var rate = 1;
+        try {
+          if (typeof player.getAvailableQualityLevels === 'function') qualities = player.getAvailableQualityLevels() || [];
+          if (typeof player.getPlaybackQuality === 'function') quality = player.getPlaybackQuality() || 'default';
+          if (typeof player.getAvailablePlaybackRates === 'function') rates = player.getAvailablePlaybackRates() || rates;
+          if (typeof player.getPlaybackRate === 'function') rate = player.getPlaybackRate() || 1;
+        } catch (e) {}
+        window.parent.postMessage({
+          type: 'englizeka-video-info',
+          videoId: ${lessonId},
+          qualities: qualities,
+          quality: quality,
+          rates: rates,
+          rate: rate
+        }, targetOrigin);
+      }
+
+      function sendProgress() {
+        if (!player) return;
+        var cur = 0;
+        var dur = defaultDuration;
+        try {
+          if (typeof player.getCurrentTime === 'function') cur = player.getCurrentTime() || 0;
+          if (typeof player.getDuration === 'function') {
+            var d = player.getDuration();
+            if (d && isFinite(d) && d > 0) dur = d;
           }
-        }
-      });
+        } catch (e) {}
+        window.parent.postMessage({
+          type: 'englizeka-video-progress',
+          videoId: ${lessonId},
+          currentTime: cur,
+          duration: dur
+        }, targetOrigin);
+      }
+
+      function initYTPlayer() {
+        if (player || !window.YT || !window.YT.Player) return;
+        player = new YT.Player('player', {
+          videoId: ${youtubeId},
+          playerVars: {
+            controls: 0,
+            cc_load_policy: 0,
+            disablekb: 1,
+            fs: 0,
+            modestbranding: 1,
+            origin: targetOrigin,
+            playsinline: 1,
+            rel: 0,
+            iv_load_policy: 3
+          },
+          events: {
+            onReady: function () {
+              playerReady = true;
+              sendPlayerInfo();
+              sendProgress();
+              if (pendingCommand === 'play') player.playVideo();
+              if (pendingCommand === 'pause') player.pauseVideo();
+              pendingCommand = null;
+              if (!progressTimer) {
+                progressTimer = setInterval(sendProgress, 500);
+              }
+            },
+            onStateChange: function (event) {
+              var state = event.data === YT.PlayerState.PLAYING ? 'playing' : event.data === YT.PlayerState.PAUSED ? 'paused' : event.data === YT.PlayerState.ENDED ? 'ended' : 'other';
+              window.parent.postMessage({ type: 'englizeka-video-state', videoId: ${lessonId}, state: state }, targetOrigin);
+              sendProgress();
+              if (event.data === YT.PlayerState.PLAYING) {
+                sendPlayerInfo();
+                if (!progressTimer) progressTimer = setInterval(sendProgress, 500);
+              }
+              if (event.data === YT.PlayerState.ENDED) {
+                if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
+                window.parent.postMessage({ type: 'englizeka-video-ended', videoId: ${lessonId} }, targetOrigin);
+              }
+            },
+            onError: function (event) {
+              window.parent.postMessage({
+                type: 'englizeka-video-error',
+                videoId: ${lessonId},
+                errorCode: event.data
+              }, targetOrigin);
+            },
+            onPlaybackQualityChange: function (event) {
+              window.parent.postMessage({ type: 'englizeka-video-quality', videoId: ${lessonId}, quality: event.data || 'default' }, targetOrigin);
+            },
+            onPlaybackRateChange: function (event) {
+              window.parent.postMessage({ type: 'englizeka-video-rate', videoId: ${lessonId}, rate: event.data || 1 }, targetOrigin);
+            }
+          }
+        });
+      }
+
+      window.onYouTubeIframeAPIReady = initYTPlayer;
+      if (window.YT && window.YT.Player) {
+        initYTPlayer();
+      }
+
       window.addEventListener('message', function (event) {
-        if (event.origin !== window.location.origin || !event.data || event.data.type !== 'englizeka-player-command') return;
-        if (!playerReady) {
+        if (event.origin !== targetOrigin || !event.data || event.data.type !== 'englizeka-player-command') return;
+        if (!playerReady || !player) {
           pendingCommand = event.data.command;
           return;
         }
         if (event.data.command === 'play') player.playVideo();
         if (event.data.command === 'pause') player.pauseVideo();
-        if (event.data.command === 'quality' && typeof event.data.value === 'string') player.setPlaybackQuality(event.data.value);
-        if (event.data.command === 'get-state') window.parent.postMessage({ type: 'englizeka-video-ready', videoId: ${lessonId}, qualities: player.getAvailableQualityLevels(), quality: player.getPlaybackQuality() || 'default' }, window.location.origin);
+        if (event.data.command === 'get-info') sendPlayerInfo();
+        if (event.data.command === 'speed') {
+          var speed = Number(event.data.value);
+          if (isFinite(speed) && speed > 0 && typeof player.setPlaybackRate === 'function') {
+            player.setPlaybackRate(speed);
+          }
+        }
+        if (event.data.command === 'quality' && typeof event.data.value === 'string') {
+          if (typeof player.setPlaybackQuality === 'function') {
+            player.setPlaybackQuality(event.data.value);
+          }
+        }
+        if (event.data.command === 'seek' && typeof event.data.value === 'string') {
+          var seconds = Number(event.data.value);
+          if (isFinite(seconds) && seconds >= 0) {
+            var dur = (typeof player.getDuration === 'function' ? player.getDuration() : 0) || defaultDuration;
+            player.seekTo(Math.min(seconds, dur), true);
+            sendProgress();
+          }
+        }
       });
-    };
+    })();
   </script>
+  <script src="https://www.youtube.com/iframe_api"></script>
 </body>
 </html>`;
 
@@ -87,6 +187,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         "default-src 'none'; script-src 'unsafe-inline' https://www.youtube.com https://s.ytimg.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; connect-src https://www.youtube.com https://*.googlevideo.com; img-src data: https://i.ytimg.com https://*.ggpht.com; style-src 'unsafe-inline'; frame-ancestors 'self'",
       'referrer-policy': 'strict-origin-when-cross-origin',
       'x-content-type-options': 'nosniff',
+      'x-frame-options': 'SAMEORIGIN',
     },
   });
 }

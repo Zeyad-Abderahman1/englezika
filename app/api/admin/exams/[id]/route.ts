@@ -3,17 +3,33 @@ import { getDatabase } from '../../../../lib/platform';
 import { jsonError, requireSameOrigin, safeInteger, safeText } from '../../../../lib/security';
 import { invalidatePublicCourseCache } from '../../../../lib/public-course-cache';
 import { recordAuditLog } from '../../../../lib/audit';
+import { assessmentService } from '../../../../lib/services/assessment-service';
+import { parseQuestion, validateQuestion, type RawQuestion } from '../../../../lib/exam-validation';
+import { buildQuestionInsertStatements } from '../../../../lib/exam-questions-insert';
+
+function nullableTimestamp(val: unknown, fallback: unknown) {
+  if (val === null) return null;
+  if (val === undefined) return fallback ? Number(fallback) : null;
+  const num = Number(val);
+  return Number.isSafeInteger(num) && num > 0 ? num : null;
+}
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const admin = await apiStaff(request, 'manage_exams');
   if (isStaffResponse(admin)) return admin;
   const { id } = await params;
+
   const db = getDatabase();
   const exam = await db
     .prepare(
       `SELECT id, course_id AS courseId, title, description, instructions,
      duration_minutes AS durationMinutes, passing_score AS passingScore, max_attempts AS maxAttempts, status,
      scope_type AS scopeType, from_video_id AS fromVideoId, to_video_id AS toVideoId,
+     coverage_start_lecture_id AS coverageStartLectureId, coverage_end_lecture_id AS coverageEndLectureId,
+     COALESCE(assessment_type, 'exam') AS assessmentType,
+     COALESCE(mode, 'online') AS mode,
+     CASE WHEN teacher_file_key IS NOT NULL THEN 1 ELSE 0 END AS hasTeacherFile,
+     COALESCE(show_review, true) AS showReview,
      opens_at AS opensAt, closes_at AS closesAt FROM exams WHERE id = ?`
     )
     .bind(id)
@@ -22,7 +38,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const questions = await db
     .prepare(
       `SELECT id, sort_order AS sortOrder, type, prompt, options,
-     correct_answer AS correctAnswer, rubric, points
+     correct_answer AS correctAnswer, rubric, points, explanation
      FROM questions WHERE exam_id = ? ORDER BY sort_order`
     )
     .bind(id)
@@ -43,12 +59,18 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (isStaffResponse(admin)) return admin;
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const { id } = await params;
+
+  const assessmentType = body.assessmentType === 'quiz' ? 'quiz' : 'exam';
+  const mode = body.mode === 'file' ? 'file' : 'online';
+
   const db = getDatabase();
   const existing = await db
     .prepare(
       `SELECT course_id AS courseId, title, description, instructions, duration_minutes AS durationMinutes,
      passing_score AS passingScore, max_attempts AS maxAttempts, status, opens_at AS opensAt, closes_at AS closesAt,
-     scope_type AS scopeType, from_video_id AS fromVideoId, to_video_id AS toVideoId
+     scope_type AS scopeType, from_video_id AS fromVideoId, to_video_id AS toVideoId,
+     coverage_start_lecture_id AS coverageStartLectureId, coverage_end_lecture_id AS coverageEndLectureId,
+     assessment_type AS assessmentType, mode, COALESCE(show_review, true) AS showReview
      FROM exams WHERE id = ?`
     )
     .bind(id)
@@ -66,31 +88,100 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       ? null
       : safeText(body.courseId ?? existing.courseId, 80) || null;
 
-  const fromVideoId =
+  let fromVideoId =
     body.fromVideoId === null
       ? null
       : safeText(body.fromVideoId ?? existing.fromVideoId, 80) || null;
 
-  const toVideoId =
+  let toVideoId =
     body.toVideoId === null
       ? null
       : safeText(body.toVideoId ?? existing.toVideoId, 80) || null;
 
-  const passingScore = safeInteger(body.passingScore ?? existing.passingScore, 50, 0, 100);
+  const coverageStartLectureId =
+    body.coverageStartLectureId === null
+      ? null
+      : safeText(body.coverageStartLectureId ?? existing.coverageStartLectureId, 80) || null;
 
-  const nullableTimestamp = (value: unknown, fallback: unknown) => {
-    if (value === null) return null;
-    const candidate = value === undefined ? fallback : value;
-    if (candidate === null || candidate === undefined || candidate === '') return null;
-    const number = Number(candidate);
-    return Number.isFinite(number) ? number : null;
-  };
+  const coverageEndLectureId =
+    body.coverageEndLectureId === null
+      ? null
+      : safeText(body.coverageEndLectureId ?? existing.coverageEndLectureId, 80) || null;
+
+  const passingScore = safeInteger(body.passingScore ?? existing.passingScore, 50, 0, 100);
+  const showReview =
+    body.showReview !== undefined
+      ? Boolean(body.showReview)
+      : body.show_review !== undefined
+      ? Boolean(body.show_review)
+      : Boolean(existing.showReview ?? true);
+
+  if (scopeType === 'lecture_range') {
+    if (!courseId) {
+      return jsonError('يجب اختيار كورس عند تحديد نطاق محاضرات للاختبار', 400);
+    }
+    if (!fromVideoId || !toVideoId) {
+      return jsonError('يجب تحديد المحاضرة الأولى والمحاضرة التالية لنطاق الاختبار', 400);
+    }
+    if (fromVideoId === toVideoId) {
+      return jsonError('لا يمكن أن تبدأ وتنتهي بوابة الاختبار عند نفس المحاضرة', 400);
+    }
+
+    const vFrom = await db
+      .prepare(
+        'SELECT id, course_id, created_at, prerequisite_exam_id FROM videos WHERE id = ? AND course_id = ?'
+      )
+      .bind(fromVideoId, courseId)
+      .first<{
+        id: string;
+        course_id: string;
+        created_at: number;
+        prerequisite_exam_id: string | null;
+      }>();
+    if (!vFrom) return jsonError('المحاضرة الأولى غير صالحة لهذا الكورس', 400);
+
+    const vTo = await db
+      .prepare('SELECT id, course_id, created_at, prerequisite_exam_id FROM videos WHERE id = ? AND course_id = ?')
+      .bind(toVideoId, courseId)
+      .first<{ id: string; course_id: string; created_at: number; prerequisite_exam_id: string | null }>();
+    if (!vTo) return jsonError('المحاضرة التالية غير صالحة لهذا الكورس', 400);
+
+    // Lecture gates can be selected in any order. Normalize the range chronologically
+    // instead of blocking the save: the earlier lecture starts the range and the later
+    // lecture is the one locked by the exam.
+    const chronological = vFrom.created_at <= vTo.created_at;
+    const rangeEndVideo = chronological ? vTo : vFrom;
+    if (!chronological) {
+      const originalFromVideoId = fromVideoId;
+      fromVideoId = toVideoId;
+      toVideoId = originalFromVideoId;
+    }
+
+    // Check if target video already has a different prerequisite_exam_id
+    if (rangeEndVideo.prerequisite_exam_id && rangeEndVideo.prerequisite_exam_id !== id) {
+      const confirmOverride = Boolean(body.confirmOverride || body.overridePrerequisite);
+      if (!confirmOverride) {
+        return Response.json(
+          {
+            ok: false,
+            error: 'المحاضرة المستهدفة مرتبطة بالفعل باختبار إجباري آخر. هل ترغب في استبداله؟',
+            code: 'PREREQUISITE_CONFLICT',
+            existingPrerequisiteExamId: rangeEndVideo.prerequisite_exam_id,
+          },
+          { status: 409 }
+        );
+      }
+    }
+  }
 
   const updateStmt = db
     .prepare(
-      `UPDATE exams SET title = ?, description = ?, instructions = ?, course_id = ?,
+      `UPDATE exams SET
+     title = ?, description = ?, instructions = ?, course_id = ?,
      duration_minutes = ?, passing_score = ?, max_attempts = ?, status = ?,
      scope_type = ?, from_video_id = ?, to_video_id = ?,
+     coverage_start_lecture_id = ?, coverage_end_lecture_id = ?,
+     assessment_type = ?, mode = ?, show_review = ?,
      opens_at = ?, closes_at = ?, updated_at = ?
      WHERE id = ?`
     )
@@ -106,6 +197,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       scopeType,
       fromVideoId,
       toVideoId,
+      coverageStartLectureId,
+      coverageEndLectureId,
+      body.assessmentType !== undefined ? assessmentType : String(existing.assessmentType ?? 'exam'),
+      body.mode !== undefined ? mode : String(existing.mode ?? 'online'),
+      showReview,
       nullableTimestamp(body.opensAt, existing.opensAt),
       nullableTimestamp(body.closesAt, existing.closesAt),
       Date.now(),
@@ -114,20 +210,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const statements = [updateStmt];
 
-  // If to_video_id changed or scope became all_lectures, clear old video prerequisite link
+  // If exam status is NOT published, or scope is not lecture_range, or target to_video_id changed:
+  // Clear any existing prerequisite link on videos
   const oldToVideoId = existing.toVideoId as string | null;
-  if (oldToVideoId && (oldToVideoId !== toVideoId || scopeType !== 'lecture_range')) {
+  if (status !== 'published' || scopeType !== 'lecture_range' || oldToVideoId !== toVideoId) {
     statements.push(
       db
         .prepare(
-          'UPDATE videos SET prerequisite_exam_id = NULL, minimum_score = 0 WHERE id = ? AND prerequisite_exam_id = ?'
+          'UPDATE videos SET prerequisite_exam_id = NULL, minimum_score = 0 WHERE prerequisite_exam_id = ?'
         )
-        .bind(oldToVideoId, id)
+        .bind(id)
     );
   }
 
-  // If new to_video_id is set in a lecture range, bind it
-  if (scopeType === 'lecture_range' && toVideoId && courseId) {
+  // Only bind prerequisite if status is published AND scope is lecture_range
+  if (status === 'published' && scopeType === 'lecture_range' && toVideoId && courseId) {
     statements.push(
       db
         .prepare(
@@ -146,63 +243,23 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (hasAttempts) {
       return jsonError('لا يمكن تعديل أسئلة امتحان له نتائج محفوظة. يمكنك إنشاء امتحان جديد.', 409);
     }
-    type RawQuestion = Record<string, unknown>;
-    const newQuestions = (body.questions as RawQuestion[]).slice(0, 100).map((q, idx) => {
-      const type = ['multiple_choice', 'true_false', 'short_answer'].includes(String(q.type))
-        ? String(q.type)
-        : 'multiple_choice';
-      const options = Array.isArray(q.options)
-        ? q.options
-            .map((o) => safeText(o, 300))
-            .filter(Boolean)
-            .slice(0, 8)
-        : type === 'true_false'
-          ? ['True', 'False']
-          : [];
-      return {
-        id: crypto.randomUUID(),
-        sortOrder: idx + 1,
-        type,
-        prompt: safeText(q.prompt, 2000),
-        options: JSON.stringify(options),
-        correctAnswer: safeText(q.correctAnswer ?? q.correct_answer, 1000),
-        rubric: safeText(q.rubric, 2000),
-        points: safeInteger(q.points, 1, 1, 100),
-      };
-    });
-    if (newQuestions.some((q) => !q.prompt || !q.correctAnswer)) {
-      return jsonError('كل سؤال يحتاج نص وإجابة صحيحة');
+    const newQuestions = (body.questions as RawQuestion[])
+      .map((q, idx) => parseQuestion(q, idx + 1));
+    for (const q of newQuestions) {
+      const qErr = validateQuestion(q);
+      if (qErr) {
+        return jsonError(qErr, 400);
+      }
     }
-    const oldIds = await db
-      .prepare('SELECT id FROM questions WHERE exam_id = ?')
-      .bind(id)
-      .all<{ id: string }>();
-
     statements.push(
-      ...oldIds.results.map((q) => db.prepare('DELETE FROM questions WHERE id = ?').bind(q.id)),
-      ...newQuestions.map((q) =>
-        db
-          .prepare(
-            `INSERT INTO questions (id, exam_id, sort_order, type, prompt, options, correct_answer, rubric, points)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .bind(
-            q.id,
-            id,
-            q.sortOrder,
-            q.type,
-            q.prompt,
-            q.options,
-            q.correctAnswer,
-            q.rubric,
-            q.points
-          )
-      )
+      db.prepare('DELETE FROM questions WHERE exam_id = ?').bind(id),
+      ...buildQuestionInsertStatements(db, id, newQuestions)
     );
   }
 
   await db.batch(statements);
 
+  // Clear unread notification markers for this exam
   await db
     .prepare(
       "DELETE FROM notification_reads WHERE notification_type = 'exam' AND notification_id = ?"
@@ -221,6 +278,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       fromVideoId,
       toVideoId,
       passingScore,
+      assessmentType,
+      mode,
     },
   });
 
@@ -234,32 +293,47 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const admin = await apiStaff(request, 'manage_exams');
   if (isStaffResponse(admin)) return admin;
   const { id } = await params;
+
   const db = getDatabase();
   const attempt = await db
     .prepare('SELECT id FROM attempts WHERE exam_id = ? LIMIT 1')
     .bind(id)
     .first();
   if (attempt) return jsonError('لا يمكن حذف امتحان له نتائج؛ يمكنك تحويله إلى مسودة', 409);
-  const lesson = await db
-    .prepare('SELECT id FROM videos WHERE prerequisite_exam_id = ? LIMIT 1')
+
+  // Clear prerequisite gate on videos
+  await db
+    .prepare(
+      'UPDATE videos SET prerequisite_exam_id = NULL, minimum_score = 0 WHERE prerequisite_exam_id = ?'
+    )
     .bind(id)
-    .first();
-  if (lesson) return jsonError('لا يمكن حذف امتحان مرتبط بفتح محاضرة', 409);
-  const questionIds = await db
-    .prepare('SELECT id FROM questions WHERE exam_id = ?')
-    .bind(id)
-    .all<{ id: string }>();
-  await db.batch([
-    db
-      .prepare(
-        "DELETE FROM notification_reads WHERE notification_type = 'exam' AND notification_id = ?"
-      )
-      .bind(id),
-    ...questionIds.results.map((question) =>
-      db.prepare('DELETE FROM questions WHERE id = ?').bind(question.id)
-    ),
-    db.prepare('DELETE FROM exams WHERE id = ?').bind(id),
-  ]);
-  invalidatePublicCourseCache();
-  return Response.json({ ok: true });
+    .run();
+
+  // assessmentService.deleteExam cascades DB and cleans up storage for:
+  // - teacherFileKey / teacher_file_key
+  // - imageFileKey / image_file_key
+  // - pdfStorageKey / pdf_storage_key
+  try {
+    const result = await assessmentService.deleteExam(id, admin, { request });
+    invalidatePublicCourseCache();
+    return Response.json(result);
+  } catch {
+    const questionIds = await db
+      .prepare('SELECT id FROM questions WHERE exam_id = ?')
+      .bind(id)
+      .all<{ id: string }>();
+    await db.batch([
+      db
+        .prepare(
+          "DELETE FROM notification_reads WHERE notification_type = 'exam' AND notification_id = ?"
+        )
+        .bind(id),
+      ...questionIds.results.map((question) =>
+        db.prepare('DELETE FROM questions WHERE id = ?').bind(question.id)
+      ),
+      db.prepare('DELETE FROM exams WHERE id = ?').bind(id),
+    ]);
+    invalidatePublicCourseCache();
+    return Response.json({ ok: true });
+  }
 }

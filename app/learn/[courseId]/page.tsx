@@ -1,9 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { getDatabase } from '../../lib/platform';
 import { isEmailVerified } from '../../lib/email-verification';
-import SecureVideoPlayer, { type InterLectureExam } from '../../components/SecureVideoPlayer';
+import SecureVideoPlayer, { type Video, type InterLectureExam } from '../../components/SecureVideoPlayer';
+import CourseSequenceTree from '../../components/CourseSequenceTree';
 import { requireStudentUser } from '../../lib/student-session';
+import { hasCourseItems, getCourseSequenceUnlockState } from '../../lib/course-sequence';
+import { getCourseThumbnailUrl } from '../../lib/course-thumbnail';
 
 export const metadata: Metadata = { title: 'مشاهدة الكورس' };
 export const dynamic = 'force-dynamic';
@@ -20,8 +24,9 @@ export default async function LearnPage({
   const initialVideoId = typeof requestedVideo === 'string' ? requestedVideo.slice(0, 80) : undefined;
   const user = await requireStudentUser(`/learn/${courseId}`);
   const db = getDatabase();
+  const normalizedEmail = user.email.toLowerCase();
 
-  if (!(await isEmailVerified(user.email))) {
+  if (!(await isEmailVerified(normalizedEmail))) {
     return (
       <main className="portal-page">
         <div className="container">
@@ -38,11 +43,20 @@ export default async function LearnPage({
     );
   }
 
+  // An exam published as a standalone course has no lectures: open the exam itself.
+  const listingExam = await db
+    .prepare(
+      "SELECT x.id FROM exams x JOIN courses c ON c.id = x.listing_course_id WHERE c.id = ? AND c.kind = 'exam' LIMIT 1"
+    )
+    .bind(courseId)
+    .first<{ id: string }>();
+  if (listingExam) redirect(`/exam/${listingExam.id}`);
+
   const enrollment = await db
     .prepare(
       "SELECT id FROM enrollments WHERE user_email = ? AND course_id = ? AND status = 'approved' LIMIT 1"
     )
-    .bind(user.email.toLowerCase(), courseId)
+    .bind(normalizedEmail, courseId)
     .first();
 
   const grants = await db
@@ -51,8 +65,10 @@ export default async function LearnPage({
        JOIN videos v ON v.id = g.video_id
        WHERE g.student_email = ? AND v.course_id = ? AND v.status = 'published'`
     )
-    .bind(user.email.toLowerCase(), courseId)
+    .bind(normalizedEmail, courseId)
     .all<{ videoId: string }>();
+
+  const grantedIds = new Set(grants.results.map((item) => item.videoId));
 
   if (!enrollment && grants.results.length === 0) {
     return (
@@ -72,36 +88,94 @@ export default async function LearnPage({
   }
 
   const course = await db
-    .prepare('SELECT title, grade FROM courses WHERE id = ?')
+    .prepare('SELECT title, grade, thumbnail_key AS thumbnailKey, updated_at AS updatedAt FROM courses WHERE id = ?')
     .bind(courseId)
-    .first<{ title: string; grade: string }>();
+    .first<{ title: string; grade: string; thumbnailKey: string | null; updatedAt?: number }>();
 
+  const courseHasSequence = await hasCourseItems(courseId);
+  let sequenceUnlockState = null;
+  let sequenceItems = null;
+
+  if (courseHasSequence && Boolean(enrollment)) {
+    sequenceUnlockState = await getCourseSequenceUnlockState(courseId, normalizedEmail);
+    const { getCourseItems } = await import('../../lib/course-sequence');
+    const rawItems = await getCourseItems(courseId);
+    sequenceItems = rawItems.map((item) => {
+      const key = `${item.itemType}:${item.videoId || item.examId || item.assignmentId}`;
+      const state = sequenceUnlockState!.get(key);
+      const isGrantedVideo = item.itemType === 'video' && Boolean(item.videoId) && grantedIds.has(item.videoId!);
+      return {
+        key,
+        itemType: item.itemType,
+        itemId: item.videoId || item.examId || item.assignmentId || '',
+        title: item.title,
+        unlocked: isGrantedVideo ? true : (state?.unlocked ?? false),
+        isCompleted: state?.isCompleted ?? false,
+        lockReason: isGrantedVideo ? null : (state?.lockReason ?? null),
+        assessmentType: state?.assessmentType,
+      };
+    });
+  }
+
+  // Fetch videos in sequential order with prerequisite exam data and view limits
   const result = await db
     .prepare(
       `SELECT v.id, v.title, v.duration_seconds AS durationSeconds,
-       v.prerequisite_exam_id AS prerequisiteExamId, v.minimum_score AS minimumScore,
-       v.created_at AS createdAt
+              v.max_views AS maxViews,
+              v.prerequisite_exam_id AS prerequisiteExamId, v.minimum_score AS minimumScore,
+              v.created_at AS createdAt,
+              x.title AS prerequisiteExamTitle, x.passing_score AS examPassingScore
        FROM videos v
-       WHERE v.course_id = ? AND v.status = 'published' ORDER BY v.created_at`
+       LEFT JOIN exams x ON x.id = v.prerequisite_exam_id
+       WHERE v.course_id = ? AND v.status = 'published'
+       ORDER BY v.created_at`
     )
     .bind(courseId)
     .all<{
       id: string;
       title: string;
       durationSeconds: number;
+      maxViews: number;
       prerequisiteExamId: string | null;
       minimumScore: number;
       createdAt: number;
+      prerequisiteExamTitle: string | null;
+      examPassingScore: number | null;
     }>();
 
+  // Fetch user video completions
   const completed = await db
     .prepare(
       `SELECT p.video_id AS videoId FROM video_progress p
        JOIN videos v ON v.id = p.video_id
        WHERE p.user_email = ? AND v.course_id = ?`
     )
-    .bind(user.email.toLowerCase(), courseId)
+    .bind(normalizedEmail, courseId)
     .all<{ videoId: string }>();
+
+  // Fetch consumed view sessions for this student (read-only)
+  const viewSessions = await db
+    .prepare(
+      `SELECT s.video_id AS videoId, COUNT(*) AS count
+       FROM video_view_sessions s
+       JOIN videos v ON v.id = s.video_id
+       WHERE s.user_email = ? AND v.course_id = ? AND s.status IN ('active', 'expired', 'submitted')
+       GROUP BY s.video_id`
+    )
+    .bind(normalizedEmail, courseId)
+    .all<{ videoId: string; count: number }>();
+
+  // Fetch user exam attempt best percentages
+  const examAttempts = await db
+    .prepare(
+      `SELECT a.exam_id AS examId,
+              MAX(CASE WHEN a.max_score > 0 THEN (a.score * 100.0 / a.max_score) ELSE 0 END) AS bestPercentage
+       FROM attempts a
+       WHERE a.user_email = ? AND a.status = 'submitted'
+       GROUP BY a.exam_id`
+    )
+    .bind(normalizedEmail)
+    .all<{ examId: string; bestPercentage: number }>();
 
   // Fetch course exams for inter-lecture prerequisite gates
   const rawExams = await db
@@ -122,25 +196,14 @@ export default async function LearnPage({
       toVideoId: string | null;
     }>();
 
-  const attempts = await db
-    .prepare(
-      `SELECT exam_id AS examId, MAX(CASE WHEN max_score > 0 THEN (score * 100.0 / max_score) ELSE 0 END) AS bestPercentage
-       FROM attempts
-       WHERE user_email = ? AND status = 'submitted'
-       GROUP BY exam_id`
-    )
-    .bind(user.email.toLowerCase())
-    .all<{ examId: string; bestPercentage: number | null }>();
-
-  const examScoreMap = new Map<string, number>();
-  for (const att of attempts.results) {
-    examScoreMap.set(att.examId, Number(att.bestPercentage || 0));
-  }
+  const completedIds = new Set(completed.results.map((item) => item.videoId));
+  const examScoresMap = new Map(examAttempts.results.map((r) => [r.examId, Number(r.bestPercentage)]));
+  const viewCountsMap = new Map(viewSessions.results.map((r) => [r.videoId, Number(r.count)]));
 
   const interLectureExams: InterLectureExam[] = rawExams.results
     .filter((e) => e.scopeType === 'lecture_range' && e.fromVideoId && e.toVideoId)
     .map((e) => {
-      const best = examScoreMap.has(e.id) ? examScoreMap.get(e.id)! : null;
+      const best = examScoresMap.has(e.id) ? examScoresMap.get(e.id)! : null;
       return {
         id: e.id,
         title: e.title,
@@ -153,35 +216,97 @@ export default async function LearnPage({
       };
     });
 
-  const completedIds = new Set(completed.results.map((item) => item.videoId));
-  const grantedIds = new Set(grants.results.map((item) => item.videoId));
-
-  const videos = result.results.map((video, index, allVideos) => {
-    const isGranted = grantedIds.has(video.id);
+  const videos: Video[] = result.results.map((video, index, allVideos) => {
+    const hasGrant = grantedIds.has(video.id);
+    const isCompleted = completedIds.has(video.id);
     const prevCompleted = index === 0 || completedIds.has(allVideos[index - 1].id);
+    const maxViews = Number(video.maxViews || 0);
+    const usedViews = viewCountsMap.get(video.id) || 0;
+    const remainingViews = maxViews > 0 ? Math.max(maxViews - usedViews, 0) : null;
 
+    let prerequisiteExam = null;
     let examPassed = true;
-    if (video.prerequisiteExamId) {
-      const best = examScoreMap.get(video.prerequisiteExamId);
-      examPassed = best !== undefined && best >= (video.minimumScore || 0);
+
+    if (video.prerequisiteExamId && video.prerequisiteExamTitle) {
+      const best = examScoresMap.has(video.prerequisiteExamId)
+        ? examScoresMap.get(video.prerequisiteExamId)!
+        : null;
+      const minRequired = Number(video.minimumScore || 0);
+      const passed = best !== null && best >= minRequired;
+      if (!hasGrant && !passed) {
+        examPassed = false;
+      }
+      prerequisiteExam = {
+        id: video.prerequisiteExamId,
+        title: video.prerequisiteExamTitle,
+        minimumScore: minRequired,
+        bestPercentage: best !== null ? Math.round(best) : null,
+        passed,
+      };
     }
 
-    const unlocked = isGranted || (Boolean(enrollment) && prevCompleted && examPassed);
+    let unlocked = 0;
+    let lockReason: 'previous_lesson' | 'prerequisite_exam' | null = null;
+
+    if (hasGrant) {
+      unlocked = 1;
+      lockReason = null;
+    } else if (courseHasSequence && sequenceUnlockState) {
+      const seqKey = `video:${video.id}`;
+      const seqState = sequenceUnlockState.get(seqKey);
+      unlocked = seqState?.unlocked ? 1 : 0;
+      lockReason = seqState?.unlocked ? null : 'previous_lesson';
+    } else if (Boolean(enrollment)) {
+      if (!prevCompleted) {
+        unlocked = 0;
+        lockReason = 'previous_lesson';
+      } else if (!examPassed) {
+        unlocked = 0;
+        lockReason = 'prerequisite_exam';
+      } else {
+        unlocked = 1;
+      }
+    }
 
     return {
-      ...video,
-      completed: completedIds.has(video.id) ? 1 : 0,
-      unlocked: unlocked ? 1 : 0,
+      id: video.id,
+      title: video.title,
+      durationSeconds: video.durationSeconds,
+      completed: isCompleted ? 1 : 0,
+      unlocked,
+      prerequisiteExam,
+      lockReason,
+      maxViews,
+      usedViews,
+      remainingViews,
     };
   });
 
   return (
     <main className="portal-page learning-page">
       <div className="container">
-        <div className="learning-heading">
-          <span className="section-label">{course?.grade || 'الكورس'}</span>
-          <h1>{course?.title || 'محتوى الكورس'}</h1>
+        <div className="learning-heading-with-thumbnail">
+          {course?.thumbnailKey && (
+            <div className="learning-course-thumb">
+              <img
+                src={getCourseThumbnailUrl(courseId, course.thumbnailKey, course.updatedAt)}
+                alt={course.title}
+                className="learning-thumb-img"
+              />
+            </div>
+          )}
+          <div className="learning-heading">
+            <span className="section-label">{course?.grade || 'الكورس'}</span>
+            <h1>{course?.title || 'محتوى الكورس'}</h1>
+          </div>
         </div>
+        {sequenceItems && sequenceItems.length > 0 && (
+          <CourseSequenceTree
+            items={sequenceItems}
+            courseId={courseId}
+            activeItemId={initialVideoId}
+          />
+        )}
         <SecureVideoPlayer
           videos={videos}
           viewerEmail={user.email}

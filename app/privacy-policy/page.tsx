@@ -18,7 +18,7 @@ export default function PrivacyPolicyPage() {
   return (
     <main
       dir="rtl"
-      style={{ padding: '3rem 1rem', maxWidth: '800px', margin: '0 auto', lineHeight: 1.9 }}
+      style={{ padding: '7rem 1rem 3rem', maxWidth: '800px', margin: '0 auto', lineHeight: 1.9 }}
     >
       <div className="container">
         <span className="section-label">الشفافية أولاً</span>
@@ -99,7 +99,7 @@ export default function PrivacyPolicyPage() {
         <Section title="٦. التواصل معنا">
           <p>
             إذا كانت لديك أي استفسارات حول سياسة الخصوصية، يسعدنا التواصل معك عبر{' '}
-            <Link href="/contact" style={{ color: 'var(--accent, #6C63FF)' }}>
+            <Link href="/contact" style={{ color: 'var(--brand, #d7193f)' }}>
               صفحة التواصل
             </Link>
             .
@@ -136,7 +136,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
           fontSize: '1.2rem',
           fontWeight: 800,
           marginBottom: '0.75rem',
-          color: 'var(--accent, #6C63FF)',
+          color: 'var(--brand, #d7193f)',
         }}
       >
         {title}

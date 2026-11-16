@@ -1,5 +1,11 @@
 import cluster from 'node:cluster';
 import { availableParallelism } from 'node:os';
+import { loadEnvFile } from 'node:process';
+
+loadEnvFile('/var/www/englizeka/.env');
+
+process.env.HOSTNAME = process.env.HOSTNAME || '127.0.0.1';
+process.env.PORT = process.env.PORT || '3000';
 
 const requestedWorkers = Number(process.env.WEB_CONCURRENCY || 4);
 const workerCount = Number.isFinite(requestedWorkers)

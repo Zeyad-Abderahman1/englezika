@@ -1,0 +1,335 @@
+/* ==========================================================================
+   Englizeka Celestial Animated Theme Toggle
+   Preserving depth, moving clouds, twinkling stars, and sun/moon craters.
+   Scoped to ThemeToggle component with Englizeka Crimson & Charcoal palette.
+   ========================================================================== */
+
+.toggle {
+  --width: 68px;
+  --height: 30px;
+  --indicator-size: 22px;
+  --travel: 38px;
+  --speed: 0.42s;
+  --easing: cubic-bezier(0.25, 1, 0.5, 1);
+  --sun: #e11d48;
+  --sun-glow: rgba(225, 29, 72, 0.45);
+  --moon: #e7e7eb;
+  --moon-shadow: #cbd0d8;
+  --crater: #9ca0aa;
+  --crater-shadow: rgba(0, 0, 0, 0.25);
+
+  position: relative;
+  width: var(--width);
+  height: var(--height);
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  outline: none;
+  border-radius: 9999px;
+  flex-shrink: 0;
+  user-select: none;
+  direction: ltr; /* Keeps internal animation coordinate space deterministic */
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.toggle:focus-visible {
+  outline: 2px solid var(--brand, #e11d48);
+  outline-offset: 2px;
+}
+
+.toggleContent {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  overflow: hidden;
+  box-sizing: border-box;
+  transition: background var(--speed) var(--easing),
+              border-color var(--speed) var(--easing),
+              box-shadow var(--speed) var(--easing);
+}
+
+/* Light mode sky (aria-pressed="false") */
+.toggle[aria-pressed='false'] .toggleContent {
+  background: linear-gradient(180deg, #ffedf1 0%, #fbd5df 100%);
+  border: 1px solid rgba(225, 29, 72, 0.25);
+  box-shadow: inset 0 2px 4px rgba(225, 29, 72, 0.1),
+              inset 0 -1px 2px rgba(255, 255, 255, 0.9),
+              0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+/* Dark mode sky (aria-pressed="true") */
+.toggle[aria-pressed='true'] .toggleContent {
+  background: linear-gradient(180deg, #090a0d 0%, #16121f 100%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.6),
+              inset 0 -1px 2px rgba(255, 255, 255, 0.05),
+              0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Backdrops: Clouds & Stars SVG layers */
+.backdropSvg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Clouds animation layer */
+.clouds {
+  transition: transform var(--speed) var(--easing),
+              opacity var(--speed) var(--easing);
+}
+
+.clouds path {
+  fill: #ffffff;
+  transition: fill var(--speed) var(--easing);
+}
+
+.cloudsBack {
+  opacity: 0.55;
+  transform: translateY(2px) scale(0.9);
+}
+
+.cloudsBack path {
+  fill: #fcd5df;
+}
+
+.toggle[aria-pressed='false'] .clouds {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.toggle[aria-pressed='true'] .clouds {
+  transform: translateY(120%);
+  opacity: 0;
+}
+
+/* Stars animation layer */
+.stars {
+  transition: transform var(--speed) var(--easing),
+              opacity var(--speed) var(--easing);
+}
+
+.toggle[aria-pressed='false'] .stars {
+  transform: translateY(-8px) scale(0.7);
+  opacity: 0;
+}
+
+.toggle[aria-pressed='true'] .stars {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+
+/* Individual twinkling stars */
+.starItem1 {
+  animation: starTwinkle 3.2s ease-in-out infinite alternate;
+}
+
+.starItem2 {
+  animation: starTwinkle 2.5s ease-in-out 0.6s infinite alternate;
+}
+
+.starItem3 {
+  animation: starTwinkle 3.8s ease-in-out 1.2s infinite alternate;
+}
+
+.starItem4 {
+  animation: starTwinkle 2.9s ease-in-out 0.3s infinite alternate;
+}
+
+@keyframes starTwinkle {
+  0% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 0.6;
+    transform: scale(0.95);
+  }
+}
+
+/* Indicator Wrapper (sliding horizontal container) */
+.indicatorWrapper {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  width: var(--indicator-size);
+  height: var(--indicator-size);
+  transition: transform var(--speed) var(--easing);
+  pointer-events: none;
+}
+
+.toggle[aria-pressed='false'] .indicatorWrapper {
+  transform: translateX(0);
+}
+
+.toggle[aria-pressed='true'] .indicatorWrapper {
+  transform: translateX(var(--travel));
+}
+
+/* Indicator Sphere Container */
+.indicator {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+
+/* Sun state */
+.sun {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #ff4d6d 0%, var(--sun) 75%);
+  box-shadow: 0 0 8px var(--sun-glow),
+              inset 0 1px 2px rgba(255, 255, 255, 0.6),
+              inset 0 -1px 2px rgba(0, 0, 0, 0.2);
+  transition: opacity var(--speed) var(--easing),
+              transform var(--speed) var(--easing);
+}
+
+.toggle[aria-pressed='false'] .sun {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
+}
+
+.toggle[aria-pressed='true'] .sun {
+  opacity: 0;
+  transform: scale(0.4) rotate(60deg);
+}
+
+/* Moon state */
+.moon {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff 0%, var(--moon) 60%, var(--moon-shadow) 100%);
+  box-shadow: 0 0 7px rgba(231, 231, 235, 0.5),
+              inset 0 1px 2px rgba(255, 255, 255, 0.9),
+              inset 0 -1px 3px rgba(0, 0, 0, 0.35);
+  transition: opacity var(--speed) var(--easing),
+              transform var(--speed) var(--easing);
+}
+
+.toggle[aria-pressed='false'] .moon {
+  opacity: 0;
+  transform: scale(0.4) rotate(-60deg);
+}
+
+.toggle[aria-pressed='true'] .moon {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
+}
+
+/* Moon craters */
+.crater {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--crater);
+  box-shadow: inset 1px 1px 1px var(--crater-shadow),
+              0 0.5px 0.5px rgba(255, 255, 255, 0.4);
+}
+
+.crater1 {
+  top: 4px;
+  left: 5px;
+  width: 5px;
+  height: 5px;
+}
+
+.crater2 {
+  bottom: 4px;
+  left: 10px;
+  width: 4.5px;
+  height: 4.5px;
+}
+
+.crater3 {
+  top: 9px;
+  right: 3.5px;
+  width: 3.5px;
+  height: 3.5px;
+}
+
+/* ==========================================================================
+   Mobile Responsive Scaling
+   ========================================================================== */
+
+@media (max-width: 820px) {
+  .toggle {
+    --width: 62px;
+    --height: 28px;
+    --indicator-size: 20px;
+    --travel: 34px;
+  }
+
+  .indicatorWrapper {
+    top: 3px;
+    left: 4px;
+  }
+
+  .crater1 {
+    top: 3px;
+    left: 5px;
+    width: 4.5px;
+    height: 4.5px;
+  }
+
+  .crater2 {
+    bottom: 3.5px;
+    left: 9px;
+    width: 4px;
+    height: 4px;
+  }
+
+  .crater3 {
+    top: 8px;
+    right: 3px;
+    width: 3px;
+    height: 3px;
+  }
+}
+
+@media (max-width: 360px) {
+  .toggle {
+    --width: 58px;
+    --height: 26px;
+    --indicator-size: 18px;
+    --travel: 32px;
+  }
+
+  .indicatorWrapper {
+    top: 3px;
+    left: 4px;
+  }
+}
+
+/* Motion Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .toggleContent,
+  .clouds,
+  .stars,
+  .indicatorWrapper,
+  .sun,
+  .moon {
+    transition-duration: 0.01ms !important;
+    animation: none !important;
+  }
+
+  .starItem1,
+  .starItem2,
+  .starItem3,
+  .starItem4 {
+    animation: none !important;
+  }
+}

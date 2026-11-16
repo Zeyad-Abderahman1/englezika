@@ -34,15 +34,25 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ em
 
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const preset = normalizeStaffPreset(body.preset);
-  const role = body.role === 'teacher' ? 'teacher' : 'assistant';
-  const active = body.active ? 1 : 0;
+  const isSelf = actor.email.toLowerCase() === email;
+  const hasRoleChange = Object.prototype.hasOwnProperty.call(body, 'role');
+  const hasActiveChange = Object.prototype.hasOwnProperty.call(body, 'active');
+  if (
+    isSelf &&
+    ((hasRoleChange && body.role !== actor.role) ||
+      (hasActiveChange && Boolean(body.active) !== true))
+  ) {
+    return jsonError('لا يمكنك تغيير دورك أو حالة حسابك', 403);
+  }
+  const role = hasRoleChange ? (body.role === 'teacher' ? 'teacher' : 'assistant') : actor.role;
+  const active = hasActiveChange ? (body.active ? 1 : 0) : 1;
 
   const db = getDatabase();
 
   const now = Date.now();
 
   if (typeof body.password === 'string' && body.password.length > 0) {
-    if (!isStrongPassword(body.password)) {
+    if (!isStrongPassword(body.password, 12, 200)) {
       return jsonError('كلمة المرور يجب أن تحتوي على 12 حرفاً على الأقل وحرف كبير وصغير ورقم ورمز');
     }
     const credentials = await hashPassword(body.password);

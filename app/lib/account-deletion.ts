@@ -16,13 +16,29 @@ export async function deleteStudentAccountData(
     .first<{ birthCertificateKey: string | null }>();
   if (!student) return false;
 
+  const submissions = await db
+    .prepare(
+      `SELECT id, pdf_storage_key AS pdfStorageKey
+       FROM assignment_submissions
+       WHERE student_email = ?`
+    )
+    .bind(normalized)
+    .all<{ id: string; pdfStorageKey: string | null }>()
+    .catch(() => ({ results: [] as { id: string; pdfStorageKey: string | null }[] }));
+
   if (student.birthCertificateKey) {
     await bucket.delete(student.birthCertificateKey);
   }
 
+  for (const sub of submissions.results) {
+    if (sub.pdfStorageKey) {
+      await bucket.delete(sub.pdfStorageKey);
+    }
+  }
+
   const tombstoneEmail = `deleted+${crypto.randomUUID()}@deleted.invalid`;
 
-  const [, , accountUpdate] = await db.batch([
+  const [, , , accountUpdate] = await db.batch([
     db
       .prepare(
         `UPDATE lecture_access_codes SET redeemed_by_student_email = NULL
@@ -30,6 +46,13 @@ export async function deleteStudentAccountData(
       )
       .bind(normalized),
     db.prepare('DELETE FROM student_video_access_grants WHERE student_email = ?').bind(normalized),
+    db
+      .prepare(
+        `UPDATE assignment_submissions
+         SET student_email = ?, pdf_storage_key = NULL
+         WHERE student_email = ?`
+      )
+      .bind(tombstoneEmail, normalized),
     db
       .prepare(
         `UPDATE users SET

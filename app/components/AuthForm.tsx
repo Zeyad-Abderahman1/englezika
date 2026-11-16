@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Eye,
   EyeOff,
@@ -17,7 +17,6 @@ import {
   Mail,
   Lock,
   Users,
-  Briefcase,
   FileUp,
   ShieldCheck,
 } from 'lucide-react';
@@ -57,9 +56,10 @@ const GOVERNORATES = [
 const GRADES = ['أولى ثانوي', 'تانية ثانوي', 'تالتة ثانوي'];
 
 const SECTIONS_BY_GRADE: Record<string, string[]> = {
-  'أولى ثانوي': ['علمي', 'أدبي'],
   'تانية ثانوي': ['علمي علوم', 'علمي رياضة', 'أدبي'],
+  'ثانية ثانوي': ['علمي علوم', 'علمي رياضة', 'أدبي'],
   'تالتة ثانوي': ['علمي علوم', 'علمي رياضة', 'أدبي'],
+  'ثالثة ثانوي': ['علمي علوم', 'علمي رياضة', 'أدبي'],
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -70,12 +70,14 @@ function PasswordInput({
   placeholder,
   value,
   onChange,
+  autoComplete = 'current-password',
 }: {
   id: string;
   name: string;
   placeholder: string;
   value: string;
   onChange: (v: string) => void;
+  autoComplete?: string;
 }) {
   const [show, setShow] = useState(false);
   return (
@@ -85,7 +87,7 @@ function PasswordInput({
         id={id}
         name={name}
         type={show ? 'text' : 'password'}
-        autoComplete="current-password"
+        autoComplete={autoComplete}
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -231,6 +233,14 @@ function ForgotPasswordModal({
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (newPassword.length > 9) {
+      setError('كلمة المرور الجديدة يجب ألا تتجاوز 9 أحرف');
+      return;
+    }
+    if (newPasswordConfirm.length > 9) {
+      setError('تأكيد كلمة المرور يجب ألا يتجاوز 9 أحرف');
+      return;
+    }
     if (newPassword !== newPasswordConfirm) {
       setError('كلمتا السر غير متطابقتين');
       return;
@@ -358,7 +368,7 @@ function ForgotPasswordModal({
               <PasswordInput
                 id="reset-new-pass"
                 name="new_password"
-                placeholder="8 أحرف على الأقل"
+                placeholder="حتى 9 أحرف"
                 value={newPassword}
                 onChange={setNewPassword}
               />
@@ -400,13 +410,23 @@ function ForgotPasswordModal({
 
 function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const rawTarget =
+    searchParams?.get('return_to') ||
+    searchParams?.get('redirect') ||
+    searchParams?.get('next') ||
+    '';
+  const redirectTarget =
+    rawTarget && rawTarget.startsWith('/') && !rawTarget.startsWith('//')
+      ? rawTarget
+      : '/account';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
   const [showForgotModal, setShowForgotModal] = useState(false);
-  const [staySignedIn, setStaySignedIn] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -417,7 +437,7 @@ function LoginForm() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, password, staySignedIn }),
+        body: JSON.stringify({ email, password, rememberMe }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
@@ -432,7 +452,7 @@ function LoginForm() {
         setError(data.error || 'خطأ في تسجيل الدخول');
         return;
       }
-      router.push('/account');
+      router.push(redirectTarget);
     } catch {
       setError('تعذر الاتصال. تحقق من الإنترنت.');
     } finally {
@@ -452,7 +472,7 @@ function LoginForm() {
         <div className="auth-form-header">
           <h2 className="auth-form-title">تسجيل الدخول</h2>
           <p className="auth-form-sub">أدخل بياناتك للوصول لحسابك</p>
-          <Link href="/register" className="auth-switch-link">
+          <Link href={rawTarget ? `/register?return_to=${encodeURIComponent(redirectTarget)}` : '/register'} className="auth-switch-link">
             مش عندك حساب؟ <span>سجّل الآن</span>
           </Link>
         </div>
@@ -531,11 +551,11 @@ function LoginForm() {
         <label className="auth-stay-signed-in">
           <input
             type="checkbox"
-            checked={staySignedIn}
-            onChange={(event) => setStaySignedIn(event.target.checked)}
+            checked={rememberMe}
+            onChange={(event) => setRememberMe(event.target.checked)}
           />
           <span>
-            <strong>البقاء مسجلاً للدخول</strong>
+            <strong>تذكرني (البقاء متصلاً على هذا الجهاز)</strong>
             <small>عند إلغاء الاختيار، ينتهي تسجيل الدخول عند إغلاق المتصفح.</small>
           </span>
         </label>
@@ -570,10 +590,35 @@ function LoginForm() {
   );
 }
 
+// ─── Registration Draft Storage (Mobile Resilience) ───────────────────────────
+
+export {
+  REGISTRATION_DRAFT_KEY,
+  type RegistrationDraft,
+  loadRegistrationDraft,
+  saveRegistrationDraft,
+  clearRegistrationDraft,
+} from '../lib/registration-draft';
+import {
+  loadRegistrationDraft,
+  saveRegistrationDraft,
+  clearRegistrationDraft,
+} from '../lib/registration-draft';
+
 // ─── Register Form ────────────────────────────────────────────────────────────
 
-function RegisterForm() {
+export function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const rawTarget =
+    searchParams?.get('return_to') ||
+    searchParams?.get('redirect') ||
+    searchParams?.get('next') ||
+    '';
+  const redirectTarget =
+    rawTarget && rawTarget.startsWith('/') && !rawTarget.startsWith('//')
+      ? rawTarget
+      : '/account';
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -585,9 +630,7 @@ function RegisterForm() {
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
   const [fatherPhone, setFatherPhone] = useState('');
-  const [motherPhone, setMotherPhone] = useState('');
   const [schoolName, setSchoolName] = useState('');
-  const [parentJob, setParentJob] = useState('');
   const [governorate, setGovernorate] = useState('');
   const [gender, setGender] = useState('');
   const [grade, setGrade] = useState('');
@@ -597,6 +640,122 @@ function RegisterForm() {
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [birthCertificate, setBirthCertificate] = useState<File | null>(null);
   const [agreementAccepted, setAgreementAccepted] = useState(false);
+
+  // Draft persistence state
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
+
+  // Restore non-sensitive draft on mount (survives mobile browser eviction, camera open, or reload)
+  /* eslint-disable react-hooks/set-state-in-effect -- One-time hydration from sessionStorage. */
+  useEffect(() => {
+    const draft = loadRegistrationDraft();
+    if (draft) {
+      if (draft.firstName) setFirstName(draft.firstName);
+      if (draft.secondName) setSecondName(draft.secondName);
+      if (draft.thirdName) setThirdName(draft.thirdName);
+      if (draft.lastName) setLastName(draft.lastName);
+      if (draft.phone) setPhone(draft.phone);
+      if (draft.fatherPhone) setFatherPhone(draft.fatherPhone);
+      if (draft.schoolName) setSchoolName(draft.schoolName);
+      if (draft.governorate) setGovernorate(draft.governorate);
+      if (draft.gender) setGender(draft.gender);
+      if (draft.grade) setGrade(draft.grade);
+      if (draft.section) setSection(draft.section);
+      if (draft.email) setEmail(draft.email);
+      if (draft.agreementAccepted) setAgreementAccepted(true);
+
+      const hasContent = Boolean(
+        draft.firstName ||
+          draft.lastName ||
+          draft.phone ||
+          draft.fatherPhone ||
+          draft.schoolName ||
+          draft.governorate ||
+          draft.email
+      );
+      if (hasContent) {
+        setHasRestoredDraft(true);
+      }
+    }
+    setDraftLoaded(true);
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  // Save non-sensitive draft on changes after initial mount
+  useEffect(() => {
+    if (!draftLoaded) return;
+    const hasAnyContent = Boolean(
+      firstName ||
+        secondName ||
+        thirdName ||
+        lastName ||
+        phone ||
+        fatherPhone ||
+        schoolName ||
+        governorate ||
+        gender ||
+        grade ||
+        section ||
+        email ||
+        agreementAccepted
+    );
+
+    if (hasAnyContent) {
+      saveRegistrationDraft({
+        firstName,
+        secondName,
+        thirdName,
+        lastName,
+        phone,
+        fatherPhone,
+        schoolName,
+        governorate,
+        gender,
+        grade,
+        section,
+        email,
+        agreementAccepted,
+      });
+    }
+  }, [
+    draftLoaded,
+    firstName,
+    secondName,
+    thirdName,
+    lastName,
+    phone,
+    fatherPhone,
+    schoolName,
+    governorate,
+    gender,
+    grade,
+    section,
+    email,
+    agreementAccepted,
+  ]);
+
+  const handleClearDraft = () => {
+    clearRegistrationDraft();
+    setFirstName('');
+    setSecondName('');
+    setThirdName('');
+    setLastName('');
+    setPhone('');
+    setFatherPhone('');
+    setSchoolName('');
+    setGovernorate('');
+    setGender('');
+    setGrade('');
+    setSection('');
+    setEmail('');
+    setPassword('');
+    setPasswordConfirm('');
+    setBirthCertificate(null);
+    setAgreementAccepted(false);
+    setError('');
+    setTouched({});
+    setHasRestoredDraft(false);
+  };
 
   // Inline validation errors (shown after the field is touched)
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -608,14 +767,21 @@ function RegisterForm() {
     lastName: lastName.trim().length < 2 ? 'الاسم الأخير يجب أن يكون حرفين على الأقل' : '',
     email: !EMAIL_RE.test(email) ? 'أدخل بريداً إلكترونياً صحيحاً' : '',
     password:
-      password.length < 12
-        ? 'كلمة السر 12 حرفاً على الأقل'
-        : !/[A-Z]/.test(password)
-          ? 'يجب أن تحتوي على حرف كبير'
-          : !/\d/.test(password)
-            ? 'يجب أن تحتوي على رقم'
-            : '',
-    passwordConfirm: password !== passwordConfirm ? 'كلمتا السر غير متطابقتين' : '',
+      password.length > 9
+        ? 'كلمة السر يجب ألا تتجاوز 9 أحرف'
+        : password.length < 6
+          ? 'كلمة السر 6 أحرف على الأقل'
+          : !/[A-Z]/.test(password)
+            ? 'يجب أن تحتوي على حرف كبير'
+            : !/\d/.test(password)
+              ? 'يجب أن تحتوي على رقم'
+              : '',
+    passwordConfirm:
+      passwordConfirm.length > 9
+        ? 'تأكيد كلمة السر يجب ألا يتجاوز 9 أحرف'
+        : password !== passwordConfirm
+          ? 'كلمتا السر غير متطابقتين'
+          : '',
   };
 
   const isFormValid =
@@ -623,7 +789,8 @@ function RegisterForm() {
     Boolean(birthCertificate) &&
     agreementAccepted;
 
-  const sections = grade ? (SECTIONS_BY_GRADE[grade] ?? []) : [];
+  const isFirstSecondary = grade === 'أولى ثانوي';
+  const sections = !isFirstSecondary && grade ? (SECTIONS_BY_GRADE[grade] ?? []) : [];
 
   // Reset section when grade changes
   const handleGradeChange = (v: string) => {
@@ -633,6 +800,8 @@ function RegisterForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return; // Prevent double submission
+
     // Mark all validated fields as touched so errors appear
     setTouched({
       firstName: true,
@@ -642,6 +811,18 @@ function RegisterForm() {
       passwordConfirm: true,
     });
     if (!isFormValid) return;
+    if (password.length > 9) {
+      setError('كلمة السر يجب ألا تتجاوز 9 أحرف');
+      return;
+    }
+    if (passwordConfirm.length > 9) {
+      setError('تأكيد كلمة السر يجب ألا يتجاوز 9 أحرف');
+      return;
+    }
+    if (!isFirstSecondary && sections.length > 0 && !section) {
+      setError('اختر الشعبة');
+      return;
+    }
     setError('');
     setLoading(true);
     try {
@@ -656,13 +837,11 @@ function RegisterForm() {
         last_name: lastName,
         phone,
         father_phone: fatherPhone,
-        mother_phone: motherPhone,
         school_name: schoolName,
-        parent_job: parentJob,
         governorate,
         gender,
         grade,
-        section,
+        section: isFirstSecondary ? '' : section,
       }).forEach(([key, value]) => payload.set(key, value));
       payload.set('account_use_agreement', agreementAccepted ? 'accepted' : '');
       if (birthCertificate) payload.set('birth_certificate', birthCertificate);
@@ -671,14 +850,24 @@ function RegisterForm() {
         method: 'POST',
         body: payload,
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        ok?: boolean;
+        accountCreated?: boolean;
+        verificationPending?: boolean;
+      };
       if (!res.ok) {
+        // Failed registration request MUST NOT clear the form.
+        // Entered data remains completely intact in state and sessionStorage.
         setError(data.error || 'حدث خطأ في التسجيل');
         return;
       }
+      // ONLY clear draft AFTER confirmed successful registration
+      clearRegistrationDraft();
       setSuccess(true);
-      setTimeout(() => router.push('/account'), 1200);
+      setTimeout(() => router.push(redirectTarget), 1200);
     } catch {
+      // Network failure: keep entered data intact, show error
       setError('تعذر الاتصال. تحقق من الإنترنت.');
     } finally {
       setLoading(false);
@@ -702,10 +891,46 @@ function RegisterForm() {
         <p className="auth-form-sub">
           ادخل بياناتك بشكل صحيح وسيتم التواصل معاك خلال ساعات قليلة لتفعيل الحساب !
         </p>
-        <Link href="/login" className="auth-switch-link">
+        <Link href={rawTarget ? `/login?return_to=${encodeURIComponent(redirectTarget)}` : '/login'} className="auth-switch-link">
           يوجد لديك حساب بالفعل؟ <span>ادخل إلى حسابك الآن !</span>
         </Link>
       </div>
+
+      {hasRestoredDraft && (
+        <div
+          className="auth-draft-banner"
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            background: 'rgba(56, 189, 248, 0.1)',
+            border: '1px solid rgba(56, 189, 248, 0.25)',
+            borderRadius: '8px',
+            padding: '8px 12px',
+            fontSize: '0.85rem',
+            color: 'var(--text-main, #e2e8f0)',
+            marginBottom: '1rem',
+          }}
+        >
+          <span>تم استرجاع بياناتك السابقة تلقائياً.</span>
+          <button
+            type="button"
+            onClick={handleClearDraft}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--red-bright, #f87171)',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              padding: 0,
+            }}
+          >
+            بدء تسجيل جديد
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="auth-error-banner">
@@ -815,25 +1040,10 @@ function RegisterForm() {
             required
           />
         </div>
-        <div className="auth-field-group">
-          <label className="auth-label" htmlFor="reg-mother-phone">
-            رقم هاتف الأم <span className="auth-req">*</span>
-          </label>
-          <Field
-            icon={Phone}
-            id="reg-mother-phone"
-            name="mother_phone"
-            type="tel"
-            placeholder="01xxxxxxxxx"
-            value={motherPhone}
-            onChange={setMotherPhone}
-            required
-          />
-        </div>
       </div>
 
-      {/* School & Parent job */}
-      <div className="auth-grid-2">
+      {/* School */}
+      <div className="auth-grid-1">
         <div className="auth-field-group">
           <label className="auth-label" htmlFor="reg-school">
             اسم المدرسة <span className="auth-req">*</span>
@@ -846,19 +1056,6 @@ function RegisterForm() {
             value={schoolName}
             onChange={setSchoolName}
             required
-          />
-        </div>
-        <div className="auth-field-group">
-          <label className="auth-label" htmlFor="reg-parent-job">
-            مهنة ولي الأمر
-          </label>
-          <Field
-            icon={Briefcase}
-            id="reg-parent-job"
-            name="parent_job"
-            placeholder="مهنة ولي الأمر"
-            value={parentJob}
-            onChange={setParentJob}
           />
         </div>
       </div>
@@ -907,7 +1104,7 @@ function RegisterForm() {
             onChange={handleGradeChange}
           />
         </div>
-        {sections.length > 0 && (
+        {!isFirstSecondary && sections.length > 0 && (
           <div className="auth-field-group">
             <label className="auth-label" htmlFor="reg-section">
               الشعبة <span className="auth-req">*</span>
@@ -956,7 +1153,8 @@ function RegisterForm() {
             <PasswordInput
               id="reg-password"
               name="password"
-              placeholder="كلمة السر (12 حرفاً+)"
+              placeholder="كلمة السر (حتى 9 أحرف)"
+              autoComplete="new-password"
               value={password}
               onChange={(v) => {
                 setPassword(v);
@@ -975,6 +1173,7 @@ function RegisterForm() {
               id="reg-password-confirm"
               name="password_confirm"
               placeholder="تأكيد كلمة السر"
+              autoComplete="new-password"
               value={passwordConfirm}
               onChange={(v) => {
                 setPasswordConfirm(v);
@@ -1051,5 +1250,15 @@ function RegisterForm() {
 // ─── Exported Component ───────────────────────────────────────────────────────
 
 export default function AuthForm({ mode }: { mode: 'login' | 'register' }) {
-  return mode === 'register' ? <RegisterForm /> : <LoginForm />;
+  return (
+    <Suspense
+      fallback={
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '32px' }}>
+          <Loader2 size={32} className="spin" />
+        </div>
+      }
+    >
+      {mode === 'register' ? <RegisterForm /> : <LoginForm />}
+    </Suspense>
+  );
 }

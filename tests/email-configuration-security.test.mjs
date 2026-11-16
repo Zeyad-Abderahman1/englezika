@@ -34,6 +34,42 @@ test('production requires one complete transactional email provider', () => {
   );
 });
 
+test('explicit GMass selection requires an API key and sender address', () => {
+  assert.match(
+    validateEmailConfiguration({ EMAIL_PROVIDER: 'gmass' }, 'development').join(' '),
+    /GMASS_API_KEY/
+  );
+  assert.match(
+    validateEmailConfiguration(
+      { EMAIL_PROVIDER: 'gmass', GMASS_API_KEY: 'configured-outside-source-control' },
+      'development'
+    ).join(' '),
+    /EMAIL_FROM/
+  );
+  assert.deepEqual(
+    validateEmailConfiguration(
+      {
+        EMAIL_PROVIDER: 'gmass',
+        GMASS_API_KEY: 'configured-outside-source-control',
+        EMAIL_FROM: 'Englizeka <mailer@example.test>',
+      },
+      'production'
+    ),
+    []
+  );
+});
+
+test('explicit provider selection rejects unknown and incomplete providers', () => {
+  assert.match(
+    validateEmailConfiguration({ EMAIL_PROVIDER: 'unknown' }, 'development').join(' '),
+    /EMAIL_PROVIDER/
+  );
+  assert.match(
+    validateEmailConfiguration({ EMAIL_PROVIDER: 'resend' }, 'development').join(' '),
+    /RESEND_API_KEY/
+  );
+});
+
 test('local server configuration contains no email or verification credential fallbacks', async () => {
   const platform = await readFile(new URL('../app/lib/platform.ts', import.meta.url), 'utf8');
   const transactionalEmail = await readFile(

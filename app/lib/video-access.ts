@@ -6,6 +6,8 @@ import {
   createSignedVideoCompletionToken,
   verifySignedVideoCompletionToken,
 } from './video-token';
+import { hasCourseItems, getCourseSequenceUnlockState } from './course-sequence';
+import { extractYouTubeId } from './youtube';
 
 export { VIDEO_EMBED_TOKEN_TTL_MS };
 
@@ -14,10 +16,12 @@ export type AuthorizedVideo = {
   courseId: string;
   sourceType: string;
   youtubeId: string | null;
+  sourceUrl: string | null;
   durationSeconds: number;
   title: string;
   prerequisiteExamId: string | null;
   minimumScore: number;
+  maxViews?: number;
   hasEnrollmentAccess: number;
   hasIndividualGrant: number;
 };
@@ -74,8 +78,10 @@ export async function authorizeVideoAccess(
   const video = await db
     .prepare(
       `SELECT v.id, v.course_id AS courseId, v.source_type AS sourceType,
+       v.source_url AS sourceUrl,
        v.youtube_id AS youtubeId, v.duration_seconds AS durationSeconds, v.title,
        v.prerequisite_exam_id AS prerequisiteExamId, v.minimum_score AS minimumScore,
+       v.max_views AS maxViews,
        CASE WHEN EXISTS (
          SELECT 1 FROM enrollments e
          WHERE e.course_id = v.course_id AND e.user_email = ? AND e.status = 'approved'
@@ -92,7 +98,26 @@ export async function authorizeVideoAccess(
     return { ok: false, status: 403, error: 'هذه المحاضرة غير متاحة لهذا الحساب' };
   }
 
+  video.youtubeId = extractYouTubeId(video.youtubeId) || extractYouTubeId(video.sourceUrl);
+
   if (Number(video.hasIndividualGrant)) return { ok: true, video };
+
+  const courseHasSequence = await hasCourseItems(video.courseId);
+
+  if (courseHasSequence) {
+    const unlockState = await getCourseSequenceUnlockState(video.courseId, normalized);
+    const key = `video:${videoId}`;
+    const state = unlockState.get(key);
+    if (state && !state.unlocked) {
+      return {
+        ok: false,
+        status: 403,
+        error: 'يجب إكمال العناصر السابقة في تسلسل التعلم أولاً',
+        code: 'SEQUENCE_LOCKED',
+      };
+    }
+    if (state?.unlocked) return { ok: true, video };
+  }
 
   const previousVideo = await db
     .prepare(
@@ -119,23 +144,65 @@ export async function authorizeVideoAccess(
   }
 
   if (video.prerequisiteExamId) {
-    const bestAttempt = await db
-      .prepare(
-        `SELECT MAX(CASE WHEN max_score > 0 THEN (score * 100.0 / max_score) ELSE 0 END)
-           AS bestPercentage
-         FROM attempts
-         WHERE exam_id = ? AND user_email = ? AND status = 'submitted'`
-      )
-      .bind(video.prerequisiteExamId, normalized)
-      .first<{ bestPercentage: number | null }>();
-    if (Number(bestAttempt?.bestPercentage ?? -1) < Number(video.minimumScore || 0)) {
-      return {
-        ok: false,
-        status: 403,
-        error: 'يجب اجتياز اختبار المحاضرة بالدرجة المطلوبة أولًا',
-        code: 'LESSON_QUIZ_REQUIRED',
-      };
+    const publishedExam = await db
+      .prepare("SELECT id FROM exams WHERE id = ? AND status = 'published' LIMIT 1")
+      .bind(video.prerequisiteExamId)
+      .first<{ id: string }>();
+
+    // Only gate if the prerequisite exam is published
+    if (publishedExam) {
+      const bestAttempt = await db
+        .prepare(
+          `SELECT MAX(CASE WHEN max_score > 0 THEN (score * 100.0 / max_score) ELSE 0 END)
+             AS bestPercentage
+           FROM attempts
+           WHERE exam_id = ? AND user_email = ? AND status = 'submitted'`
+        )
+        .bind(video.prerequisiteExamId, normalized)
+        .first<{ bestPercentage: number | null }>();
+      if (Number(bestAttempt?.bestPercentage ?? -1) < Number(video.minimumScore || 0)) {
+        return {
+          ok: false,
+          status: 403,
+          error: 'يجب اجتياز اختبار المحاضرة بالدرجة المطلوبة أولًا',
+          code: 'LESSON_QUIZ_REQUIRED',
+        };
+      }
     }
   }
   return { ok: true, video };
+}
+
+/**
+ * Resets a student's lecture viewing allowance and invalidates any active sessions
+ * for all videos belonging to a specific course upon course renewal/reactivation.
+ */
+export async function resetCourseLectureViewAllowance(
+  userEmail: string,
+  courseId: string
+): Promise<{ changes: number }> {
+  const db = getDatabase();
+  const normalized = userEmail ? userEmail.trim().toLowerCase() : '';
+  const normalizedCourse = courseId ? courseId.trim() : '';
+  if (!normalized || !normalizedCourse) {
+    return { changes: 0 };
+  }
+
+  const result = await db
+    .prepare(
+      `DELETE FROM video_view_sessions
+       WHERE LOWER(TRIM(user_email)) = ?
+         AND video_id IN (
+           SELECT id FROM videos WHERE TRIM(course_id) = ?
+         )`
+    )
+    .bind(normalized, normalizedCourse)
+    .run();
+
+  const changes =
+    result && 'meta' in result && typeof (result.meta as { changes?: number })?.changes === 'number'
+      ? (result.meta as { changes?: number }).changes || 0
+      : 0;
+
+  return { changes };
 }

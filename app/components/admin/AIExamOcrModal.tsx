@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useMemo, ChangeEvent, DragEvent } from 'react';
+import { useState, useRef, useMemo, useEffect, ChangeEvent, DragEvent } from 'react';
 import {
   X,
   Upload,
@@ -11,6 +11,7 @@ import {
   ArrowUp,
   ArrowDown,
   Plus,
+  Minus,
   Save,
   LoaderCircle,
   Layers,
@@ -24,6 +25,20 @@ import {
   Maximize2,
 } from 'lucide-react';
 import type { ExtractedQuestion } from '../../lib/exam-ocr';
+import { PublishExamAsCourse } from './exam/PublishExamAsCourse';
+import {
+  applyExamPublishing,
+  emptyPublishingDraft,
+  hasPublishingChanges,
+  type ExamPublishingDraft,
+} from '../../lib/exam-publishing-client';
+import {
+  mergeBatches,
+  planBatches,
+  type BatchResult,
+  type BatchWindow,
+  type OcrWarning,
+} from '../../lib/exam-ocr-merge';
 
 type Course = {
   id: string;
@@ -44,6 +59,11 @@ type Props = {
   videos: Video[];
   initialCourseId?: string;
   onExamSaved?: (examId: string) => void;
+  /**
+   * Questions already extracted elsewhere (the AI assistant's "exam from photos"). The modal
+   * opens as the full review/edit screen with these questions instead of an empty list.
+   */
+  preloaded?: { questions: ExtractedQuestion[]; title?: string } | null;
 };
 
 type ImageFileItem = {
@@ -52,6 +72,98 @@ type ImageFileItem = {
   previewUrl: string;
 };
 
+type BatchView = {
+  window: BatchWindow;
+  status: 'pending' | 'running' | 'done' | 'failed';
+  error?: string;
+};
+
+class BatchError extends Error {
+  readonly retryable: boolean;
+  readonly status: number;
+  constructor(message: string, retryable: boolean, status = 0) {
+    super(message);
+    this.retryable = retryable;
+    this.status = status;
+  }
+}
+
+/** Questions rendered per step in the review studio (all questions are kept and saved). */
+const REVIEW_PAGE_SIZE = 40;
+/** Batches processed at the same time. */
+const OCR_CONCURRENCY = 2;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Downscales large photos (long edge 2200px, JPEG) so each batch request stays small and fast. */
+async function prepareImage(file: File): Promise<File> {
+  try {
+    if (file.size <= 1_200_000 || typeof createImageBitmap !== 'function') return file;
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 2200 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext('2d');
+    if (!context) return file;
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.88));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch {
+    return file;
+  }
+}
+
+async function postBatch(files: File[]): Promise<ExtractedQuestion[]> {
+  const formData = new FormData();
+  for (const file of files) formData.append('images', file);
+
+  let res: Response;
+  try {
+    res = await fetch('/api/admin/exams/ocr', { method: 'POST', body: formData });
+  } catch {
+    throw new BatchError('تعذر الاتصال بالخادم. تحقق من الإنترنت.', true);
+  }
+  const data = await res.json().catch(() => null);
+  if (res.ok && data?.ok) return (data.questions || []) as ExtractedQuestion[];
+
+  const retryable =
+    typeof data?.retryable === 'boolean' ? data.retryable : res.status >= 500 || res.status === 429 || res.status === 408;
+  throw new BatchError(data?.error || 'تعذر استخراج الأسئلة من الصور', retryable, res.status);
+}
+
+/**
+ * Extracts one window of pages. Retries transient failures with backoff; later
+ * attempts send the pages one by one (smaller request, smaller answer).
+ */
+async function extractWindow(files: File[], window: BatchWindow): Promise<ExtractedQuestion[]> {
+  let lastError: BatchError | null = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      if (attempt === 1 || files.length === 1) return await postBatch(files);
+      const parts: BatchResult[] = [];
+      for (let index = 0; index < files.length; index++) {
+        parts.push({
+          window: { start: window.start + index, end: window.start + index + 1 },
+          questions: await postBatch([files[index]]),
+        });
+      }
+      return mergeBatches(parts).questions;
+    } catch (error) {
+      lastError = error instanceof BatchError ? error : new BatchError('تعذر استخراج الأسئلة من الصور', true);
+      if (!lastError.retryable && lastError.status !== 413) break;
+      await sleep(1000 * attempt);
+    }
+  }
+  throw lastError ?? new BatchError('تعذر استخراج الأسئلة من الصور', true);
+}
+
+function pagesLabel(window: BatchWindow): string {
+  return window.end - window.start <= 1 ? String(window.start + 1) : window.start + 1 + '–' + window.end;
+}
+
 export function AIExamOcrModal({
   isOpen,
   onClose,
@@ -59,6 +171,7 @@ export function AIExamOcrModal({
   videos,
   initialCourseId,
   onExamSaved,
+  preloaded,
 }: Props) {
   // Placement & Meta state
   const [selectedCourseId, setSelectedCourseId] = useState(initialCourseId || courses[0]?.id || '');
@@ -68,14 +181,32 @@ export function AIExamOcrModal({
   const [passingScore, setPassingScore] = useState(70);
   const [title, setTitle] = useState('');
   const [durationMinutes, setDurationMinutes] = useState(30);
+  const [showReview, setShowReview] = useState(true);
 
   // Images & OCR state
   const [images, setImages] = useState<ImageFileItem[]>([]);
   const [isOcrLoading, setIsOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState('');
+  const [batches, setBatches] = useState<BatchView[]>([]);
+  const [ocrWarnings, setOcrWarnings] = useState<OcrWarning[]>([]);
+  const [ocrSummary, setOcrSummary] = useState('');
+  const [questionsSoFar, setQuestionsSoFar] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(REVIEW_PAGE_SIZE);
+  const [publishing, setPublishing] = useState<ExamPublishingDraft>(emptyPublishingDraft);
+  const batchResultsRef = useRef<Map<number, BatchResult>>(new Map());
+  const preparedRef = useRef<Map<string, File>>(new Map());
+  const editedRef = useRef(false);
 
   // Questions Edit Studio state
   const [questions, setQuestions] = useState<ExtractedQuestion[]>([]);
+  const [appliedPreload, setAppliedPreload] = useState<typeof preloaded>(null);
+
+  // Guarded state adjustment during render (no effect): load the preloaded review once.
+  if (preloaded && preloaded !== appliedPreload) {
+    setAppliedPreload(preloaded);
+    setQuestions(preloaded.questions);
+    if (preloaded.title) setTitle(preloaded.title);
+  }
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
@@ -84,6 +215,29 @@ export function AIExamOcrModal({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Lock background scrolling and support keyboard dismissal while open.
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCloseRef.current();
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
 
   // Filter lectures belonging to selected course
   const courseVideos = useMemo(() => {
@@ -152,7 +306,7 @@ export function AIExamOcrModal({
       file,
       previewUrl: URL.createObjectURL(file),
     }));
-    setImages((prev) => [...prev, ...mapped].slice(0, 10));
+    setImages((prev) => [...prev, ...mapped]);
     setOcrError('');
   };
 
@@ -164,7 +318,69 @@ export function AIExamOcrModal({
     });
   };
 
-  // Run AI OCR
+  const preparedFor = async (item: ImageFileItem): Promise<File> => {
+    const cached = preparedRef.current.get(item.id);
+    if (cached) return cached;
+    const prepared = await prepareImage(item.file);
+    preparedRef.current.set(item.id, prepared);
+    return prepared;
+  };
+
+  const applyMerged = (results: Map<number, BatchResult>, allWindows: BatchWindow[]) => {
+    const merged = mergeBatches([...results.values()]);
+    setQuestions(merged.questions);
+    setOcrWarnings(merged.warnings);
+    const failed = allWindows.length - results.size;
+    setOcrSummary(
+      failed > 0
+        ? 'تم استخراج ' + merged.questions.length + ' سؤال حتى الآن — فشلت ' + failed + ' دفعة. أعد محاولة الدفعات الفاشلة.'
+        : 'تم استخراج ' + merged.questions.length + ' سؤال'
+    );
+    setVisibleCount(REVIEW_PAGE_SIZE);
+    editedRef.current = false;
+  };
+
+  // Runs the given windows with limited concurrency and live progress.
+  const runWindows = async (allWindows: BatchWindow[], indices: number[]) => {
+    const items = images;
+    let cursor = 0;
+
+    const worker = async () => {
+      while (cursor < indices.length) {
+        const index = indices[cursor++];
+        const window = allWindows[index];
+        setBatches((prev) => prev.map((b, i) => (i === index ? { ...b, status: 'running', error: undefined } : b)));
+        try {
+          const files = await Promise.all(items.slice(window.start, window.end).map(preparedFor));
+          const extracted = await extractWindow(files, window);
+          batchResultsRef.current.set(index, { window, questions: extracted });
+          setBatches((prev) => prev.map((b, i) => (i === index ? { ...b, status: 'done' } : b)));
+          setQuestionsSoFar(mergeBatches([...batchResultsRef.current.values()]).questions.length);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'تعذر استخراج الأسئلة من الصور';
+          setBatches((prev) => prev.map((b, i) => (i === index ? { ...b, status: 'failed', error: message } : b)));
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(OCR_CONCURRENCY, indices.length) }, worker));
+  };
+
+  const autoTitle = () => {
+    if (title.trim()) return;
+    const c = courses.find((x) => x.id === selectedCourseId);
+    const fromV = videos.find((v) => v.id === fromVideoId);
+    const toV = videos.find((v) => v.id === toVideoId);
+    if (scopeType === 'lecture_range' && fromV && toV) {
+      setTitle('اختبار فاصل بين (' + fromV.title + ') و (' + toV.title + ')');
+    } else if (c) {
+      setTitle('اختبار شامل - ' + c.title);
+    } else {
+      setTitle('اختبار جديد');
+    }
+  };
+
+  // Run AI OCR: pages are sent in small overlapping batches, so any number of
+  // pages / questions works and each request stays short.
   const runAiOcr = async () => {
     if (!images.length) {
       setOcrError('يرجى إضافة صورة واحدة على الأقل للاستخراج.');
@@ -172,38 +388,24 @@ export function AIExamOcrModal({
     }
     setIsOcrLoading(true);
     setOcrError('');
+    setOcrWarnings([]);
+    setOcrSummary('');
+    setQuestionsSoFar(0);
+
+    const windows = planBatches(images.length);
+    batchResultsRef.current = new Map();
+    setBatches(windows.map((window) => ({ window, status: 'pending' as const })));
+
     try {
-      const formData = new FormData();
-      for (const item of images) {
-        formData.append('images', item.file);
+      await runWindows(
+        windows,
+        windows.map((_, index) => index)
+      );
+      if (batchResultsRef.current.size === 0) {
+        throw new Error('تعذر استخراج الأسئلة من الصور. أعد المحاولة.');
       }
-
-      const res = await fetch('/api/admin/exams/ocr', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || 'تعذر استخراج الأسئلة من الصور');
-      }
-
-      const extracted: ExtractedQuestion[] = data.questions || [];
-      setQuestions(extracted);
-
-      // Auto-generate title if currently empty
-      if (!title.trim()) {
-        const c = courses.find((x) => x.id === selectedCourseId);
-        const fromV = videos.find((v) => v.id === fromVideoId);
-        const toV = videos.find((v) => v.id === toVideoId);
-        if (scopeType === 'lecture_range' && fromV && toV) {
-          setTitle(`اختبار فاصل بين (${fromV.title}) و (${toV.title})`);
-        } else if (c) {
-          setTitle(`اختبار شامل - ${c.title}`);
-        } else {
-          setTitle('اختبار جديد');
-        }
-      }
+      applyMerged(batchResultsRef.current, windows);
+      autoTitle();
     } catch (err) {
       setOcrError(err instanceof Error ? err.message : 'حدث خطأ أثناء الاتصال بالذكاء الاصطناعي');
     } finally {
@@ -211,8 +413,30 @@ export function AIExamOcrModal({
     }
   };
 
+  // Retry ONLY the batches that failed.
+  const retryFailedBatches = async () => {
+    const windows = batches.map((b) => b.window);
+    const failedIndices = batches.flatMap((b, index) => (b.status === 'failed' ? [index] : []));
+    if (!failedIndices.length) return;
+    if (
+      editedRef.current &&
+      !window.confirm('إعادة دمج الصفحات الفاشلة ستستبدل تعديلاتك الحالية على الأسئلة. هل تريد المتابعة؟')
+    ) {
+      return;
+    }
+    setIsOcrLoading(true);
+    setOcrError('');
+    try {
+      await runWindows(windows, failedIndices);
+      applyMerged(batchResultsRef.current, windows);
+    } finally {
+      setIsOcrLoading(false);
+    }
+  };
+
   // Question editing actions
   const updateQuestion = (index: number, patch: Partial<ExtractedQuestion>) => {
+    editedRef.current = true;
     setQuestions((prev) =>
       prev.map((q, i) => (i === index ? { ...q, ...patch } : q))
     );
@@ -238,6 +462,7 @@ export function AIExamOcrModal({
   };
 
   const deleteQuestion = (index: number) => {
+    editedRef.current = true;
     setQuestions((prev) => prev.filter((_, i) => i !== index));
   };
 
@@ -254,6 +479,7 @@ export function AIExamOcrModal({
   };
 
   const addNewQuestion = () => {
+    editedRef.current = true;
     const newQ: ExtractedQuestion = {
       temp_id: crypto.randomUUID(),
       sort_order: questions.length + 1,
@@ -264,6 +490,7 @@ export function AIExamOcrModal({
       points: 1,
       ai_confidence: 'high',
       ai_explanation: 'سؤال أضيف يدوياً',
+      explanation: '',
     };
     setQuestions((prev) => [...prev, newQ]);
   };
@@ -296,46 +523,104 @@ export function AIExamOcrModal({
       return;
     }
     for (let i = 0; i < questions.length; i++) {
-      if (!questions[i].prompt.trim()) {
+      const q = questions[i];
+      if (!q.prompt.trim()) {
         setSubmitError(`السؤال رقم ${i + 1} لا يحتوي على نص.`);
+        setCollapsedQuestions((prev) => ({ ...prev, [q.temp_id]: false }));
+        setVisibleCount((count) => Math.max(count, i + 1));
         return;
       }
-      if (questions[i].type === 'multiple_choice' && questions[i].options.length < 2) {
-        setSubmitError(`السؤال رقم ${i + 1} يحتاج إلى اختيارين على الأقل.`);
+      if (q.type === 'multiple_choice') {
+        if (q.options.length < 2) {
+          setSubmitError(`السؤال رقم ${i + 1} يحتاج إلى اختيارين على الأقل.`);
+          setCollapsedQuestions((prev) => ({ ...prev, [q.temp_id]: false }));
+        setVisibleCount((count) => Math.max(count, i + 1));
+          return;
+        }
+        if (!q.correct_answer || !q.options.includes(q.correct_answer)) {
+          setSubmitError(
+            `السؤال رقم ${i + 1} لم يتم تحديد إجابة صحيحة له. يرجى الضغط على أحد الخيارات لتحديده كإجابة صحيحة.`
+          );
+          setCollapsedQuestions((prev) => ({ ...prev, [q.temp_id]: false }));
+        setVisibleCount((count) => Math.max(count, i + 1));
+          return;
+        }
+      } else if (!q.correct_answer?.trim()) {
+        setSubmitError(`السؤال رقم ${i + 1} لا يحتوي على إجابة صحيحة.`);
+        setCollapsedQuestions((prev) => ({ ...prev, [q.temp_id]: false }));
+        setVisibleCount((count) => Math.max(count, i + 1));
         return;
       }
     }
 
     setIsSubmitting(true);
     try {
+      // Lecture gates may be selected in any order. Normalize them into a chronological
+      // range (earlier lecture first, later lecture last) instead of blocking submission.
+      let rangeStartVideoId = fromVideoId;
+      let rangeEndVideoId = toVideoId;
+      if (scopeType === 'lecture_range') {
+        const fromIndex = courseVideos.findIndex((v) => v.id === fromVideoId);
+        const toIndex = courseVideos.findIndex((v) => v.id === toVideoId);
+        if (fromIndex >= 0 && toIndex >= 0) {
+          rangeStartVideoId = courseVideos[Math.min(fromIndex, toIndex)].id;
+          rangeEndVideoId = courseVideos[Math.max(fromIndex, toIndex)].id;
+        }
+      }
+
       const payload = {
         title: title.trim(),
         courseId: selectedCourseId || null,
         durationMinutes: Number(durationMinutes) || 30,
         passingScore: Number(passingScore) || 50,
         scopeType,
-        fromVideoId: scopeType === 'lecture_range' ? fromVideoId || null : null,
-        toVideoId: scopeType === 'lecture_range' ? toVideoId || null : null,
+        fromVideoId: scopeType === 'lecture_range' ? rangeStartVideoId || null : null,
+        toVideoId: scopeType === 'lecture_range' ? rangeEndVideoId || null : null,
+        showReview,
         status: 'published',
         questions: questions.map((q, idx) => ({
           type: q.type,
           prompt: q.prompt,
           options: q.options,
           correctAnswer: q.correct_answer,
+          explanation: q.explanation || '',
           points: q.points || 1,
           sortOrder: idx + 1,
         })),
       };
 
-      const res = await fetch('/api/admin/exams', {
+      let res = await fetch('/api/admin/exams', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
+      let data = await res.json();
+      if (res.status === 409 && data.code === 'PREREQUISITE_CONFLICT') {
+        const confirmOverride = window.confirm(
+          `${data.error || 'المحاضرة المستهدفة مرتبطة بالفعل باختبار إجباري آخر.'}\n\nهل ترغب في استبداله بهذا الاختبار؟`
+        );
+        if (confirmOverride) {
+          res = await fetch('/api/admin/exams', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...payload, confirmOverride: true }),
+          });
+          data = await res.json();
+        } else {
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       if (!res.ok || !data.ok) {
         throw new Error(data.error || 'تعذر حفظ الاختبار');
+      }
+
+      // Optional thumbnail + "publish as an all-classes course" (shared service, never blocks the save).
+      if (data.id && hasPublishingChanges(publishing)) {
+        const outcome = await applyExamPublishing(String(data.id), publishing);
+        if (outcome.warnings.length) window.alert(outcome.warnings.join(' — '));
       }
 
       onExamSaved?.(data.id);
@@ -350,7 +635,13 @@ export function AIExamOcrModal({
   if (!isOpen) return null;
 
   return (
-    <div className="ai-exam-modal-overlay" dir="rtl">
+    <div
+      className="ai-exam-modal-overlay"
+      dir="rtl"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="ai-exam-ocr-title"
+    >
       <div className="ai-exam-modal-container">
         {/* Modal Header */}
         <header className="ai-exam-modal-header">
@@ -358,7 +649,7 @@ export function AIExamOcrModal({
             <span className="ai-badge">
               <Sparkles size={16} /> استخراج ذكي (Vision OCR)
             </span>
-            <h2>إنشاء اختبار تفاعلي بالذكاء الاصطناعي وبوابة المحاضرات</h2>
+            <h2 id="ai-exam-ocr-title">إنشاء اختبار تفاعلي بالذكاء الاصطناعي وبوابة المحاضرات</h2>
           </div>
           <button type="button" className="close-btn" onClick={onClose} aria-label="إغلاق النافذة">
             <X size={20} />
@@ -397,18 +688,20 @@ export function AIExamOcrModal({
                 <label>
                   <ArrowLeftRight size={16} /> نطاق الاختبار:
                 </label>
-                <div className="scope-pill-group">
+                <div className="ai-segments" role="group" aria-label="نطاق الاختبار">
                   <button
                     type="button"
-                    className={`scope-pill ${scopeType === 'all_lectures' ? 'active' : ''}`}
+                    className={`ai-segment-btn ${scopeType === 'all_lectures' ? 'active' : ''}`}
                     onClick={() => setScopeType('all_lectures')}
+                    aria-pressed={scopeType === 'all_lectures'}
                   >
-                    جميع محاضرات
+                    جميع المحاضرات
                   </button>
                   <button
                     type="button"
-                    className={`scope-pill ruby-accent ${scopeType === 'lecture_range' ? 'active' : ''}`}
+                    className={`ai-segment-btn ${scopeType === 'lecture_range' ? 'active' : ''}`}
                     onClick={() => setScopeType('lecture_range')}
+                    aria-pressed={scopeType === 'lecture_range'}
                   >
                     نطاق محاضرات
                   </button>
@@ -495,15 +788,66 @@ export function AIExamOcrModal({
                 <label>
                   نسبة النجاح المطلوبة: <span className="passing-badge">{passingScore}%</span>
                 </label>
-                <input
-                  type="range"
-                  min={30}
-                  max={100}
-                  step={5}
-                  value={passingScore}
-                  onChange={(e) => setPassingScore(Number(e.target.value))}
-                  className="custom-range"
-                />
+                <div className="ai-pass-stepper-wrap">
+                  <div className="ai-count-control">
+                    <button
+                      type="button"
+                      onClick={() => setPassingScore((prev) => Math.max(10, prev - 5))}
+                      disabled={passingScore <= 10}
+                      aria-label="تقليل نسبة النجاح"
+                    >
+                      <Minus size={16} />
+                    </button>
+                    <input
+                      type="number"
+                      min={10}
+                      max={100}
+                      step={5}
+                      value={passingScore}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (!isNaN(val)) setPassingScore(Math.max(10, Math.min(100, val)));
+                      }}
+                      aria-label="نسبة النجاح"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setPassingScore((prev) => Math.min(100, prev + 5))}
+                      disabled={passingScore >= 100}
+                      aria-label="زيادة نسبة النجاح"
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </div>
+                  <div className="ai-quick-pills" role="group" aria-label="خيارات نسبة النجاح السريعة">
+                    {[50, 60, 70, 80].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        className={`ai-quick-pill ${passingScore === preset ? 'active' : ''}`}
+                        onClick={() => setPassingScore(preset)}
+                      >
+                        {preset}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Review Settings */}
+              <div className="form-group" style={{ gridColumn: '1 / -1', marginTop: '0.25rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={showReview}
+                    onChange={(e) => setShowReview(e.target.checked)}
+                    style={{ width: '18px', height: '18px', accentColor: 'var(--brand-primary, #6366f1)', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontWeight: 600 }}>السماح للطلاب بمراجعة الإجابات بعد التسليم</span>
+                </label>
+                <p className="inter-lecture-hint" style={{ marginTop: '0.25rem' }}>
+                  عند التفعيل، سيتمكن الطالب من مراجعة إجاباته ومعرفة الإجابات الصحيحة وشرحها بعد تسليم الاختبار.
+                </p>
               </div>
             </div>
           </section>
@@ -541,7 +885,7 @@ export function AIExamOcrModal({
             >
               <Upload size={32} className="dropzone-icon" />
               <h4>اسحب وأفلت صور أوراق الأسئلة هنا أو اضغط للاختيار</h4>
-              <p>يدعم حتى 10 صور بدقة عالية (PNG, JPEG, WEBP - بحد أقصى 10MB لكل صورة)</p>
+              <p>يدعم أي عدد من الصور بدقة عالية (PNG, JPEG, WEBP - بحد أقصى 10MB لكل صورة)</p>
             </div>
 
             {/* Touch Action Buttons for Mobile / Tablet */}
@@ -612,7 +956,74 @@ export function AIExamOcrModal({
                 )}
               </button>
               {ocrError && <div className="error-banner">{ocrError}</div>}
+
+              {batches.length > 0 && (isOcrLoading || batches.some((b) => b.status === 'failed')) && (
+                <div className="ocr-progress" role="status" aria-live="polite">
+                  {(() => {
+                    const settled = batches.filter((b) => b.status === 'done' || b.status === 'failed');
+                    const covered = new Set<number>();
+                    for (const b of settled) for (let p = b.window.start; p < b.window.end; p++) covered.add(p);
+                    const percent = Math.round((covered.size / Math.max(1, images.length)) * 100);
+                    return (
+                      <>
+                        <div
+                          className="ocr-progress-bar"
+                          role="progressbar"
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={percent}
+                          aria-label="تقدم استخراج الأسئلة"
+                        >
+                          <span style={{ width: percent + '%' }} />
+                        </div>
+                        <p className="ocr-progress-text">
+                          {isOcrLoading
+                            ? 'جاري معالجة الصفحات: ' + covered.size + ' من ' + images.length + ' — تم العثور على ' + questionsSoFar + ' سؤال حتى الآن'
+                            : 'تمت معالجة ' + covered.size + ' من ' + images.length + ' صفحة'}
+                        </p>
+                      </>
+                    );
+                  })()}
+                  {batches.some((b) => b.status === 'failed') && (
+                    <div className="ocr-failed-batches">
+                      {batches.map((b, index) =>
+                        b.status === 'failed' ? (
+                          <p key={index} className="ocr-failed-line">
+                            <AlertCircle size={14} /> فشلت الصفحات {pagesLabel(b.window)}: {b.error}
+                          </p>
+                        ) : null
+                      )}
+                      <button type="button" className="btn-quick-tool" onClick={retryFailedBatches} disabled={isOcrLoading}>
+                        إعادة محاولة الدفعات الفاشلة فقط
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!isOcrLoading && ocrSummary && (
+                <div className="ocr-summary" role="status">
+                  <CheckCircle2 size={16} /> {ocrSummary}
+                </div>
+              )}
+              {ocrWarnings.length > 0 && (
+                <ul className="ocr-warning-list" role="alert">
+                  {ocrWarnings.map((warning, index) => (
+                    <li key={index}>
+                      <AlertCircle size={14} /> {warning.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
+          </section>
+
+          {/* Optional: thumbnail + publish as a course for all classes (shared component) */}
+          <section className="upload-section">
+            <h3 className="section-title">
+              <ImageIcon size={18} /> صورة الامتحان والنشر ككورس (اختياري)
+            </h3>
+            <PublishExamAsCourse value={publishing} onChange={setPublishing} disabled={isSubmitting} />
           </section>
 
           {/* SECTION 3: Interactive Preview & Edit Studio */}
@@ -664,7 +1075,7 @@ export function AIExamOcrModal({
               </div>
             ) : (
               <div className="questions-card-list">
-                {questions.map((q, qIndex) => {
+                {questions.slice(0, visibleCount).map((q, qIndex) => {
                   const collapsed = isQuestionCollapsed(q.temp_id);
                   return (
                     <article
@@ -814,11 +1225,52 @@ export function AIExamOcrModal({
                               })}
                             </div>
                           </div>
+
+                          {/* Student-facing Explanation Editor */}
+                          <div className="explanation-editor-group" style={{ marginTop: '0.875rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.375rem' }}>
+                              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                                شرح الإجابة (يظهر للطالب بعد التسليم)
+                              </label>
+                              <span style={{ fontSize: '0.75rem', color: (q.explanation?.length || 0) > 400 ? 'var(--warning, #eab308)' : 'var(--text-muted)' }}>
+                                {(q.explanation || '').length}/400
+                              </span>
+                            </div>
+                            {q.needs_review && (
+                              <div style={{ fontSize: '0.8rem', color: 'var(--warning, #eab308)', marginBottom: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                <AlertCircle size={14} /> تنبيه: الشرح بحاجة لمراجعة من المعلم للتأكد من توافقه مع الإجابة الصحيحة
+                              </div>
+                            )}
+                            <textarea
+                              dir="auto"
+                              rows={2}
+                              maxLength={1500}
+                              value={q.explanation || ''}
+                              onChange={(e) => updateQuestion(qIndex, { explanation: e.target.value, needs_review: false })}
+                              placeholder="اكتب شرحاً مبسطاً باللغة العربية يوضح للطالب سبب صحة الإجابة..."
+                              className="prompt-textarea"
+                              style={{ minHeight: '60px', fontSize: '0.875rem' }}
+                            />
+                          </div>
                         </div>
                       )}
                     </article>
                   );
                 })}
+                {questions.length > visibleCount && (
+                  <div className="ocr-show-more">
+                    <button
+                      type="button"
+                      className="btn btn-outline-sm"
+                      onClick={() => setVisibleCount((count) => count + REVIEW_PAGE_SIZE)}
+                    >
+                      عرض المزيد ({questions.length - visibleCount} سؤال متبقٍ)
+                    </button>
+                    <button type="button" className="btn btn-outline-sm" onClick={() => setVisibleCount(questions.length)}>
+                      عرض الكل
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </section>
@@ -827,14 +1279,14 @@ export function AIExamOcrModal({
         {/* Modal Sticky Bottom Action Bar (One-Thumb Operation) */}
         <footer className="ai-exam-modal-footer">
           {submitError && (
-            <div className="submit-error-msg">
+            <div className="submit-error-msg" role="alert">
               <AlertCircle size={16} /> {submitError}
             </div>
           )}
           <div className="footer-btns">
             <button
               type="button"
-              className="btn btn-secondary"
+              className="btn btn-secondary ai-exam-footer-cancel"
               onClick={onClose}
               disabled={isSubmitting}
             >
@@ -872,7 +1324,7 @@ export function AIExamOcrModal({
                     </>
                   ) : (
                     <>
-                      <Sparkles size={18} /> استخراج الأسئلة بالذكاء الاصطناعي
+                      <Sparkles size={18} /> استخراج الأسئلة
                     </>
                   )}
                 </button>

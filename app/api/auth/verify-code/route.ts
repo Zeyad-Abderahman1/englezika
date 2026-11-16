@@ -1,11 +1,15 @@
 import { apiUser, isResponse } from '../../../lib/api-auth';
 import { verifyStoredCode } from '../../../lib/email-verification';
-import { jsonError, requireSameOrigin } from '../../../lib/security';
+import { jsonError, readBoundedJson, requireSameOrigin } from '../../../lib/security';
 import { checkRateLimit, getClientIp, rateLimitResponse } from '../../../lib/rate-limit';
 
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
+
+  const parsed = await readBoundedJson<Record<string, unknown>>(request, 32 * 1024);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
 
   const ip = getClientIp(request);
   const rateCheck = await checkRateLimit('verify-code', ip, 5, 300);
@@ -14,7 +18,6 @@ export async function POST(request: Request) {
   }
   const user = await apiUser();
   if (isResponse(user)) return user;
-  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const code = typeof body.code === 'string' ? body.code.trim() : '';
   if (!/^\d{6}$/.test(code)) return jsonError('أدخل كود التفعيل المكون من 6 أرقام');
 

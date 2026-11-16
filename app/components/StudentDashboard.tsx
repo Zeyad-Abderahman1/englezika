@@ -1,7 +1,10 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { openNotificationHome, visibleUnreadAnnouncementIds } from '../lib/announcement-display';
+import { getCourseThumbnailUrl } from '../lib/course-thumbnail';
+import { examThumbnailUrl } from '../lib/exam-listing';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -13,6 +16,7 @@ import {
   ChevronDown,
   ClipboardCheck,
   Clock3,
+  Download,
   FileText,
   GraduationCap,
   Home,
@@ -24,7 +28,9 @@ import {
   Menu,
   Medal,
   Play,
+  QrCode,
   ShieldCheck,
+  Upload,
   UserRound,
   Trophy,
   X,
@@ -35,14 +41,21 @@ async function logout() {
   window.location.assign('/login');
 }
 import EmailVerification from './EmailVerification';
-import LectureCodeRedemption from './LectureCodeRedemption';
+import AssessmentReview, { type ReviewQuestion } from './AssessmentReview';
+import { replaceAbortController, runRecoverableLoad } from '../lib/recoverable-load';
 
 type DashboardData = {
   verificationRequired: boolean;
   user: {
     email: string;
     displayName: string;
-    profile?: { name?: string; phone?: string; grade?: string } | null;
+    profile?: {
+      name?: string;
+      phone?: string;
+      grade?: string;
+      section?: string;
+      hideFromLeaderboard?: boolean;
+    } | null;
   };
   enrollments: Array<{
     id: string;
@@ -50,9 +63,14 @@ type DashboardData = {
     title: string;
     grade: string;
     status: string;
+    thumbnailKey?: string | null;
+    updatedAt?: number;
+    kind?: string;
+    listingExamId?: string | null;
   }>;
   exams: Array<{
     id: string;
+    thumbnailKey?: string | null;
     courseId?: string | null;
     title: string;
     description: string;
@@ -124,6 +142,406 @@ function percent(score: number, maxScore: number) {
   return maxScore > 0 ? Math.round((score * 100) / maxScore) : 0;
 }
 
+type AssignmentRow = DashboardData['assignments'][number];
+
+type AssignmentDetail = {
+  assignment: {
+    id: string;
+    type: string;
+    hasTeacherFile: number;
+    maxScore: number;
+  };
+  questions: Array<{
+    id: string;
+    question: string;
+    explanation: string | null;
+    options: string[];
+    correctIndex: number | null;
+    points: number;
+    sortOrder: number;
+    hasImage: boolean;
+  }>;
+  submission: {
+    id: string;
+    status: string;
+    score: number | null;
+    maxScore: number | null;
+    feedback: string;
+    submittedAt: number;
+    hasPdf: number;
+    mcqAnswers: Record<string, number> | null;
+  } | null;
+};
+
+function StudentAssignmentCard({ assignment }: { assignment: AssignmentRow }) {
+  const [detail, setDetail] = useState<AssignmentDetail | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [msgType, setMsgType] = useState<'ok' | 'err'>('ok');
+  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [reviewData, setReviewData] = useState<{
+    score: number;
+    maxScore: number;
+    percentage: number;
+    questions: ReviewQuestion[];
+  } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const loadDetail = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/student/assignments/${assignment.id}`);
+      if (res.ok) {
+        const d = (await res.json()) as AssignmentDetail;
+        setDetail(d);
+        if (d.submission?.mcqAnswers) {
+          setAnswers(d.submission.mcqAnswers);
+        }
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [assignment.id]);
+
+  const handleToggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && !detail) void loadDetail();
+  };
+
+  const handlePdfSubmit = async () => {
+    const file = fileRef.current?.files?.[0];
+    if (!file) {
+      setMsg('اختر ملف PDF أولاً');
+      setMsgType('err');
+      return;
+    }
+    if (!file.type.includes('pdf')) {
+      setMsg('يجب رفع ملف PDF فقط');
+      setMsgType('err');
+      return;
+    }
+    setBusy(true);
+    setMsg('');
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const res = await fetch(`/api/student/assignments/${assignment.id}/submit`, {
+        method: 'POST',
+        body: fd,
+      });
+      if (res.ok) {
+        setMsg('تم إرسال إجابتك بنجاح! سيتم مراجعتها وتصحيحها.');
+        setMsgType('ok');
+        void loadDetail();
+      } else {
+        const err = (await res.json()) as { error?: string };
+        setMsg(err.error || 'تعذر إرسال الإجابة');
+        setMsgType('err');
+      }
+    } catch {
+      setMsg('خطأ في الاتصال بالخادم');
+      setMsgType('err');
+    }
+    setBusy(false);
+  };
+
+  const handleMcqSubmit = async () => {
+    if (!detail) return;
+    const unanswered = detail.questions.filter((q) => answers[q.id] === undefined);
+    if (unanswered.length > 0) {
+      setMsg(`يرجى الإجابة على جميع الأسئلة (متبقي ${unanswered.length} سؤال)`);
+      setMsgType('err');
+      return;
+    }
+    setBusy(true);
+    setMsg('');
+    const ansArray = Object.entries(answers).map(([questionId, answer]) => ({
+      questionId,
+      answer,
+    }));
+    try {
+      const res = await fetch(`/api/student/assignments/${assignment.id}/submit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ answers: ansArray }),
+      });
+      if (res.ok) {
+        const result = (await res.json()) as {
+          score: number;
+          maxScore: number;
+          percentage: number;
+          questions?: ReviewQuestion[];
+        };
+        setMsg(`تم التسليم بنجاح! درجتك: ${result.score} من ${result.maxScore} (${result.percentage}%)`);
+        setMsgType('ok');
+        if (result.questions) {
+          setReviewData({
+            score: result.score,
+            maxScore: result.maxScore,
+            percentage: result.percentage,
+            questions: result.questions,
+          });
+        }
+        void loadDetail();
+      } else {
+        const err = (await res.json()) as { error?: string };
+        setMsg(err.error || 'تعذر إرسال الإجابات');
+        setMsgType('err');
+      }
+    } catch {
+      setMsg('خطأ في الاتصال بالخادم');
+      setMsgType('err');
+    }
+    setBusy(false);
+  };
+
+  const sub = detail?.submission;
+  const type = detail?.assignment?.type || 'pdf';
+
+  return (
+    <article className="exam-row detailed" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'stretch' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', width: '100%', gap: '1rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+          <span className="exam-date">
+            <FileText />
+            <small>{type === 'mcq' ? 'MCQ' : type === 'generic' ? 'عام' : 'PDF'}</small>
+          </span>
+          <div className="exam-copy">
+            <strong>{assignment.title}</strong>
+            <small>
+              {assignment.courseTitle} ·{' '}
+              {assignment.dueAt
+                ? `موعد التسليم: ${new Date(assignment.dueAt).toLocaleString('ar-EG')}`
+                : 'بدون موعد تسليم'}
+              {assignment.maxScore > 0 ? ` · ${assignment.maxScore} درجة` : ''}
+            </small>
+            {assignment.description && <p style={{ margin: '0.35rem 0 0', color: 'var(--text-secondary)' }}>{assignment.description}</p>}
+            {sub && (
+              <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                {sub.status === 'graded' ? (
+                  <span className="status-pill status-approved" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <CheckCircle2 size={12} /> تم التصحيح: {sub.score} / {sub.maxScore || assignment.maxScore}
+                    {sub.feedback ? ` — ${sub.feedback}` : ''}
+                  </span>
+                ) : (
+                  <span className="status-pill status-pending" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <Clock3 size={12} /> تم التسليم — بانتظار المراجعة والتصحيح
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem', flexShrink: 0 }}>
+          {!assignment.isRead && <span className="status-pill status-pending">جديد</span>}
+          <button
+            type="button"
+            className="btn btn-outline"
+            style={{ fontSize: '0.85rem', padding: '0.35rem 0.75rem' }}
+            onClick={handleToggle}
+            aria-expanded={expanded}
+          >
+            {expanded ? 'إخفاء التفاصيل' : 'فتح الواجب'}
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div
+          style={{
+            borderTop: '1px solid var(--border)',
+            paddingTop: '0.75rem',
+            marginTop: '0.25rem',
+            width: '100%',
+          }}
+        >
+          {loading && <p style={{ color: 'var(--text-dim)', fontSize: '0.875rem' }}>جاري تحميل تفاصيل الواجب...</p>}
+          {msg && (
+            <p
+              style={{
+                color: msgType === 'ok' ? '#10b981' : '#ef4444',
+                fontSize: '0.875rem',
+                margin: '0.5rem 0',
+                padding: '0.5rem',
+                borderRadius: '6px',
+                background: msgType === 'ok' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+              }}
+            >
+              {msg}
+            </p>
+          )}
+
+          {reviewData && (
+            <AssessmentReview
+              title="نتيجة الواجب"
+              score={reviewData.score}
+              maxScore={reviewData.maxScore}
+              percentage={reviewData.percentage}
+              questions={reviewData.questions}
+            />
+          )}
+
+          {detail && !sub && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {detail.assignment.hasTeacherFile === 1 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <a
+                    href={`/api/student/assignments/${assignment.id}/teacher-file`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn-outline"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.85rem' }}
+                  >
+                    <Download size={14} /> تحميل ملف أسئلة الواجب (PDF)
+                  </a>
+                </div>
+              )}
+
+              {type === 'pdf' && (
+                <div style={{ background: 'var(--surface)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <span style={{ fontSize: '0.875rem', fontWeight: 600, display: 'block', marginBottom: '0.5rem' }}>
+                    رفع إجابتك (ملف PDF، بحد أقصى 15 ميجابايت):
+                  </span>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <label className="btn btn-outline" style={{ cursor: 'pointer', fontSize: '0.85rem' }}>
+                      <Upload size={14} /> اختيار ملف PDF
+                      <input
+                        ref={fileRef}
+                        type="file"
+                        accept=".pdf,application/pdf"
+                        style={{ display: 'none' }}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ fontSize: '0.85rem' }}
+                      onClick={() => void handlePdfSubmit()}
+                      disabled={busy}
+                    >
+                      {busy ? 'جاري الإرسال...' : 'إرسال الإجابة الآن'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {type === 'mcq' && detail.questions.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {detail.questions.map((q, idx) => {
+                    const studentAnswer = answers[q.id];
+                    const isReview = sub != null && q.correctIndex != null;
+                    const isCorrect = isReview && studentAnswer === q.correctIndex;
+                    return (
+                      <div
+                        key={q.id}
+                        style={{
+                          padding: '0.75rem',
+                          background: 'var(--surface)',
+                          borderRadius: '8px',
+                          border: isReview
+                            ? isCorrect
+                              ? '2px solid #10b981'
+                              : '2px solid #ef4444'
+                            : '1px solid var(--border)',
+                        }}
+                      >
+                        <p style={{ margin: '0 0 0.5rem', fontWeight: 600, fontSize: '0.9rem' }}>
+                          س{idx + 1}: {q.question}
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginInlineStart: '0.5rem', fontWeight: 400 }}>
+                            ({q.points} درجة)
+                          </span>
+                          {isReview && (
+                            <span style={{
+                              fontSize: '0.75rem',
+                              marginInlineStart: '0.5rem',
+                              fontWeight: 600,
+                              color: isCorrect ? '#10b981' : '#ef4444',
+                            }}>
+                              {isCorrect ? '✓ صحيح' : '✗ خطأ'}
+                            </span>
+                          )}
+                        </p>
+                        {q.hasImage && (
+                          <img
+                            src={`/api/student/assignment-questions/${q.id}/image`}
+                            alt="صورة السؤال"
+                            style={{ maxWidth: '100%', borderRadius: '6px', margin: '0.5rem 0' }}
+                            loading="lazy"
+                          />
+                        )}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                          {q.options.map((opt, i) => {
+                            const isSelected = studentAnswer === i;
+                            const isCorrectOption = isReview && q.correctIndex === i;
+                            let btnClass = 'btn-outline';
+                            if (isReview) {
+                              if (isCorrectOption) btnClass = 'btn-success';
+                              else if (isSelected && !isCorrectOption) btnClass = 'btn-danger';
+                            } else if (isSelected) {
+                              btnClass = 'btn-primary';
+                            }
+                            return (
+                              <button
+                                type="button"
+                                key={i}
+                                className={`btn ${btnClass}`}
+                                style={{
+                                  textAlign: 'start',
+                                  justifyContent: 'flex-start',
+                                  fontSize: '0.85rem',
+                                  padding: '0.4rem 0.75rem',
+                                  opacity: isReview && !isSelected && !isCorrectOption ? 0.5 : 1,
+                                }}
+                                onClick={() => !isReview && setAnswers((prev) => ({ ...prev, [q.id]: i }))}
+                                disabled={isReview}
+                              >
+                                {isCorrectOption && <CheckCircle2 size={12} style={{ marginInlineEnd: '0.25rem' }} />}
+                                {opt}
+                                {isReview && isSelected && !isCorrectOption && (
+                                  <span style={{ marginInlineStart: '0.5rem', fontSize: '0.75rem', color: '#ef4444' }}>(إجابتك)</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {isReview && !isCorrect && q.explanation && (
+                          <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '6px', fontSize: '0.85rem', color: '#3b82f6' }}>
+                            <strong>شرح:</strong> {q.explanation}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {!sub && (
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ alignSelf: 'flex-start' }}
+                      onClick={() => void handleMcqSubmit()}
+                      disabled={busy}
+                    >
+                      {busy ? 'جاري التسليم...' : 'تسليم إجابات الواجب'}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {type === 'generic' && (
+                <p style={{ color: 'var(--text-dim)', fontSize: '0.85rem', margin: 0 }}>
+                  هذا واجب متابعة عام — يرجى اتباع تعليمات المدرس للتسليم.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </article>
+  );
+}
+
 export default function StudentDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState('');
@@ -140,18 +558,52 @@ export default function StudentDashboard() {
   const [deleteErr, setDeleteErr] = useState('');
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [leaderboardGrade, setLeaderboardGrade] = useState('');
+  const [profileGrade, setProfileGrade] = useState('');
+  const [profileSection, setProfileSection] = useState('');
+  const loadControllerRef = useRef<AbortController | null>(null);
 
-  const load = useCallback(async () => {
-    const response = await fetch('/api/dashboard', { cache: 'no-store' });
-    const result = (await response.json().catch(() => ({}))) as DashboardData & { error?: string };
-    if (!response.ok) return setError(result.error || 'تعذر تحميل حسابك');
-    setData(result);
+  useEffect(() => {
+    if (data?.user?.profile) {
+      const g = data.user.profile.grade || '';
+      setProfileGrade(g);
+      setProfileSection(g === 'أولى ثانوي' ? '' : (data.user.profile.section || ''));
+    }
+  }, [data?.user?.profile?.grade, data?.user?.profile?.section]);
+
+  const load = useCallback(async (signal?: AbortSignal) => {
+    setError('');
+    await runRecoverableLoad(
+      async () => {
+        const response = await fetch('/api/dashboard', { cache: 'no-store', signal });
+        const result = (await response.json().catch(() => ({}))) as DashboardData & {
+          error?: string;
+        };
+        if (!response.ok) throw new Error(result.error || 'تعذر تحميل حسابك');
+        return result;
+      },
+      {
+        signal,
+        fallbackMessage: 'تعذر تحميل مساحتك التعليمية. تحقق من اتصالك ثم حاول مرة أخرى.',
+        onSuccess: setData,
+        onError: setError,
+      }
+    );
   }, []);
+
+  const beginLoad = useCallback(() => {
+    const controller = replaceAbortController(loadControllerRef.current);
+    loadControllerRef.current = controller;
+    void load(controller.signal);
+  }, [load]);
+
   useEffect(() => {
     // Initial remote dashboard synchronization.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-  }, [load]);
+    beginLoad();
+    return () => {
+      loadControllerRef.current?.abort();
+      loadControllerRef.current = null;
+    };
+  }, [beginLoad]);
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('view') === 'leaderboard') {
       // Open the requested dashboard section when linked from the main navbar.
@@ -188,9 +640,7 @@ export default function StudentDashboard() {
       )
     : 0;
   const markNotificationsRead = useCallback(
-    async (
-      types: Array<'announcement' | 'exam' | 'assignment'> = ['announcement', 'exam', 'assignment']
-    ) => {
+    async (types: Array<'announcement' | 'exam' | 'assignment'>) => {
       const response = await fetch('/api/notifications/read', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -216,6 +666,32 @@ export default function StudentDashboard() {
     },
     []
   );
+  useEffect(() => {
+    const shownIds = visibleUnreadAnnouncementIds(data?.announcements ?? [], view === 'home', 3);
+    if (!shownIds.length) return;
+    let cancelled = false;
+    void fetch('/api/notifications/read', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ announcementIds: shownIds }),
+    }).then((response) => {
+      if (!response.ok || cancelled) return;
+      const shown = new Set(shownIds);
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              announcements: current.announcements.map((item) =>
+                shown.has(item.id) ? { ...item, isRead: 1 } : item
+              ),
+            }
+          : current
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [data?.announcements, view]);
   const navigate = (next: View, courseId?: string) => {
     if (courseId !== undefined) setActiveCourseId(courseId);
     if (next === 'exams') void markNotificationsRead(['exam']);
@@ -225,7 +701,16 @@ export default function StudentDashboard() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  if (error) return <div className="dashboard-state error-toast">{error}</div>;
+  if (error)
+    return (
+      <div className="dashboard-state error-toast" role="alert">
+        <AlertTriangle />
+        <p>{error}</p>
+        <button type="button" className="btn btn-primary" onClick={beginLoad}>
+          إعادة المحاولة
+        </button>
+      </div>
+    );
   if (!data)
     return (
       <div className="dashboard-state">
@@ -312,8 +797,8 @@ export default function StudentDashboard() {
           )}
         </div>
         <button className={view === 'redeem' ? 'active' : ''} onClick={() => navigate('redeem')}>
-          <KeyRound />
-          <span>كود المحاضرة</span>
+          <QrCode />
+          <span>المحاضرات المفعلة</span>
         </button>
         <button className={view === 'exams' ? 'active' : ''} onClick={() => navigate('exams', '')}>
           <ClipboardCheck />
@@ -396,7 +881,7 @@ export default function StudentDashboard() {
                 : view === 'course'
                   ? activeCourse?.title || 'الكورس'
                   : view === 'redeem'
-                    ? 'استخدام كود المحاضرة'
+                    ? 'المحاضرات المفعلة بالـ QR'
                     : view === 'exams'
                       ? 'الامتحانات'
                       : view === 'assignments'
@@ -414,10 +899,12 @@ export default function StudentDashboard() {
             className="notification-button"
             aria-label="الإشعارات"
             title={unreadCount ? `${unreadCount} إشعارات جديدة` : 'لا توجد إشعارات جديدة'}
-            onClick={() => {
-              navigate('home');
-              void markNotificationsRead();
-            }}
+            onClick={() =>
+              openNotificationHome(
+                () => navigate('home'),
+                (types) => void markNotificationsRead(types)
+              )
+            }
           >
             <Bell />
             {unreadCount > 0 && <i />}
@@ -475,6 +962,21 @@ export default function StudentDashboard() {
                         className={`enrolled-course-card course-tone-${index % 3}`}
                         key={course.id}
                       >
+                        <div className="enrolled-course-card-thumb">
+                          {course.thumbnailKey ? (
+                            <img
+                              key={course.thumbnailKey}
+                              src={getCourseThumbnailUrl(course.courseId, course.thumbnailKey, course.updatedAt)}
+                              alt={course.title}
+                              className="enrolled-course-thumb-img"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="enrolled-course-thumb-fallback" aria-hidden="true">
+                              <BookOpen size={28} />
+                            </div>
+                          )}
+                        </div>
                         <div className="course-card-top">
                           <span>
                             <BookOpen />
@@ -526,13 +1028,13 @@ export default function StudentDashboard() {
               <section className="student-card granted-lectures-card">
                 <div className="student-card-title">
                   <div>
-                    <KeyRound />
+                    <QrCode />
                     <span>
-                      <small>وصول بكود المحاضرة</small>
+                      <small>وصول برمز QR</small>
                       <strong>المحاضرات المفتوحة لك</strong>
                     </span>
                   </div>
-                  <button onClick={() => navigate('redeem')}>استخدام كود آخر</button>
+                  <button onClick={() => navigate('redeem')}>عرض المحاضرات المفعلة</button>
                 </div>
                 <div className="granted-lecture-list">
                   {data.lectureAccess.map((lecture) => (
@@ -628,18 +1130,34 @@ export default function StudentDashboard() {
         )}
         {view === 'redeem' && (
           <div className="student-view">
-            <LectureCodeRedemption onRedeemed={load} />
-            {data.lectureAccess.length > 0 && (
-              <section className="student-card granted-lectures-card">
-                <div className="student-card-title">
-                  <div>
-                    <Play />
-                    <span>
-                      <small>وصول دائم</small>
-                      <strong>محاضراتك المفتوحة بالكود</strong>
-                    </span>
-                  </div>
+            <section className="student-card" style={{ padding: '24px', textAlign: 'right' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                <div style={{ width: 44, height: 44, borderRadius: '10px', background: 'rgba(59,130,246,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
+                  <QrCode size={24} />
                 </div>
+                <div>
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>تفعيل المحاضرات عبر QR كود</h2>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--muted, #94a3b8)' }}>
+                    امسح رمز QR المطبوع على كارت المحاضرة بكاميرا هاتفك ليتم فتح المحاضرة فورًا
+                  </p>
+                </div>
+              </div>
+              <div style={{ background: 'var(--surface-overlay, rgba(255,255,255,0.03))', borderRadius: '8px', padding: '12px 16px', fontSize: '0.88rem', color: 'var(--muted, #94a3b8)', border: '1px solid var(--border-color, rgba(255,255,255,0.08))' }}>
+                💡 لم تعد بحاجة لكتابة أكواد يدويًا. كل كارت يحتوي على رمز QR فريد للاستخدام لمرة واحدة، بمجرد مسحه بكاميرا هاتفك ستفتح المحاضرة على حسابك وتظهر في هذه القائمة مباشرة.
+              </div>
+            </section>
+
+            <section className="student-card granted-lectures-card">
+              <div className="student-card-title">
+                <div>
+                  <Play />
+                  <span>
+                    <small>وصول دائم</small>
+                    <strong>محاضراتك المفتوحة ({data.lectureAccess.length})</strong>
+                  </span>
+                </div>
+              </div>
+              {data.lectureAccess.length > 0 ? (
                 <div className="granted-lecture-list">
                   {data.lectureAccess.map((lecture) => (
                     <article key={lecture.videoId}>
@@ -653,8 +1171,13 @@ export default function StudentDashboard() {
                     </article>
                   ))}
                 </div>
-              </section>
-            )}
+              ) : (
+                <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--muted, #94a3b8)' }}>
+                  <p style={{ margin: 0, fontSize: '0.95rem' }}>لا توجد محاضرات مفعلة عبر رموز QR حتى الآن.</p>
+                  <small style={{ display: 'block', marginTop: '6px' }}>عند مسح كارت المحاضرة، ستظهر هنا مباشرة لمشاهدتها في أي وقت.</small>
+                </div>
+              )}
+            </section>
           </div>
         )}
         {view === 'course' && (
@@ -667,7 +1190,10 @@ export default function StudentDashboard() {
                     <h1>{activeCourse.title}</h1>
                     <p>افتح محتوى الكورس، راجع امتحاناته، وتابع درجاتك من نفس المكان.</p>
                   </div>
-                  <Link className="btn btn-primary" href={`/learn/${activeCourse.courseId}`}>
+                  <Link
+                    className="btn btn-primary"
+                    href={activeCourse.listingExamId ? `/exam/${activeCourse.listingExamId}` : `/learn/${activeCourse.courseId}`}
+                  >
                     دخول الكورس <Play />
                   </Link>
                 </section>
@@ -779,24 +1305,7 @@ export default function StudentDashboard() {
             {visibleAssignments.length ? (
               <div className="full-list">
                 {visibleAssignments.map((assignment) => (
-                  <article className="exam-row detailed" key={assignment.id}>
-                    <span className="exam-date">
-                      <FileText />
-                      <small>واجب</small>
-                    </span>
-                    <div className="exam-copy">
-                      <strong>{assignment.title}</strong>
-                      <small>
-                        {assignment.courseTitle} ·{' '}
-                        {assignment.dueAt
-                          ? `التسليم ${new Date(assignment.dueAt).toLocaleString('ar-EG')}`
-                          : 'بدون موعد تسليم'}
-                        {assignment.maxScore > 0 ? ` · ${assignment.maxScore} درجة` : ''}
-                      </small>
-                      {assignment.description && <p>{assignment.description}</p>}
-                    </div>
-                    {!assignment.isRead && <span className="status-pill status-pending">جديد</span>}
-                  </article>
+                  <StudentAssignmentCard key={assignment.id} assignment={assignment} />
                 ))}
               </div>
             ) : (
@@ -932,10 +1441,15 @@ export default function StudentDashboard() {
                 event.preventDefault();
                 setSaved(false);
                 const form = new FormData(event.currentTarget);
+                const payload: Record<string, FormDataEntryValue> = Object.fromEntries(form);
+                payload.hide_from_leaderboard = form.has('hide_from_leaderboard') ? 'true' : 'false';
+                if (profileGrade === 'أولى ثانوي') {
+                  payload.section = '';
+                }
                 const response = await fetch('/api/profile', {
                   method: 'PUT',
                   headers: { 'content-type': 'application/json' },
-                  body: JSON.stringify(Object.fromEntries(form)),
+                  body: JSON.stringify(payload),
                 });
                 if (response.ok) {
                   setSaved(true);
@@ -966,12 +1480,48 @@ export default function StudentDashboard() {
               </label>
               <label>
                 <span>الصف الدراسي</span>
-                <select name="grade" defaultValue={data.user.profile?.grade || ''}>
+                <select
+                  name="grade"
+                  value={profileGrade}
+                  onChange={(e) => {
+                    const newGrade = e.target.value;
+                    setProfileGrade(newGrade);
+                    if (newGrade === 'أولى ثانوي') {
+                      setProfileSection('');
+                    }
+                  }}
+                >
                   <option value="">اختر الصف</option>
-                  <option>أولى ثانوي</option>
-                  <option>تانية ثانوي</option>
-                  <option>تالتة ثانوي</option>
+                  <option value="أولى ثانوي">أولى ثانوي</option>
+                  <option value="تانية ثانوي">تانية ثانوي</option>
+                  <option value="تالتة ثانوي">تالتة ثانوي</option>
                 </select>
+              </label>
+              {profileGrade && profileGrade !== 'أولى ثانوي' && (
+                <label>
+                  <span>الشعبة</span>
+                  <select
+                    name="section"
+                    value={profileSection}
+                    onChange={(e) => setProfileSection(e.target.value)}
+                  >
+                    <option value="">اختر الشعبة</option>
+                    <option value="علمي علوم">علمي علوم</option>
+                    <option value="علمي رياضة">علمي رياضة</option>
+                    <option value="أدبي">أدبي</option>
+                  </select>
+                </label>
+              )}
+              <label className="settings-checkbox">
+                <input
+                  type="checkbox"
+                  name="hide_from_leaderboard"
+                  defaultChecked={Boolean(data.user.profile?.hideFromLeaderboard)}
+                />
+                <span>
+                  إخفاء اسمي من لوحة الأوائل
+                  <small> — يظهر ترتيبك باسم «طالب مجهول» في الصفحات العامة للامتحانات.</small>
+                </span>
               </label>
               <div className="settings-submit">
                 <button className="btn btn-primary" type="submit">
@@ -1009,6 +1559,16 @@ export default function StudentDashboard() {
                     setPasswordMsg('');
                     setPasswordErr('');
                     const form = new FormData(event.currentTarget);
+                    const newPass = String(form.get('newPassword') || '');
+                    const newPassConfirm = String(form.get('newPasswordConfirm') || '');
+                    if (newPass.length > 9) {
+                      setPasswordErr('كلمة السر يجب ألا تتجاوز 9 أحرف');
+                      return;
+                    }
+                    if (newPassConfirm.length > 9) {
+                      setPasswordErr('تأكيد كلمة السر يجب ألا يتجاوز 9 أحرف');
+                      return;
+                    }
                     const response = await fetch('/api/auth/change-password', {
                       method: 'POST',
                       headers: { 'content-type': 'application/json' },
@@ -1031,12 +1591,12 @@ export default function StudentDashboard() {
                     />
                   </label>
                   <label>
-                    <span>كلمة السر الجديدة (8 أحرف على الأقل)</span>
+                    <span>كلمة السر الجديدة (حتى 9 أحرف)</span>
                     <input
                       name="newPassword"
                       type="password"
                       required
-                      minLength={8}
+                      minLength={6}
                       autoComplete="new-password"
                     />
                   </label>
@@ -1046,7 +1606,7 @@ export default function StudentDashboard() {
                       name="newPasswordConfirm"
                       type="password"
                       required
-                      minLength={8}
+                      minLength={6}
                       autoComplete="new-password"
                     />
                   </label>
@@ -1166,6 +1726,17 @@ function ExamRow({
         <b>{exam.durationMinutes}</b>
         <small>دقيقة</small>
       </span>
+      {exam.thumbnailKey && (
+        // eslint-disable-next-line @next/next/no-img-element -- small cached artwork from our own route
+        <img
+          className="exam-card-thumb"
+          src={examThumbnailUrl(exam.id, exam.thumbnailKey)}
+          alt=""
+          width={96}
+          height={54}
+          loading="lazy"
+        />
+      )}
       <div className="exam-copy">
         <strong>{exam.title}</strong>
         {!exam.isRead && <span className="status-pill status-pending">جديد</span>}

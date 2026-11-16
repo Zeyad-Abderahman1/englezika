@@ -1,9 +1,9 @@
-import { apiVerifiedUser, isResponse } from '@/app/lib/api-auth';
-import { createFawaterakTransaction } from '@/app/lib/fawaterak';
-import { resolvePublicAppOrigin } from '@/app/lib/fawaterak-validation';
-import { getDatabase, getPlatformEnv } from '@/app/lib/platform';
-import { checkRateLimit, rateLimitResponse } from '@/app/lib/rate-limit';
-import { jsonError, requireSameOrigin, safeText } from '@/app/lib/security';
+import { apiVerifiedUser, isResponse } from '../../../../lib/api-auth';
+import { createFawaterakTransaction } from '../../../../lib/fawaterak';
+import { resolvePublicAppOrigin } from '../../../../lib/fawaterak-validation';
+import { getDatabase, getPlatformEnv } from '../../../../lib/platform';
+import { checkRateLimit, rateLimitResponse } from '../../../../lib/rate-limit';
+import { jsonError, requireSameOrigin, safeText } from '../../../../lib/security';
 
 type CourseRow = { id: string; title: string; price: number };
 type StudentRow = {
@@ -16,12 +16,11 @@ type StudentRow = {
 function isUniqueViolation(error: unknown) {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
 }
-
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
 
-  const user = await apiVerifiedUser();
+  const user = await apiVerifiedUser(request);
   if (isResponse(user)) return user;
 
   const rateLimit = await checkRateLimit('fawaterak-checkout', user.email.toLowerCase(), 5, 60);
@@ -38,13 +37,14 @@ export async function POST(request: Request) {
     .first<CourseRow>();
   if (!course || course.price <= 0) return jsonError('الكورس غير متاح للدفع', 404);
 
+  const allowRenewal = Boolean(body.renew || body.repurchase);
   const approved = await db
     .prepare(
       "SELECT id FROM enrollments WHERE user_email = ? AND course_id = ? AND status = 'approved' LIMIT 1"
     )
     .bind(user.email.toLowerCase(), courseId)
     .first<{ id: string }>();
-  if (approved) return jsonError('أنت مشترك بالفعل في هذا الكورس', 409);
+  if (approved && !allowRenewal) return jsonError('أنت مشترك بالفعل في هذا الكورس', 409);
 
   const student = await db
     .prepare(
@@ -58,7 +58,9 @@ export async function POST(request: Request) {
   const now = Date.now();
   const existingEnrollment = await db
     .prepare(
-      "SELECT id FROM enrollments WHERE user_email = ? AND course_id = ? AND status != 'approved' ORDER BY created_at DESC LIMIT 1"
+      allowRenewal
+        ? "SELECT id FROM enrollments WHERE user_email = ? AND course_id = ? ORDER BY created_at DESC LIMIT 1"
+        : "SELECT id FROM enrollments WHERE user_email = ? AND course_id = ? AND status != 'approved' ORDER BY created_at DESC LIMIT 1"
     )
     .bind(user.email.toLowerCase(), courseId)
     .first<{ id: string }>();

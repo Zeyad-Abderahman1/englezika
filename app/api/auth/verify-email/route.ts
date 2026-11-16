@@ -1,12 +1,15 @@
 import { verifyStoredCode } from '../../../lib/email-verification';
 import { checkRateLimit, getClientIp, rateLimitResponse } from '../../../lib/rate-limit';
-import { jsonError, requireSameOrigin, safeText } from '../../../lib/security';
+import { jsonError, readBoundedJson, requireSameOrigin, safeText } from '../../../lib/security';
 
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
 
-  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  const parsed = await readBoundedJson<Record<string, unknown>>(request, 32 * 1024);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
+
   const email = safeText(body.email, 200).toLowerCase();
   const code = safeText(body.code, 6);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -14,6 +17,8 @@ export async function POST(request: Request) {
   }
   if (!/^\d{6}$/.test(code)) return jsonError('أدخل كود التفعيل المكون من 6 أرقام');
 
+  const ipRateCheck = await checkRateLimit('verify-email-ip', getClientIp(request), 20, 60);
+  if (!ipRateCheck.allowed) return rateLimitResponse(ipRateCheck.resetAfterSeconds);
   const rateCheck = await checkRateLimit(
     'verify-email',
     `${getClientIp(request)}:${email}`,

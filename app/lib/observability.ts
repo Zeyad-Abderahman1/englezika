@@ -12,14 +12,19 @@ export type LogContext = {
 
 const SENSITIVE_KEYS = new Set([
   'password',
-  'currentPassword',
-  'newPassword',
-  'passwordConfirm',
+  'currentpassword',
+  'newpassword',
+  'passwordconfirm',
   'password_hash',
   'password_salt',
   'token',
   'secret',
-  'verificationSecret',
+  'verificationsecret',
+  'access_token',
+  'api_key',
+  'client_secret',
+  'transaction_key',
+  'code',
   'authorization',
   'cookie',
 ]);
@@ -29,21 +34,19 @@ export function generateRequestId(): string {
 }
 
 export function sanitizeContext(context: LogContext = {}): Record<string, unknown> {
-  const sanitized: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(context)) {
-    if (SENSITIVE_KEYS.has(key.toLowerCase())) {
-      sanitized[key] = '[REDACTED]';
-    } else if (typeof value === 'object' && value !== null) {
-      try {
-        sanitized[key] = JSON.parse(JSON.stringify(value));
-      } catch {
-        sanitized[key] = '[UNSERIALIZABLE]';
-      }
-    } else {
-      sanitized[key] = value;
+  const sanitizeValue = (value: unknown, depth: number): unknown => {
+    if (depth > 5) return '[TRUNCATED]';
+    if (Array.isArray(value)) return value.slice(0, 100).map((item) => sanitizeValue(item, depth + 1));
+    if (typeof value !== 'object' || value === null) return value;
+    const result: Record<string, unknown> = {};
+    for (const [key, nestedValue] of Object.entries(value)) {
+      result[key] = SENSITIVE_KEYS.has(key.toLowerCase())
+        ? '[REDACTED]'
+        : sanitizeValue(nestedValue, depth + 1);
     }
-  }
-  return sanitized;
+    return result;
+  };
+  return sanitizeValue(context, 0) as Record<string, unknown>;
 }
 
 export function captureException(error: unknown, context: LogContext = {}): void {

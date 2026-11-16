@@ -38,7 +38,7 @@ export async function POST(request: Request) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || name.length < 2) {
     return jsonError('أدخل اسماً وبريداً إلكترونياً صحيحين');
   }
-  if (!isStrongPassword(password)) {
+  if (!isStrongPassword(password, 12, 200)) {
     return jsonError('كلمة المرور يجب أن تحتوي على 12 حرفاً على الأقل وحرف كبير وصغير ورقم ورمز');
   }
   const credentials = await hashPassword(password);

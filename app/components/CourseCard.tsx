@@ -1,19 +1,35 @@
 import Link from 'next/link';
 import { BookOpen, Clock3, GraduationCap } from 'lucide-react';
 import type { Course } from '../data/content';
+import { getCourseThumbnailUrl } from '../lib/course-thumbnail';
 
 export default function CourseCard({ course }: { course: Course }) {
   return (
     <article className={`course-card ${course.popular ? 'featured' : ''}`}>
-      <div className="course-card-head">
-        {course.badge && (
-          <span className={`badge ${course.badge === 'جديد' ? 'new' : ''}`}>{course.badge}</span>
+      <div className="course-card-artwork">
+        {course.thumbnailKey ? (
+          <img
+            key={course.thumbnailKey}
+            src={getCourseThumbnailUrl(course.id, course.thumbnailKey, course.updatedAt)}
+            alt={course.month}
+            className="course-card-thumb-img"
+            loading="lazy"
+          />
+
+        ) : (
+          <div className="course-card-fallback">
+            <span className="course-card-fallback-glow" />
+            <BookOpen className="course-card-fallback-icon" />
+            <span className="course-card-fallback-brand">ENGLIZEKA</span>
+          </div>
         )}
-        <span className="course-icon">
-          <BookOpen />
-        </span>
+        {course.badge && (
+          <span className={`badge course-artwork-badge ${course.badge === 'جديد' ? 'new' : ''}`}>
+            {course.badge}
+          </span>
+        )}
       </div>
-      <p className="course-kicker">English Course</p>
+      <p className="course-kicker">{course.kind === 'exam' ? 'Exam' : 'English Course'}</p>
       <h3>{course.month}</h3>
       <div className="course-meta">
         <span>
@@ -31,7 +47,10 @@ export default function CourseCard({ course }: { course: Course }) {
           {course.price !== 0 && <span>جنيه</span>}
         </div>
         {course.available ? (
-          <Link className="btn btn-primary" href={`/course/${course.id}`}>
+          <Link
+            className="btn btn-primary"
+            href={course.kind === 'exam' && course.examSlug ? `/exams/${encodeURIComponent(course.examSlug)}` : `/course/${course.id}`}
+          >
             التفاصيل والاشتراك
           </Link>
         ) : (

@@ -1,12 +1,16 @@
 import { apiVerifiedUser, isResponse } from '../../lib/api-auth';
 import { getDatabase } from '../../lib/platform';
+import { checkRateLimit, rateLimitResponse } from '../../lib/rate-limit';
 import { jsonError, requireSameOrigin, safeText } from '../../lib/security';
+import { resetCourseLectureViewAllowance } from '../../lib/video-access';
 
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
   const user = await apiVerifiedUser();
   if (isResponse(user)) return user;
+  const rateLimit = await checkRateLimit('enrollment', user.email.toLowerCase(), 10, 60);
+  if (!rateLimit.allowed) return rateLimitResponse(rateLimit.resetAfterSeconds);
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const courseId = safeText(body.courseId, 80);
   const paymentMethod = safeText(body.paymentMethod, 60);
@@ -26,7 +30,14 @@ export async function POST(request: Request) {
     )
     .bind(user.email.toLowerCase(), courseId)
     .first<{ id: string; status: string }>();
-  if (existing?.status === 'approved') {
+  const rawAction = typeof body.action === 'string' ? body.action.trim().toLowerCase() : '';
+  const allowRenewal = Boolean(
+    body.renew ||
+    body.repurchase ||
+    rawAction === 'renew' ||
+    rawAction === 'reactivate'
+  );
+  if (existing?.status === 'approved' && !allowRenewal) {
     if (isFree) return Response.json({ ok: true, approved: true, courseId });
     return jsonError('أنت مشترك بالفعل في هذا الكورس', 409);
   }
@@ -59,6 +70,14 @@ export async function POST(request: Request) {
       )
       .run();
   }
+
+  const shouldReset =
+    status === 'approved' &&
+    (allowRenewal || (existing ? existing.status !== 'approved' : true));
+  if (shouldReset) {
+    await resetCourseLectureViewAllowance(user.email.toLowerCase(), courseId);
+  }
+
   return Response.json({
     ok: true,
     approved: isFree,

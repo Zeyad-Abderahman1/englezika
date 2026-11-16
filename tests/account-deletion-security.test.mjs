@@ -9,6 +9,7 @@ class AccountDatabase {
     role: 'student',
     birthCertificateKey: 'birth-certificates/student/certificate.png',
   };
+  submissions = [];
   sessions = ['session-1', 'session-2'];
   notificationReads = ['announcement-1'];
 
@@ -32,6 +33,17 @@ class AccountDatabase {
           : null;
       }
 
+      async all() {
+        if (sql.includes('FROM assignment_submissions')) {
+          const email = this.bindings[0];
+          const results = database.submissions
+            .filter((s) => s.student_email === email)
+            .map((s) => ({ id: s.id, pdfStorageKey: s.pdf_storage_key }));
+          return { results, success: true, meta: { changes: results.length } };
+        }
+        return { results: [], success: true, meta: { changes: 0 } };
+      }
+
       async run() {
         const normalizedSql = sql.replace(/\s+/g, ' ').trim();
         if (normalizedSql.startsWith('UPDATE users SET')) {
@@ -45,6 +57,16 @@ class AccountDatabase {
             birthCertificateContentType: null,
           });
           return { success: true, results: [], meta: { changes: 1 } };
+        }
+        if (normalizedSql.startsWith('UPDATE assignment_submissions')) {
+          const [tombstone, email] = this.bindings;
+          for (const sub of database.submissions) {
+            if (sub.student_email === email) {
+              sub.student_email = tombstone;
+              sub.pdf_storage_key = null;
+            }
+          }
+          return { success: true, results: [], meta: { changes: database.submissions.length } };
         }
         if (normalizedSql.startsWith('UPDATE lecture_access_codes SET redeemed_by_student_email')) {
           return { success: true, results: [], meta: { changes: 0 } };
@@ -81,6 +103,28 @@ test('account removal deletes the birth certificate before anonymizing the stude
   assert.equal(db.user.role, 'deleted');
   assert.deepEqual(db.sessions, []);
   assert.deepEqual(db.notificationReads, []);
+});
+
+test('account removal anonymizes assignment submissions and deletes submission PDFs', async () => {
+  const db = new AccountDatabase();
+  const submissionPdfKey = 'assignments/a1/submissions/student-sub.pdf';
+  db.submissions = [
+    { id: 'sub-1', assignment_id: 'a1', student_email: db.user.email, pdf_storage_key: submissionPdfKey, score: 95 }
+  ];
+  const deletedKeys = [];
+  const bucket = { delete: async (key) => deletedKeys.push(key) };
+
+  assert.equal(await deleteStudentAccountData(db, bucket, db.user.email), true);
+
+  // 1. Storage PDF must be deleted
+  assert.ok(deletedKeys.includes(submissionPdfKey), 'Submission PDF must be deleted from storage');
+
+  // 2. Submission row must still exist, but student_email anonymized and pdf_storage_key nulled
+  const sub = db.submissions[0];
+  assert.notEqual(sub.student_email, 'student@example.test', 'student_email must no longer be the original email');
+  assert.match(sub.student_email, /^deleted\+[a-f0-9-]+@deleted\.invalid$/, 'student_email must be the tombstone email');
+  assert.equal(sub.pdf_storage_key, null, 'pdf_storage_key must be nulled');
+  assert.equal(sub.score, 95, 'Grading score must be preserved for records');
 });
 
 test('private file deletion failure leaves the account and sessions intact for a safe retry', async () => {

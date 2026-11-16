@@ -33,31 +33,37 @@ export async function GET(request: Request) {
        third_name AS thirdName, last_name AS lastName,
        phone, father_phone AS fatherPhone, mother_phone AS motherPhone,
        school_name AS schoolName, parent_job AS parentJob,
-       governorate, gender, grade, section
+       governorate, gender, grade, section,
+       hide_from_leaderboard AS hideFromLeaderboard
        FROM users WHERE email = ?`
         )
         .bind(email),
       db
         .prepare(
-          `SELECT e.id, e.status, e.created_at AS createdAt, c.id AS courseId, c.title, c.grade
+          `SELECT e.id, e.status, e.created_at AS createdAt, c.id AS courseId, c.title, c.grade, c.thumbnail_key AS thumbnailKey, c.updated_at AS updatedAt,
+       c.kind AS kind, (SELECT x2.id FROM exams x2 WHERE x2.listing_course_id = c.id LIMIT 1) AS listingExamId
        FROM enrollments e JOIN courses c ON c.id = e.course_id
        WHERE e.user_email = ? ORDER BY e.created_at DESC LIMIT ? OFFSET ?`
+
         )
         .bind(email, pageSize, offset),
       db
         .prepare(
           `SELECT DISTINCT x.id, x.course_id AS courseId, x.title, x.description, x.created_at AS createdAt, x.duration_minutes AS durationMinutes,
+       x.thumbnail_key AS thumbnailKey,
        x.passing_score AS passingScore, x.max_attempts AS maxAttempts, c.title AS courseTitle,
+       COALESCE(x.assessment_type, 'exam') AS assessmentType,
        CASE WHEN nr.notification_id IS NULL THEN 0 ELSE 1 END AS isRead,
        (SELECT COUNT(*) FROM attempts ax WHERE ax.exam_id = x.id AND ax.user_email = ?) AS attemptCount,
        (SELECT COALESCE(MAX(CASE WHEN ax2.max_score > 0 THEN ax2.score * 100.0 / ax2.max_score END), 0)
         FROM attempts ax2 WHERE ax2.exam_id = x.id AND ax2.user_email = ?) AS bestPercentage,
        COALESCE((SELECT SUM(points) FROM questions q WHERE q.exam_id = x.id), 0) AS maxScore
        FROM exams x LEFT JOIN courses c ON c.id = x.course_id
-       LEFT JOIN enrollments e ON e.course_id = x.course_id AND e.user_email = ? AND e.status = 'approved'
+       LEFT JOIN enrollments e ON e.user_email = ? AND e.status = 'approved'
+             AND (e.course_id = x.course_id OR (x.published_as_course = true AND e.course_id = x.listing_course_id))
        LEFT JOIN notification_reads nr ON nr.user_email = ? AND nr.notification_type = 'exam'
          AND nr.notification_id = x.id
-       WHERE x.status = 'published' AND (x.course_id IS NULL OR e.id IS NOT NULL)
+       WHERE x.status = 'published' AND ((x.published_as_course = false AND x.course_id IS NULL) OR e.id IS NOT NULL)
        AND (x.opens_at IS NULL OR x.opens_at <= ?) AND (x.closes_at IS NULL OR x.closes_at >= ?)
        ORDER BY x.created_at DESC LIMIT ? OFFSET ?`
         )
@@ -108,8 +114,9 @@ export async function GET(request: Request) {
         .prepare(
           `SELECT COUNT(DISTINCT x.id) AS total
            FROM exams x LEFT JOIN enrollments e
-             ON e.course_id = x.course_id AND e.user_email = ? AND e.status = 'approved'
-           WHERE x.status = 'published' AND (x.course_id IS NULL OR e.id IS NOT NULL)
+             ON e.user_email = ? AND e.status = 'approved'
+             AND (e.course_id = x.course_id OR (x.published_as_course = true AND e.course_id = x.listing_course_id))
+           WHERE x.status = 'published' AND ((x.published_as_course = false AND x.course_id IS NULL) OR e.id IS NOT NULL)
              AND (x.opens_at IS NULL OR x.opens_at <= ?) AND (x.closes_at IS NULL OR x.closes_at >= ?)`
         )
         .bind(email, Date.now(), Date.now()),

@@ -1,4 +1,4 @@
-import { Pool, types, type QueryResultRow } from 'pg';
+import { Pool, types, type PoolClient, type QueryResultRow } from 'pg';
 
 types.setTypeParser(20, (value) => Number(value));
 
@@ -12,6 +12,10 @@ export type DatabaseResult<T = Record<string, unknown>> = {
   };
 };
 
+/**
+ * Returns DATABASE_URL. For remote/cloud PostgreSQL instances outside localhost,
+ * append `?sslmode=require` to enforce TLS encrypted transport (DEP-03).
+ */
 function databaseUrl() {
   const value = process.env.DATABASE_URL?.trim();
   if (!value) {
@@ -108,11 +112,26 @@ export class PreparedStatement {
   }
 }
 
+function isPool(target: unknown): target is Pool {
+  if (!target || typeof target !== 'object') return false;
+  if (target instanceof Pool) return true;
+  return (
+    typeof (target as any).connect === 'function' &&
+    typeof (target as any).release !== 'function'
+  );
+}
+
 export class Database {
   readonly pool: Pool;
+  readonly client?: PoolClient;
 
-  constructor(pool: Pool) {
-    this.pool = pool;
+  constructor(poolOrClient: Pool | PoolClient) {
+    if (isPool(poolOrClient)) {
+      this.pool = poolOrClient;
+    } else {
+      this.client = poolOrClient as PoolClient;
+      this.pool = undefined as unknown as Pool;
+    }
   }
 
   prepare(sql: string) {
@@ -120,10 +139,31 @@ export class Database {
   }
 
   async query<T extends QueryResultRow>(sql: string, values: DatabaseValue[] = []) {
-    return this.pool.query<T>(postgresSql(sql), values.map(normalizeValue));
+    const target = this.client ?? this.pool;
+    if (!target) throw new Error('Database has no pool or client');
+    return target.query<T>(postgresSql(sql), values.map(normalizeValue));
   }
 
   async batch(statements: PreparedStatement[]) {
+    if (this.client) {
+      const results: DatabaseResult[] = [];
+      for (const statement of statements) {
+        const result = await this.client.query(
+          postgresSql(statement.sql),
+          statement.values.map(normalizeValue)
+        );
+        results.push({
+          results: result.rows,
+          success: true,
+          meta: { changes: result.rowCount ?? 0 },
+        });
+      }
+      return results;
+    }
+
+    if (!this.pool) {
+      throw new Error('Database has no pool or client');
+    }
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -149,20 +189,46 @@ export class Database {
     }
   }
 
+  async withTransaction<T>(callback: (txDb: Database) => Promise<T>): Promise<T> {
+    if (this.client) {
+      return callback(this);
+    }
+    if (!this.pool) {
+      throw new Error('Database has no pool or client');
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const txDb = new Database(client);
+      const result = await callback(txDb);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async readBatch(statements: PreparedStatement[]) {
     const requestedConcurrency = Number(process.env.DATABASE_READ_BATCH_CONCURRENCY || 4);
-    const concurrency = Number.isFinite(requestedConcurrency)
+    const concurrency = this.client
+      ? 1
+      : Number.isFinite(requestedConcurrency)
       ? Math.min(Math.max(Math.round(requestedConcurrency), 1), statements.length)
       : Math.min(4, statements.length);
     const results = new Array<DatabaseResult>(statements.length);
     let nextIndex = 0;
 
     async function worker(database: Database) {
+      const target = database.client ?? database.pool;
+      if (!target) throw new Error('Database has no pool or client');
       while (nextIndex < statements.length) {
         const index = nextIndex;
         nextIndex += 1;
         const statement = statements[index];
-        const result = await database.pool.query(
+        const result = await target.query(
           postgresSql(statement.sql),
           statement.values.map(normalizeValue)
         );

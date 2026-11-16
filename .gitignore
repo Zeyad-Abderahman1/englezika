@@ -21,6 +21,9 @@
 # misc
 .DS_Store
 *.pem
+*.key
+*.p12
+*.pfx
 __pycache__/
 *.py[cod]
 
@@ -52,3 +55,4 @@ next-env.d.ts
 .gemini/
 .vs/
 SYSTEM_BLUEPRINT.md
+.agent/

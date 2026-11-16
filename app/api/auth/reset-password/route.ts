@@ -1,6 +1,12 @@
 import { consumePasswordResetCode } from '../../../lib/password-reset';
 import { updateStudentPassword } from '../../../lib/native-auth';
-import { isStrongPassword } from '../../../lib/security';
+import { checkRateLimit, getClientIp, rateLimitResponse } from '../../../lib/rate-limit';
+import {
+  isStrongPassword,
+  readBoundedJson,
+  requireSameOrigin,
+  safeText,
+} from '../../../lib/security';
 
 function jsonResponse(data: Record<string, unknown>, status = 200): Response {
   return Response.json(data, {
@@ -11,24 +17,43 @@ function jsonResponse(data: Record<string, unknown>, status = 200): Response {
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    const body = (await request.json().catch(() => ({}))) as {
+    const originError = requireSameOrigin(request);
+    if (originError) return originError;
+
+    const parsed = await readBoundedJson<{
       email?: string;
       code?: string;
       new_password?: string;
-    };
+    }>(request, 32 * 1024);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
-    const email = body.email?.trim().toLowerCase();
-    const code = body.code?.trim();
+    const ipLimit = await checkRateLimit('password-reset-submit-ip', getClientIp(request), 20, 60);
+    if (!ipLimit.allowed) return rateLimitResponse(ipLimit.resetAfterSeconds);
+
+    const email = safeText(body.email, 200).toLowerCase();
+    const code = safeText(body.code, 6);
     const newPassword = body.new_password;
 
-    if (!email || !email.includes('@')) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return jsonResponse({ error: 'البريد الإلكتروني غير صحيح' }, 400);
     }
-    if (!code || code.length !== 6) {
+    if (!/^\d{6}$/.test(code)) {
       return jsonResponse({ error: 'كود التحقق يجب أن يتكون من 6 أرقام' }, 400);
     }
+    const accountLimit = await checkRateLimit('password-reset-submit-email', email, 10, 300);
+    if (!accountLimit.allowed) return rateLimitResponse(accountLimit.resetAfterSeconds);
+    if (typeof newPassword === 'string' && newPassword.length > 9) {
+      return jsonResponse({ error: 'كلمة المرور الجديدة يجب ألا تتجاوز 9 أحرف' }, 400);
+    }
     if (!newPassword || !isStrongPassword(newPassword)) {
-      return jsonResponse({ error: 'كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل' }, 400);
+      return jsonResponse(
+        {
+          error:
+            'كلمة المرور الجديدة يجب أن تكون بين 6 و 9 أحرف، وتحتوي على حرف كبير، وحرف صغير، ورقم، ورمز خاص (!@#$%).',
+        },
+        400
+      );
     }
 
     const result = await consumePasswordResetCode(email, code);
@@ -59,13 +84,7 @@ export async function POST(request: Request): Promise<Response> {
       ok: true,
       message: 'تم تحديث كلمة المرور بنجاح! يمكنك الآن تسجيل الدخول بكلمة المرور الجديدة.',
     });
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    return jsonResponse(
-      {
-        error: `تعذر تغيير كلمة المرور: ${msg}`,
-      },
-      400
-    );
+  } catch {
+    return jsonResponse({ error: 'تعذر تغيير كلمة المرور الآن. حاول مرة أخرى لاحقاً.' }, 500);
   }
 }

@@ -1,8 +1,9 @@
-import { recordAuditLog } from '@/app/lib/audit';
-import { amountToMinorUnits } from '@/app/lib/fawaterak-crypto';
-import { verifyFawaterakWebhook } from '@/app/lib/fawaterak';
-import { getDatabase } from '@/app/lib/platform';
-import { safeText } from '@/app/lib/security';
+import { recordAuditLog } from '../../../../lib/audit';
+import { amountToMinorUnits } from '../../../../lib/fawaterak-crypto';
+import { verifyFawaterakWebhook } from '../../../../lib/fawaterak';
+import { getDatabase } from '../../../../lib/platform';
+import { safeText } from '../../../../lib/security';
+import { resetCourseLectureViewAllowance } from '../../../../lib/video-access';
 
 type PaymentIntentRow = {
   id: string;
@@ -69,7 +70,7 @@ export async function POST(request: Request) {
   if (status === 'paid') {
     if (
       paidAmountMinor === null ||
-      paidAmountMinor < paymentIntent.amountMinor ||
+      paidAmountMinor !== paymentIntent.amountMinor ||
       paidCurrency !== paymentIntent.currency
     ) {
       await db
@@ -96,6 +97,31 @@ export async function POST(request: Request) {
         .bind(paymentMethod || 'Fawaterak', transactionId, now, paymentIntent.enrollmentId, paymentIntent.id),
     ]);
     if (transition[0]?.meta.changes !== 1) return Response.json({ status: 'ok' });
+    const enr = await db
+      .prepare('SELECT course_id, user_email FROM enrollments WHERE id = ?')
+      .bind(paymentIntent.enrollmentId)
+      .first<Record<string, unknown>>();
+    const rawEnr = enr as Record<string, unknown> | null;
+    const rawPI = paymentIntent as Record<string, unknown> | null;
+    const enrEmail = String(
+      rawEnr?.userEmail ??
+      rawEnr?.user_email ??
+      rawEnr?.useremail ??
+      rawPI?.userEmail ??
+      rawPI?.user_email ??
+      ''
+    ).trim().toLowerCase();
+    const enrCourseId = String(
+      rawEnr?.courseId ??
+      rawEnr?.course_id ??
+      rawEnr?.courseid ??
+      rawPI?.courseId ??
+      rawPI?.course_id ??
+      ''
+    ).trim();
+    if (enrEmail && enrCourseId) {
+      await resetCourseLectureViewAllowance(enrEmail, enrCourseId);
+    }
     await recordAuditLog({
       userEmail: paymentIntent.userEmail,
       action: 'payment.approved',

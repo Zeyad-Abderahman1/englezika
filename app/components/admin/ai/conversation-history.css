@@ -1,0 +1,513 @@
+/* Chat history panel of the admin AI assistant. Sits on the inline-start side of the chat card
+   (the right in RTL), next to the admin sidebar. Drawer on mobile. */
+
+.ai-workspace-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.ai-workspace-body > .ai-workspace-tab-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-history-wrap {
+  flex: 0 0 280px;
+  width: 280px;
+  min-height: 0;
+  display: flex;
+  border-inline-end: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+  background: #14151a;
+}
+
+.ai-history-wrap[hidden] {
+  display: none;
+}
+
+.ai-history-backdrop {
+  display: none;
+}
+
+.ai-history {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.75rem;
+  min-height: 0;
+  color: inherit;
+}
+
+.ai-history-top {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.ai-history-new {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 42px;
+  border-radius: 10px;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  background: rgba(207, 11, 39, 0.14);
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ai-history-new:hover:not(:disabled) {
+  background: rgba(207, 11, 39, 0.24);
+}
+
+.ai-history-close,
+.ai-history-more,
+.ai-history-rename button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ai-history-close {
+  display: none;
+}
+
+.ai-history-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.6rem;
+  min-height: 40px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.ai-history-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.ai-history-search:focus-within {
+  outline: 2px solid rgba(255, 107, 127, 0.55);
+  outline-offset: 1px;
+}
+
+.ai-history-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ai-history-group h2 {
+  margin: 0 0 0.25rem;
+  padding: 0 0.4rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  opacity: 0.65;
+}
+
+.ai-history-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ai-history-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 10px;
+}
+
+.ai-history-item:hover,
+.ai-history-item:focus-within {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ai-history-item.is-active {
+  background: rgba(207, 11, 39, 0.16);
+  box-shadow: inset 3px 0 0 #cf0b27;
+}
+
+.ai-history-open {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 0.6rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: start;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-history-open bdi {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-history-open:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.ai-history-more {
+  opacity: 0;
+}
+
+.ai-history-item:hover .ai-history-more,
+.ai-history-item:focus-within .ai-history-more,
+.ai-history-more[aria-expanded='true'] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .ai-history-more {
+    opacity: 1;
+  }
+}
+
+.ai-history-menu {
+  position: absolute;
+  inset-inline-end: 0.3rem;
+  top: calc(100% - 2px);
+  z-index: 5;
+  min-width: 150px;
+  padding: 0.25rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #1c1d23;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+}
+
+.ai-history-menu button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 0.6rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.ai-history-menu button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ai-history-menu .danger,
+.ai-history-dialog .danger {
+  color: #ff8a98;
+}
+
+.ai-history-rename {
+  display: flex;
+  flex: 1;
+  gap: 0.25rem;
+  padding: 0.15rem;
+}
+
+.ai-history-rename input {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 0.5rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+  font: inherit;
+}
+
+.ai-history-empty {
+  margin: 1.25rem 0.5rem;
+  font-size: 0.88rem;
+  line-height: 1.7;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.ai-history-error {
+  margin: 0;
+  color: #ff8a98;
+  font-size: 0.84rem;
+}
+
+.ai-history-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ai-history-skeleton span {
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05));
+  background-size: 200% 100%;
+  animation: ai-history-shimmer 1.4s linear infinite;
+}
+
+@keyframes ai-history-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.ai-history-more-btn,
+.ai-history-delete-all {
+  min-height: 38px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.ai-history-delete-all {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  color: #ff8a98;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.ai-history-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.ai-history-dialog {
+  width: min(420px, 100%);
+  padding: 1.1rem 1.2rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #17181d;
+  color: inherit;
+  line-height: 1.7;
+}
+
+.ai-history-dialog h3 {
+  margin: 0 0 0.5rem;
+}
+
+.ai-history-dialog p {
+  margin: 0 0 0.75rem;
+  font-size: 0.92rem;
+}
+
+.ai-history-ack {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.ai-history-dialog-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-start;
+}
+
+.ai-history-dialog-actions button {
+  min-height: 42px;
+  padding: 0 1.1rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ai-history-dialog-actions .danger {
+  background: #b4132c;
+  border-color: #b4132c;
+  color: #fff;
+}
+
+.ai-history-dialog-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ai-history :is(button, input):focus-visible,
+.ai-history-dialog :is(button, input):focus-visible {
+  outline: 3px solid rgba(255, 107, 127, 0.5);
+  outline-offset: 2px;
+}
+
+/* History toggle in the chat header */
+.ai-history-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 38px;
+  padding: 0 0.8rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.ai-history-toggle:focus-visible {
+  outline: 3px solid rgba(255, 107, 127, 0.5);
+  outline-offset: 2px;
+}
+
+.ai-history-older {
+  align-self: center;
+  min-height: 36px;
+  padding: 0 1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.ai-history-stale-note {
+  align-self: center;
+  margin: 0;
+  font-size: 0.82rem;
+  opacity: 0.75;
+}
+
+/* Mobile: the panel is a drawer on the inline-start edge */
+@media (max-width: 860px) {
+  .ai-history-wrap {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    z-index: 55;
+    width: min(320px, 88vw);
+    flex-basis: auto;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
+  }
+
+  .ai-history-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 54;
+    border: 0;
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .ai-history-close {
+    display: inline-flex;
+  }
+}
+
+/* Light theme */
+[data-theme='light'] .ai-history-wrap {
+  background: #f7f5f2;
+  border-color: rgba(24, 25, 31, 0.12);
+}
+
+[data-theme='light'] .ai-history-search,
+[data-theme='light'] .ai-history-rename input {
+  background: #fff;
+  border-color: rgba(24, 25, 31, 0.2);
+}
+
+[data-theme='light'] .ai-history-item:hover,
+[data-theme='light'] .ai-history-item:focus-within {
+  background: rgba(24, 25, 31, 0.06);
+}
+
+[data-theme='light'] .ai-history-item.is-active {
+  background: rgba(207, 11, 39, 0.1);
+}
+
+[data-theme='light'] .ai-history-menu,
+[data-theme='light'] .ai-history-dialog {
+  background: #fff;
+  border-color: rgba(24, 25, 31, 0.16);
+}
+
+[data-theme='light'] .ai-history-menu button:hover {
+  background: rgba(24, 25, 31, 0.07);
+}
+
+[data-theme='light'] .ai-history-new {
+  background: rgba(207, 11, 39, 0.08);
+}
+
+[data-theme='light'] .ai-history-menu .danger,
+[data-theme='light'] .ai-history-dialog .danger,
+[data-theme='light'] .ai-history-error,
+[data-theme='light'] .ai-history-delete-all {
+  color: #b4132c;
+}
+
+[data-theme='light'] .ai-history-dialog-actions .danger {
+  color: #fff;
+}
+
+[data-theme='light'] .ai-history-toggle,
+[data-theme='light'] .ai-history-older,
+[data-theme='light'] .ai-history-more-btn,
+[data-theme='light'] .ai-history-dialog-actions button {
+  border-color: rgba(24, 25, 31, 0.22);
+}
+
+[data-theme='light'] .ai-history-skeleton span {
+  background: linear-gradient(90deg, rgba(24, 25, 31, 0.05), rgba(24, 25, 31, 0.12), rgba(24, 25, 31, 0.05));
+  background-size: 200% 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-history-skeleton span {
+    animation: none;
+  }
+}

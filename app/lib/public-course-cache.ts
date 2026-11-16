@@ -9,6 +9,14 @@ export type PublicCourse = {
   available: number;
   lectures: number;
   exams?: number;
+  thumbnailKey?: string | null;
+  updatedAt?: number;
+  /** 'course' or 'exam' (an exam published as a standalone course). */
+  kind?: string;
+  /** True when the item is offered to every class. */
+  allGrades?: boolean;
+  /** Public page slug of an exam listing (only when that page is public). */
+  examSlug?: string | null;
 };
 
 const CACHE_TTL_MS = 60_000;
@@ -23,6 +31,12 @@ async function queryPublishedCourses(): Promise<PublicCourse[]> {
   const result = await getDatabase()
     .prepare(
       `SELECT c.id, c.title AS month, c.grade, c.description, c.price,
+       c.thumbnail_key AS thumbnailKey,
+       c.updated_at AS updatedAt,
+       c.kind AS kind, c.audience_all_grades AS allGrades,
+       (SELECT x.public_slug FROM exams x
+        WHERE x.listing_course_id = c.id AND x.published_as_course = true AND x.is_public = true
+        LIMIT 1) AS examSlug,
        CASE WHEN c.status = 'published' THEN 1 ELSE 0 END AS available,
        COUNT(v.id) AS lectures
        FROM courses c
@@ -39,6 +53,8 @@ async function queryPublishedCourse(id: string): Promise<PublicCourse | null> {
   return getDatabase()
     .prepare(
       `SELECT c.id, c.title AS month, c.grade, c.description, c.price,
+       c.thumbnail_key AS thumbnailKey,
+       c.updated_at AS updatedAt,
        CASE WHEN c.status = 'published' THEN 1 ELSE 0 END AS available,
        (SELECT COUNT(*) FROM videos v
         WHERE v.course_id = c.id AND v.status = 'published') AS lectures,
@@ -50,6 +66,7 @@ async function queryPublishedCourse(id: string): Promise<PublicCourse | null> {
     .bind(id)
     .first<PublicCourse>();
 }
+
 
 export async function getCachedPublishedCourses() {
   if (courseListPromise && Date.now() >= courseListExpiresAt) courseListPromise = null;

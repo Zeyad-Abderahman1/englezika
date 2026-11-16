@@ -30,7 +30,9 @@ export async function createFawaterakSignature(
 
 export function amountToMinorUnits(value: unknown): number | null {
   if (typeof value !== 'string' && typeof value !== 'number') return null;
+  if (typeof value === 'string' && !/^\d+(?:\.\d{1,2})?$/.test(value.trim())) return null;
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) return null;
-  return Math.round(parsed * 100);
+  const minorUnits = Math.round(parsed * 100);
+  return Number.isSafeInteger(minorUnits) && minorUnits <= 2_147_483_647 ? minorUnits : null;
 }

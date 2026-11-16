@@ -2,6 +2,8 @@ import { apiStaff, isStaffResponse } from '../../../lib/staff-auth';
 import { getDatabase } from '../../../lib/platform';
 import { safeInteger } from '../../../lib/security';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request) {
   const admin = await apiStaff(request);
   if (isStaffResponse(admin)) return admin;
@@ -32,18 +34,22 @@ export async function GET(request: Request) {
     totalExams,
     totalVideos,
     accessCodes,
+    accessCodeBatches,
   ] = await Promise.all([
     db
       .prepare(
-        `SELECT id, title, grade, description, price, status, created_at AS createdAt
+        `SELECT id, title, grade, description, price, status, thumbnail_key AS thumbnailKey, created_at AS createdAt, updated_at AS updatedAt
        FROM courses ORDER BY created_at DESC LIMIT ? OFFSET ?`
       )
+
       .bind(pageSize, offset)
       .all(),
     db
       .prepare(
         `SELECT a.id, a.course_id AS courseId, a.title, a.description,
        a.due_at AS dueAt, a.max_score AS maxScore, a.status,
+       COALESCE(a.type, 'pdf') AS type,
+       CASE WHEN a.teacher_file_key IS NOT NULL THEN 1 ELSE 0 END AS hasTeacherFile,
        a.created_by AS createdBy, a.created_at AS createdAt, c.title AS courseTitle
        FROM assignments a JOIN courses c ON c.id = a.course_id
        ORDER BY a.created_at DESC LIMIT ? OFFSET ?`
@@ -62,11 +68,17 @@ export async function GET(request: Request) {
         `SELECT x.id, x.course_id AS courseId, x.title, x.description, x.instructions,
        x.duration_minutes AS durationMinutes,
        x.passing_score AS passingScore, x.max_attempts AS maxAttempts, x.status, x.created_at AS createdAt,
+       COALESCE(x.assessment_type, 'exam') AS assessmentType,
+       COALESCE(x.mode, 'online') AS mode,
        x.scope_type AS scopeType, x.from_video_id AS fromVideoId, x.to_video_id AS toVideoId,
+       x.thumbnail_key AS thumbnailKey, x.published_as_course AS publishedAsCourse,
+       x.listing_course_id AS listingCourseId, x.public_slug AS publicSlug,
+       x.is_public AS isPublic, x.show_leaderboard AS showLeaderboard,
+       (SELECT COALESCE(lc.price, 0) FROM courses lc WHERE lc.id = x.listing_course_id) AS listingPrice,
        c.title AS courseTitle, COUNT(q.id) AS questionCount, COALESCE(SUM(q.points), 0) AS maxScore
        FROM exams x LEFT JOIN courses c ON c.id = x.course_id
        LEFT JOIN questions q ON q.exam_id = x.id
-       GROUP BY x.id, c.title, x.scope_type, x.from_video_id, x.to_video_id ORDER BY x.created_at DESC LIMIT ? OFFSET ?`
+       GROUP BY x.id, c.title, x.scope_type, x.from_video_id, x.to_video_id, x.assessment_type, x.mode ORDER BY x.created_at DESC LIMIT ? OFFSET ?`
       )
       .bind(pageSize, offset)
       .all(),
@@ -133,6 +145,8 @@ export async function GET(request: Request) {
       .prepare(
         `SELECT codes.id, codes.video_id AS videoId, codes.display_suffix AS displaySuffix,
          codes.created_at AS createdAt, codes.redeemed_at AS redeemedAt,
+         codes.redeemed_by_student_email AS redeemedByStudentEmail,
+         codes.batch_id AS batchId,
          v.title AS videoTitle, c.title AS courseTitle
          FROM lecture_access_codes codes
          JOIN videos v ON v.id = codes.video_id
@@ -141,6 +155,15 @@ export async function GET(request: Request) {
          ORDER BY codes.created_at DESC LIMIT 100`
       )
       .bind(canManageVideos ? 1 : 0)
+      .all(),
+    db
+      .prepare(
+        `SELECT b.*, v.title as video_title, c.title as course_title
+         FROM access_code_batches b
+         LEFT JOIN videos v ON b.video_id = v.id
+         LEFT JOIN courses c ON b.course_id = c.id
+         ORDER BY b.created_at DESC LIMIT 20`
+      )
       .all(),
   ]);
 
@@ -190,6 +213,7 @@ export async function GET(request: Request) {
     attempts: can('grade_exams') ? attempts.results : [],
     videos: can('manage_videos') ? videos.results : [],
     accessCodes: can('manage_videos') ? accessCodes.results : [],
+    accessCodeBatches: can('manage_videos') ? accessCodeBatches.results : [],
     contacts: can('manage_messages') ? contacts.results : [],
     pagination: {
       courses: makePagination(
@@ -211,6 +235,11 @@ export async function GET(request: Request) {
       attempts: makePagination(can('grade_exams') ? totalAttempts?.total || 0 : 0),
       videos: makePagination(can('manage_videos') ? totalVideos?.total || 0 : 0),
       contacts: makePagination(can('manage_messages') ? totalContacts?.total || 0 : 0),
+    },
+  }, {
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+      Pragma: 'no-cache',
     },
   });
 }

@@ -19,9 +19,15 @@ export async function POST(request: Request) {
     typeof body.newPasswordConfirm === 'string' ? body.newPasswordConfirm : '';
 
   if (!currentPassword) return jsonError('كلمة المرور الحالية مطلوبة');
+  if (newPassword.length > 9) {
+    return jsonError('كلمة المرور الجديدة يجب ألا تتجاوز 9 أحرف');
+  }
+  if (newPasswordConfirm.length > 9) {
+    return jsonError('تأكيد كلمة المرور يجب ألا يتجاوز 9 أحرف');
+  }
   if (!isStrongPassword(newPassword)) {
     return jsonError(
-      'كلمة المرور الجديدة يجب أن تكون 12 حرفاً على الأقل، وتحتوي على حرف كبير، وحرف صغير، ورقم، ورمز خاص (!@#$%).'
+      'كلمة المرور الجديدة يجب أن تكون بين 6 و 9 أحرف، وتحتوي على حرف كبير، وحرف صغير، ورقم، ورمز خاص (!@#$%).'
     );
   }
   if (newPassword !== newPasswordConfirm) return jsonError('كلمتا المرور الجديدة غير متطابقتين');
