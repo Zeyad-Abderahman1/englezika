@@ -16,7 +16,9 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
+  History,
   Sparkles,
   Send,
   LoaderCircle,
@@ -37,12 +39,14 @@ import {
 import { useAdmin } from '../../../lib/admin-context';
 import { CompoundPlanCard } from './CompoundPlanCard';
 import { AssistantMessageContent } from './AssistantMessageContent';
+import { ConversationHistoryPanel } from './ConversationHistoryPanel';
 import { AgentUiBlocks, useRevokeOnUnmount, type ExtractViewState, type UploadViewState } from './AgentCards';
 import { formatUserFacingConfirmationError } from '../../../lib/ai/confirmation-state';
 import type { AgentEvent, AgentUi } from '../../../lib/ai/agent/ui-types';
 import type { ConfirmationPreview } from '../../../lib/ai/preview-generator';
 import './ai-assistant.css';
 import './agent-chat.css';
+import './conversation-history.css';
 
 interface ChatMessageItem {
   id: string;
@@ -165,6 +169,33 @@ export function AIAssistantWorkspace({ activeCourseId }: AIAssistantWorkspacePro
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const attachInputRef = useRef<HTMLInputElement>(null);
   const restoredRef = useRef(false);
+  const openConversationRef = useRef<((id: string) => Promise<void>) | null>(null);
+
+  // Chat history: the open chat is reflected in the URL (?c=<id>) and can be switched at any time.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const urlConversationId = searchParams.get('c');
+  /** Bumped whenever the visible chat changes, so a late response of an old chat is dropped. */
+  const chatEpochRef = useRef(0);
+  const [historyOpen, setHistoryOpen] = useState(true);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  /** False when a reopened chat no longer has a live flow session: its old chips/uploads are disabled. */
+  const [sessionActive, setSessionActive] = useState<boolean | undefined>(undefined);
+  const [olderCursor, setOlderCursor] = useState<number | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+
+  const syncUrl = useCallback(
+    (id: string | null) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (id) params.set('c', id);
+      else params.delete('c');
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
 
   const storageKey = admin?.email ? `englizeka-ai-conversation:${admin.email.toLowerCase()}` : null;
 
@@ -195,43 +226,21 @@ export function AIAssistantWorkspace({ activeCourseId }: AIAssistantWorkspacePro
     };
   }, [contextAiEnabled]);
 
-  // Restore the previous conversation after a page refresh.
+  // Restore the chat after a refresh / shared link: ?c=<id> first, then the last chat of this browser.
   useEffect(() => {
     if (restoredRef.current || !storageKey) return;
     restoredRef.current = true;
 
-    let savedId: string | null = null;
-    try {
-      savedId = window.localStorage.getItem(storageKey);
-    } catch {
-      savedId = null;
+    let id = urlConversationId;
+    if (!id) {
+      try {
+        id = window.localStorage.getItem(storageKey);
+      } catch {
+        id = null;
+      }
     }
-    if (!savedId) return;
-
-    let active = true;
-    fetch(`/api/admin/ai/chat?conversationId=${encodeURIComponent(savedId)}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((payload) => {
-        if (!active || !payload?.success || !Array.isArray(payload.messages) || payload.messages.length === 0) {
-          return;
-        }
-        setConversationId(savedId as string);
-        setMessages([
-          WELCOME,
-          ...payload.messages.map((item: { id: string; role: 'user' | 'assistant'; text: string; ui?: AgentUi[] }) => ({
-            id: `hist_${item.id}`,
-            role: item.role,
-            text: item.text,
-            ui: Array.isArray(item.ui) ? item.ui : undefined,
-          })),
-        ]);
-      })
-      .catch(() => undefined);
-
-    return () => {
-      active = false;
-    };
-  }, [storageKey]);
+    if (id) void openConversationRef.current?.(id);
+  }, [storageKey, urlConversationId]);
 
   // Keep selected course in sync if courses load late (planner context only)
   const effectiveCourseId = activeCourseId || courses[0]?.id || '';
@@ -271,6 +280,7 @@ export function AIAssistantWorkspace({ activeCourseId }: AIAssistantWorkspacePro
   const sendTurn = useCallback(
     async (payload: TurnPayload, bubble?: string) => {
       if (loading) return;
+      const epoch = chatEpochRef.current;
       if (bubble) {
         setMessages((prev) => [...prev, { id: `user_${Date.now()}`, role: 'user', text: bubble }]);
       }
@@ -295,8 +305,13 @@ export function AIAssistantWorkspace({ activeCourseId }: AIAssistantWorkspacePro
         if (!res.ok || !resData?.success) {
           throw new Error(typeof resData?.error === 'string' ? resData.error : 'تعذر التواصل مع المساعد الذكي');
         }
+        // The teacher switched chats while this request was running: never show it in the other chat.
+        if (epoch !== chatEpochRef.current) return;
 
+        setSessionActive(undefined);
+        setHistoryRefresh((n) => n + 1);
         if (resData.conversationId) {
+          if (resData.conversationId !== conversationId) syncUrl(resData.conversationId);
           setConversationId(resData.conversationId);
           if (storageKey) {
             try {
@@ -329,7 +344,7 @@ export function AIAssistantWorkspace({ activeCourseId }: AIAssistantWorkspacePro
           setNotice('تم تطبيق التغييرات بنجاح وتحديث لوحة الإدارة.');
         }
       } catch (caught: unknown) {
-        if (!(caught instanceof DOMException && caught.name === 'AbortError')) {
+        if (epoch === chatEpochRef.current && !(caught instanceof DOMException && caught.name === 'AbortError')) {
           const message = caught instanceof Error && caught.message ? caught.message : 'تعذر إكمال الطلب. حاول مرة أخرى بعد قليل.';
           setMessages((prev) => [
             ...prev,
@@ -343,12 +358,116 @@ export function AIAssistantWorkspace({ activeCourseId }: AIAssistantWorkspacePro
           ]);
         }
       } finally {
-        setLoading(false);
-        setAbortController(null);
+        if (epoch === chatEpochRef.current) {
+          setLoading(false);
+          setAbortController(null);
+        }
       }
     },
-    [loading, conversationId, effectiveCourseId, activeCourseId, storageKey, refreshData, setNotice]
+    [loading, conversationId, effectiveCourseId, activeCourseId, storageKey, refreshData, setNotice, syncUrl]
   );
+
+  const clearPendingPages = () => {
+    for (const page of pendingPagesRef.current) URL.revokeObjectURL(page.previewUrl);
+    setPendingPages([]);
+    setPageNotice('');
+  };
+
+  // ── Chat history: new chat / open / older messages ────────────────────────────
+  const resetChatState = () => {
+    chatEpochRef.current += 1;
+    abortController?.abort();
+    setAbortController(null);
+    setLoading(false);
+    extractCancelRef.current = true;
+    setExtractState(null);
+    setInputText('');
+    setUpload({ status: 'idle' });
+    clearPendingPages();
+  };
+
+  const startNewChat = () => {
+    resetChatState();
+    setMessages([WELCOME]);
+    setConversationId(undefined);
+    setSessionActive(undefined);
+    setOlderCursor(null);
+    syncUrl(null);
+    if (storageKey) {
+      try {
+        window.localStorage.removeItem(storageKey);
+      } catch {
+        // ignore: storage is only a convenience
+      }
+    }
+    if (typeof window !== 'undefined' && window.innerWidth <= 860) setHistoryOpen(false);
+  };
+
+  const mapHistory = (items: Array<{ id: string; role: 'user' | 'assistant'; text: string; ui?: AgentUi[] }>): ChatMessageItem[] =>
+    items.map((item) => ({
+      id: `hist_${item.id}`,
+      role: item.role,
+      text: item.text,
+      ui: Array.isArray(item.ui) && item.ui.length > 0 ? item.ui : undefined,
+    }));
+
+  const openConversation = async (id: string) => {
+    if (loading && id === conversationId) return;
+    resetChatState();
+    const epoch = chatEpochRef.current;
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`/api/admin/ai/conversations/${encodeURIComponent(id)}`);
+      if (epoch !== chatEpochRef.current) return;
+      if (!res.ok) {
+        setMessages([WELCOME]);
+        setConversationId(undefined);
+        syncUrl(null);
+        if (res.status === 404) setNotice('المحادثة دي مش موجودة أو مش بتاعتك.');
+        return;
+      }
+      const payload = await res.json();
+      if (epoch !== chatEpochRef.current) return;
+      const history = mapHistory(payload.messages ?? []);
+      setConversationId(id);
+      setMessages(history.length ? [WELCOME, ...history] : [WELCOME]);
+      setSessionActive(Boolean(payload.sessionActive));
+      setOlderCursor(payload.hasMore && payload.messages?.length ? Number(payload.messages[0].createdAt) : null);
+      syncUrl(id);
+      if (storageKey) {
+        try {
+          window.localStorage.setItem(storageKey, id);
+        } catch {
+          // ignore
+        }
+      }
+      if (typeof window !== 'undefined' && window.innerWidth <= 860) setHistoryOpen(false);
+    } catch {
+      if (epoch === chatEpochRef.current) setNotice('تعذر فتح المحادثة. حاول تاني.');
+    } finally {
+      if (epoch === chatEpochRef.current) setHistoryLoading(false);
+    }
+  };
+  useEffect(() => {
+    openConversationRef.current = openConversation;
+  });
+
+  const loadOlderMessages = async () => {
+    if (!conversationId || olderCursor === null || loadingOlder) return;
+    const epoch = chatEpochRef.current;
+    setLoadingOlder(true);
+    try {
+      const res = await fetch(`/api/admin/ai/conversations/${encodeURIComponent(conversationId)}?before=${olderCursor}`);
+      const payload = res.ok ? await res.json() : null;
+      if (!payload || epoch !== chatEpochRef.current) return;
+      const older = mapHistory(payload.messages ?? []);
+      // Old cards are never interactive: only the last assistant message of the chat is.
+      setMessages((prev) => [prev[0], ...older, ...prev.slice(1)]);
+      setOlderCursor(payload.hasMore && payload.messages?.length ? Number(payload.messages[0].createdAt) : null);
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
 
   const handleSendText = (textToSend?: string) => {
     const message = (textToSend ?? inputText).trim();
@@ -380,12 +499,6 @@ export function AIAssistantWorkspace({ activeCourseId }: AIAssistantWorkspacePro
       for (const page of pendingPagesRef.current) URL.revokeObjectURL(page.previewUrl);
     };
   }, []);
-
-  const clearPendingPages = () => {
-    for (const page of pendingPagesRef.current) URL.revokeObjectURL(page.previewUrl);
-    setPendingPages([]);
-    setPageNotice('');
-  };
 
   const uploadPage = async (item: PendingPage) => {
     setPendingPages((prev) => prev.map((page) => (page.id === item.id ? { ...page, status: 'uploading', error: undefined } : page)));
@@ -667,6 +780,15 @@ export function AIAssistantWorkspace({ activeCourseId }: AIAssistantWorkspacePro
             </div>
           </div>
           <div className="ai-workspace-header-meta">
+            <button
+              type="button"
+              className="ai-history-toggle"
+              aria-expanded={historyOpen}
+              aria-controls="ai-history-panel"
+              onClick={() => setHistoryOpen((open) => !open)}
+            >
+              <History size={16} aria-hidden="true" /> سجل المحادثات
+            </button>
             <span className="ai-workspace-status-tag" title="المساعد الذكي جاهز">
               <span className="ai-workspace-status-dot" aria-hidden="true" />
               جاهز ومؤمّن
@@ -674,6 +796,21 @@ export function AIAssistantWorkspace({ activeCourseId }: AIAssistantWorkspacePro
           </div>
         </header>
 
+        <div className="ai-workspace-body">
+        <div className="ai-history-wrap" id="ai-history-panel" hidden={!historyOpen}>
+          <ConversationHistoryPanel
+            activeId={conversationId}
+            refreshKey={historyRefresh}
+            disabled={historyLoading}
+            onSelect={(id) => void openConversation(id)}
+            onNew={startNewChat}
+            onActiveDeleted={startNewChat}
+            onClose={() => setHistoryOpen(false)}
+          />
+        </div>
+        {historyOpen && (
+          <button type="button" className="ai-history-backdrop" aria-label="إغلاق سجل المحادثات" onClick={() => setHistoryOpen(false)} />
+        )}
         <div className="ai-workspace-tab-panel">
           <div
             className="ai-workspace-messages-container"
@@ -682,6 +819,12 @@ export function AIAssistantWorkspace({ activeCourseId }: AIAssistantWorkspacePro
             aria-live="polite"
             aria-label="سجل المحادثة"
           >
+            {olderCursor !== null && (
+              <button type="button" className="ai-history-older" disabled={loadingOlder} onClick={() => void loadOlderMessages()}>
+                {loadingOlder ? 'جاري التحميل...' : 'تحميل رسائل أقدم'}
+              </button>
+            )}
+            {historyLoading && <p className="ai-history-stale-note">جاري فتح المحادثة...</p>}
             {messages.map((msg, index) => (
               <div key={msg.id} className={`ai-message-row ${msg.role}`}>
                 <div className="ai-message-avatar" aria-hidden="true">
@@ -700,7 +843,7 @@ export function AIAssistantWorkspace({ activeCourseId }: AIAssistantWorkspacePro
                     <AgentUiBlocks
                       extract={extractState}
                       blocks={msg.ui}
-                      interactive={index === lastAssistantIndex}
+                      interactive={index === lastAssistantIndex && sessionActive !== false}
                       busy={loading}
                       upload={upload}
                       onChoice={handleChoice}
@@ -893,6 +1036,7 @@ export function AIAssistantWorkspace({ activeCourseId }: AIAssistantWorkspacePro
               </button>
             </form>
           </footer>
+        </div>
         </div>
       </section>
     </div>

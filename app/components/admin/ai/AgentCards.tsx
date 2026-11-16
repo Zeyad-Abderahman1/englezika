@@ -277,6 +277,13 @@ export function AgentUiBlocks({
   );
 }
 
+const STALE_TEXT: Record<string, string> = {
+  used: 'تم تنفيذ هذا الإجراء بالفعل. البطاقة للعرض فقط.',
+  expired: 'انتهت صلاحية هذا التأكيد. اطلب العملية من جديد.',
+  cancelled: 'اتلغى هذا التأكيد. اطلب العملية من جديد.',
+  failed: 'فشل تنفيذ هذا الإجراء أو اتلغى. اطلب العملية من جديد.',
+};
+
 // ── Delete confirmation card (type the exact name) ──────────────────────────────
 
 function DeleteConfirmCard({
@@ -296,7 +303,8 @@ function DeleteConfirmCard({
 
   // The button only unlocks on an exact match (the server checks the typed text again).
   const matches = typed.normalize('NFC').trim() === block.expectText.normalize('NFC').trim();
-  const locked = disabled || state === 'executing' || state === 'done';
+  const stale = Boolean(block.status && block.status !== 'active');
+  const locked = disabled || stale || state === 'executing' || state === 'done';
   const inputId = `delete-confirm-${block.token.slice(0, 12)}`;
 
   const handleConfirm = async () => {
@@ -360,6 +368,12 @@ function DeleteConfirmCard({
         onChange={(event) => setTyped(event.target.value)}
         aria-invalid={typed.length > 0 && !matches}
       />
+
+      {stale && block.status && (
+        <p className="agent-stale-note" role="status">
+          {STALE_TEXT[block.status]}
+        </p>
+      )}
 
       {error && (
         <p className="agent-inline-error" role="alert">
@@ -426,7 +440,8 @@ function ConfirmCard({
     }
   };
 
-  const locked = disabled || state === 'executing' || state === 'done';
+  const stale = Boolean(block.status && block.status !== 'active');
+  const locked = disabled || stale || state === 'executing' || state === 'done';
 
   return (
     <section className="agent-card agent-card-confirm" aria-label={block.title}>
@@ -460,6 +475,12 @@ function ConfirmCard({
             </button>
           ))}
         </div>
+      )}
+
+      {stale && block.status && (
+        <p className="agent-stale-note" role="status">
+          {STALE_TEXT[block.status]}
+        </p>
       )}
 
       {error && (

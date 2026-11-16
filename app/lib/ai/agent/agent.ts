@@ -306,7 +306,7 @@ export async function runAgentTurn(input: AgentTurnInput, deps: AgentDeps): Prom
 
   // Only persist once the agent owns the turn, so an unhandled message that falls
   // through to the planner is not stored twice.
-  await deps.persist.ensureConversation(conversationId, (message || 'محادثة جديدة').slice(0, 50));
+  await deps.persist.ensureConversation(conversationId, message ? message.replace(/s+/g, ' ').slice(0, 40) : 'محادثة جديدة');
   if (message) {
     await deps.persist.saveMessage(conversationId, 'user', message, null);
   }

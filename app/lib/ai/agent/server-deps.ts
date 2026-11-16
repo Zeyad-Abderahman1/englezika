@@ -14,6 +14,7 @@ import { getToolDefinition } from '../tool-registry';
 import type { AgentActor, AgentDeps, AgentStats } from './agent';
 import { stagedImageKey } from './image-staging';
 import type { DeleteCandidate, DeleteImpact } from './delete-impact';
+import { DEFAULT_TITLE, autoTitle } from '../conversation-history';
 import { DatabaseSessionStore } from './session';
 import { createExtraction, getExtraction, loadWindows, summarizeExtraction } from './exam-extraction-store';
 
@@ -191,6 +192,13 @@ export async function createServerAgentDeps(
       },
       async saveMessage(conversationId, role, content, toolCallJson) {
         await saveMessage(conversationId, role, content, toolCallJson, db);
+        if (role === 'user' && content.trim()) {
+          // Auto title from the first real user message (no model call). Renamed chats are kept.
+          await db
+            .prepare('UPDATE ai_conversations SET title = ? WHERE id = ? AND staff_email = ? AND title = ?')
+            .bind(autoTitle(content), conversationId, actor.email.toLowerCase(), DEFAULT_TITLE)
+            .run();
+        }
       },
     },
   };

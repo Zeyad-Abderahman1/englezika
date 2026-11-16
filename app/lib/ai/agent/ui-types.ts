@@ -11,6 +11,8 @@ export type AgentFlowId =
   | 'create_exam_from_images'
   | 'delete_item';
 
+export type AgentCardStatus = 'active' | 'used' | 'expired' | 'cancelled' | 'failed';
+
 export interface AgentChipOption {
   label: string;
   value: string;
@@ -32,6 +34,8 @@ export type AgentUi =
       title: string;
       rows: AgentConfirmRow[];
       editable: AgentChipOption[];
+      /** Set when a reopened chat shows an old card: anything but 'active' is shown disabled. */
+      status?: AgentCardStatus;
     }
   | {
       kind: 'success';
@@ -54,6 +58,7 @@ export type AgentUi =
       /** Hard delete cannot be undone; the card says so. */
       irreversible: boolean;
       expiresInSec: number;
+      status?: AgentCardStatus;
     }
   /** Asks for the photos of the exam paper (composer accepts MANY images in this state). */
   | { kind: 'pages_request'; accept: string; maxBytesPerPage: number }

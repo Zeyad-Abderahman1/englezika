@@ -755,3 +755,17 @@
     transition: none;
   }
 }
+
+.agent-stale-note {
+  margin: 0.5rem 0 0;
+  padding: 0.45rem 0.7rem;
+  border-radius: 8px;
+  border: 1px dashed rgba(255, 255, 255, 0.28);
+  font-size: 0.86rem;
+  line-height: 1.6;
+  opacity: 0.85;
+}
+
+[data-theme='light'] .agent-stale-note {
+  border-color: rgba(24, 25, 31, 0.3);
+}
