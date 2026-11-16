@@ -8,6 +8,8 @@ import {
   isPdfUpload,
   MAX_PDF_SIZE,
 } from '../upload-validation';
+import { parseQuestion, validateQuestion, type RawQuestion } from '../exam-validation';
+import { buildQuestionInsertStatements } from '../exam-questions-insert';
 import { DomainError, type ServiceContext, type OperatorIdentity } from './types';
 
 export interface RawExamQuestionInput {
@@ -36,6 +38,12 @@ export interface CreateExamInput {
   coverageStartLectureId?: unknown;
   coverageEndLectureId?: unknown;
   showReview?: unknown;
+  /**
+   * 'ai' (default): AI-generated questions, strictly 4 options, silent cap kept for safety.
+   * 'ocr': questions extracted from exam photos. Same parsing/validation as the OCR save
+   * route (2+ options, true/false and short answer allowed) and NO question-count cap.
+   */
+  questionSource?: 'ai' | 'ocr';
   questions?: RawExamQuestionInput[];
 }
 
@@ -128,17 +136,26 @@ export class AssessmentService {
     const assessmentType = input.assessmentType === 'quiz' ? 'quiz' : 'exam';
     const mode = input.mode === 'file' ? 'file' : 'online';
 
+    const fromOcr = input.questionSource === 'ocr';
     const questions = Array.isArray(input.questions)
-      ? input.questions
-          .slice(0, 100)
-          .map((question, index) => parseExamQuestion(question, index + 1))
+      ? (fromOcr ? input.questions : input.questions.slice(0, 100)).map((question, index) =>
+          fromOcr
+            ? parseQuestion(question as RawQuestion, index + 1)
+            : parseExamQuestion(question, index + 1)
+        )
       : [];
 
     if (title.length < 3) {
       throw new DomainError('اسم الامتحان مطلوب', 400);
     }
 
-    if (mode === 'online') {
+    if (mode === 'online' && fromOcr) {
+      if (!questions.length) throw new DomainError('أضف سؤالاً واحداً على الأقل مع الإجابة الصحيحة', 400);
+      for (let i = 0; i < questions.length; i++) {
+        const problem = validateQuestion(questions[i]);
+        if (problem) throw new DomainError(`${problem} (السؤال رقم ${i + 1})`, 400);
+      }
+    } else if (mode === 'online') {
       if (
         !questions.length ||
         questions.some((question) => !question.prompt || !question.prompt.trim() || !question.correctAnswer)
@@ -339,29 +356,10 @@ export class AssessmentService {
     const statements = [examInsertStmt];
 
     if (mode === 'online') {
-      for (let i = 0; i < questions.length; i++) {
-        const question = questions[i];
-        statements.push(
-          db
-            .prepare(
-              `INSERT INTO questions
-         (id, exam_id, sort_order, type, prompt, options, correct_answer, rubric, explanation, points)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-            )
-            .bind(
-              questionIds[i],
-              id,
-              question.sortOrder,
-              question.type,
-              question.prompt,
-              JSON.stringify(question.options),
-              question.correctAnswer,
-              question.rubric,
-              question.explanation,
-              question.points
-            )
-        );
-      }
+      // Shared multi-row insert (same helper as the admin exam routes); keeps the returned ids.
+      statements.push(
+        ...(buildQuestionInsertStatements(db, id, questions, undefined, questionIds) as unknown as typeof statements)
+      );
     }
 
     await db.batch(statements);

@@ -428,3 +428,32 @@ export function isSameTitle(a: string, b: string): boolean {
   const na = normalizeArabic(a);
   return na.length > 0 && na === normalizeArabic(b);
 }
+
+// ── Exam settings: duration and passing percentage ────────────────────────────
+
+/** Exam duration in minutes from free text: "45 دقيقة", "ساعة", "ساعتين", "ساعة ونص". */
+export function parseDurationMinutes(text: string): number | null {
+  const n = normalizeArabic(text);
+  if (/ساعه ونص|ساعه ونصف/.test(n)) return 90;
+  if (/ساعتين/.test(n)) return 120;
+  const hours = n.match(/(\d{1,2})\s*(?:ساعه|ساعات|ساعة)/);
+  if (hours) return Math.min(300, Number(hours[1]) * 60);
+  const minutes = n.match(/(\d{1,3})\s*(?:دقيقه|دقايق|دقيقة|min|m\b)/);
+  if (minutes) {
+    const value = Number(minutes[1]);
+    return value >= 1 && value <= 300 ? value : null;
+  }
+  if (/(?:^| )ساعه(?: |$)/.test(n)) return 60;
+  return null;
+}
+
+/** Passing percentage (0-100) from text such as "نجاح 60" or "60%". */
+export function parsePassingScore(text: string): number | null {
+  const n = normalizeDigits(text);
+  const labelled = n.match(/(?:نجاح|النجاح|درجه النجاح|درجة النجاح)\D{0,12}(\d{1,3})/);
+  const percent = n.match(/(\d{1,3})\s*(?:%|٪|بالمية|في المية|بالمائة)/);
+  const raw = labelled?.[1] ?? percent?.[1];
+  if (raw === undefined) return null;
+  const value = Number(raw);
+  return value >= 0 && value <= 100 ? value : null;
+}

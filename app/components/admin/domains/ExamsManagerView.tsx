@@ -46,6 +46,7 @@ import {
   type ExamPublishingDraft,
 } from '../../../lib/exam-publishing-client';
 import { examThumbnailUrl } from '../../../lib/exam-listing';
+import type { ExtractedQuestion } from '../../../lib/exam-ocr';
 import { ADMIN_OPEN_OCR_EVENT } from '../shell/admin-navigation';
 
 const emptyQuestion = (): QuestionDraft => ({
@@ -63,6 +64,8 @@ export function ExamsManagerView() {
   const searchParams = useSearchParams();
   const defaultCourseIdFromUrl = searchParams.get('courseId') || '';
   const ocrRequested = searchParams.get('action') === 'ocr' || searchParams.get('ocr') === '1' || searchParams.get('modal') === 'ocr';
+  // Link from the AI assistant: open the review/edit screen pre-filled with its extraction.
+  const extractionId = searchParams.get('extraction') || '';
 
   const { data, busy, mutate, openConfirm, openPrompt, refreshData, setNotice, setError } = useAdmin();
   const [search, setSearch] = useState('');
@@ -70,6 +73,7 @@ export function ExamsManagerView() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const [isOcrOpen, setIsOcrOpen] = useState(ocrRequested);
+  const [preloaded, setPreloaded] = useState<{ questions: ExtractedQuestion[]; title?: string } | null>(null);
   const [handledOcrRequest, setHandledOcrRequest] = useState(ocrRequested);
   const [questions, setQuestions] = useState<QuestionDraft[]>([emptyQuestion()]);
   const [publishing, setPublishing] = useState<ExamPublishingDraft>(emptyPublishingDraft);
@@ -92,13 +96,33 @@ export function ExamsManagerView() {
     return () => window.removeEventListener(ADMIN_OPEN_OCR_EVENT, openOcrFromDock);
   }, []);
 
+  useEffect(() => {
+    if (!extractionId) return;
+    let active = true;
+    fetch('/api/admin/ai/exam-extraction/' + encodeURIComponent(extractionId))
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error('expired'))))
+      .then((payload: { questions?: ExtractedQuestion[] }) => {
+        if (!active || !Array.isArray(payload.questions) || payload.questions.length === 0) return;
+        setPreloaded({ questions: payload.questions });
+        setIsOcrOpen(true);
+      })
+      .catch(() => {
+        if (active) setError('انتهت صلاحية الأسئلة المستخرجة. ارفع الصور مرة أخرى من المساعد الذكي.');
+      });
+    return () => {
+      active = false;
+    };
+  }, [extractionId, setError]);
+
   const handleCloseOcr = () => {
     setIsOcrOpen(false);
-    if (typeof window !== 'undefined' && (window.location.search.includes('action=ocr') || window.location.search.includes('ocr='))) {
+    setPreloaded(null);
+    if (typeof window !== 'undefined' && (window.location.search.includes('action=ocr') || window.location.search.includes('ocr=') || window.location.search.includes('extraction='))) {
       const url = new URL(window.location.href);
       url.searchParams.delete('action');
       url.searchParams.delete('ocr');
       url.searchParams.delete('modal');
+      url.searchParams.delete('extraction');
       window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
     }
   };
@@ -883,6 +907,7 @@ export function ExamsManagerView() {
 
       {/* ── AI Exam OCR Modal ────────────────────────────────────────── */}
       <AIExamOcrModal
+        preloaded={preloaded}
         isOpen={isOcrOpen}
         onClose={handleCloseOcr}
         courses={courses}

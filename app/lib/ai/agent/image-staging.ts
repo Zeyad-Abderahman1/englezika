@@ -95,13 +95,30 @@ export function validateThumbnailImage(bytes: ArrayBuffer, mimeHint: string): Va
   };
 }
 
+/** Same limits as the OCR upload route: JPG/PNG/WebP, max 10MB per page, no dimension rule. */
+export const MAX_EXAM_PAGE_BYTES = 10 * 1024 * 1024;
+
+export function validateExamPageImage(bytes: ArrayBuffer, mimeHint: string): ValidatedImage {
+  if (bytes.byteLength > MAX_EXAM_PAGE_BYTES) {
+    throw new ImageStagingError('حجم الصورة يتجاوز 10 ميجابايت');
+  }
+  if (!isImageUpload(mimeHint, bytes)) {
+    throw new ImageStagingError('نوع الملف غير مدعوم. الصيغ المدعومة هي PNG وJPEG وWEBP');
+  }
+  const dimensions = getImageDimensions(mimeHint, bytes);
+  return { mime: mimeHint, width: dimensions?.width ?? 0, height: dimensions?.height ?? 0, notWidescreen: false };
+}
+
+export type StagePurpose = 'thumbnail' | 'exam_page';
+
 export async function stageImage(
   email: string,
   bytes: ArrayBuffer,
   mime: string,
-  storage: StorageLike = getPrivateStorage() as unknown as StorageLike
+  storage: StorageLike = getPrivateStorage() as unknown as StorageLike,
+  purpose: StagePurpose = 'thumbnail'
 ): Promise<{ uploadId: string; image: ValidatedImage }> {
-  const image = validateThumbnailImage(bytes, mime);
+  const image = purpose === 'exam_page' ? validateExamPageImage(bytes, mime) : validateThumbnailImage(bytes, mime);
   const extension = EXTENSION_BY_MIME[mime];
   if (!extension) throw new ImageStagingError('يجب أن تكون الصورة بصيغة JPG أو PNG أو WebP');
 

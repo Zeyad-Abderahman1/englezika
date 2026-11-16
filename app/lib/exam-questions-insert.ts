@@ -13,16 +13,18 @@ export function buildQuestionInsertStatements(
   db: Pick<Database, 'prepare'>,
   examId: string,
   questions: ParsedExamQuestion[],
-  chunkSize = QUESTION_INSERT_CHUNK
+  chunkSize = QUESTION_INSERT_CHUNK,
+  /** Optional pre-generated question ids (same order as `questions`). */
+  ids?: string[]
 ) {
   const statements: ReturnType<ReturnType<Database['prepare']>['bind']>[] = [];
   for (let start = 0; start < questions.length; start += chunkSize) {
     const chunk = questions.slice(start, start + chunkSize);
     const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
     const values: Array<string | number | null> = [];
-    for (const question of chunk) {
+    for (const [offset, question] of chunk.entries()) {
       values.push(
-        crypto.randomUUID(),
+        ids?.[start + offset] ?? crypto.randomUUID(),
         examId,
         question.sortOrder,
         question.type,

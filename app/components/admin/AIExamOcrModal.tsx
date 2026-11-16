@@ -59,6 +59,11 @@ type Props = {
   videos: Video[];
   initialCourseId?: string;
   onExamSaved?: (examId: string) => void;
+  /**
+   * Questions already extracted elsewhere (the AI assistant's "exam from photos"). The modal
+   * opens as the full review/edit screen with these questions instead of an empty list.
+   */
+  preloaded?: { questions: ExtractedQuestion[]; title?: string } | null;
 };
 
 type ImageFileItem = {
@@ -166,6 +171,7 @@ export function AIExamOcrModal({
   videos,
   initialCourseId,
   onExamSaved,
+  preloaded,
 }: Props) {
   // Placement & Meta state
   const [selectedCourseId, setSelectedCourseId] = useState(initialCourseId || courses[0]?.id || '');
@@ -193,6 +199,14 @@ export function AIExamOcrModal({
 
   // Questions Edit Studio state
   const [questions, setQuestions] = useState<ExtractedQuestion[]>([]);
+  const [appliedPreload, setAppliedPreload] = useState<typeof preloaded>(null);
+
+  // Guarded state adjustment during render (no effect): load the preloaded review once.
+  if (preloaded && preloaded !== appliedPreload) {
+    setAppliedPreload(preloaded);
+    setQuestions(preloaded.questions);
+    if (preloaded.title) setTitle(preloaded.title);
+  }
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
